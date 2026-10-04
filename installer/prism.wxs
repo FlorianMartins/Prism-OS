@@ -21,12 +21,11 @@
 
     <StandardDirectory Id="ProgramFiles64Folder">
       <Directory Id="INSTALLFOLDER" Name="Prism">
-        <Component Id="Core">
-          <File Id="PrismExe" Source="$(var.Bin)\prism.exe" KeyPath="yes" />
-          <File Id="PrismBarExe" Source="$(var.Bin)\prism-bar.exe" />
-          <File Id="PrismUiExe" Source="$(var.Bin)\prism-ui.exe" />
-          <File Id="License" Name="LICENCE.txt" Source="LICENSE" />
-        </Component>
+        <!-- Un composant par programme (identifiants générés par WiX). -->
+        <Component Id="Engine"><File Id="PrismExe" Source="$(var.Bin)\prism.exe" KeyPath="yes" /></Component>
+        <Component Id="Bar"><File Id="PrismBarExe" Source="$(var.Bin)\prism-bar.exe" KeyPath="yes" /></Component>
+        <Component Id="App"><File Id="PrismUiExe" Source="$(var.Bin)\prism-ui.exe" KeyPath="yes" /></Component>
+        <Component Id="Licence"><File Id="License" Name="LICENCE.txt" Source="LICENSE" KeyPath="yes" /></Component>
       </Directory>
     </StandardDirectory>
     <StandardDirectory Id="ProgramMenuFolder">
@@ -43,7 +42,10 @@
     </StandardDirectory>
 
     <Feature Id="Main" Title="Prism OS">
-      <ComponentRef Id="Core" />
+      <ComponentRef Id="Engine" />
+      <ComponentRef Id="Bar" />
+      <ComponentRef Id="App" />
+      <ComponentRef Id="Licence" />
       <ComponentRef Id="StartMenu" />
     </Feature>
 
