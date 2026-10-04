@@ -92,6 +92,12 @@ pub struct PrismApp {
     /// Prism au démarrage de Windows.
     autostart_on: bool,
     toast: Option<(String, bool)>,
+    /// Animations : ouverture de l'appli (logo qui se construit), page affichée et
+    /// instant où elle l'a été (fondu à l'arrivée). Rien n'anime en continu : au repos,
+    /// l'appli ne redessine qu'une fois par seconde (données en direct).
+    opened_at: Option<f64>,
+    shown_page: Page,
+    page_since: f64,
     /// Mode console : lanceur plein écran, navigable au clavier ou à la manette.
     pub console: bool,
     console_sel: usize,
@@ -134,6 +140,9 @@ impl PrismApp {
             welcome_done,
             autostart_on,
             toast: None,
+            opened_at: None,
+            shown_page: Page::Dashboard,
+            page_since: 0.0,
             console: false,
             console_sel: 0,
             new_rule: String::new(),
@@ -169,7 +178,18 @@ impl PrismApp {
             ctx.send_viewport_cmd(egui::ViewportCommand::Focus);
         }
         let now = ctx.input(|i| i.time);
-        if now - self.last_refresh > 1.0 {
+        // Diagnostic (PRISM_UI_DEBUG=1) : images par seconde et ce qui les a demandées,
+        // dans %LOCALAPPDATA%\Prism\ui-debug.log.
+        if std::env::var_os("PRISM_UI_DEBUG").is_some() {
+            debug_frames(&ctx, now);
+        }
+        let focused = ctx.input(|i| i.viewport().focused.unwrap_or(true));
+        // Redessiner a un coût (mesuré en VM sans carte graphique : une image par seconde
+        // = 97 % d'un cœur). Seules les pages en direct se redessinent d'elles-mêmes :
+        // le tableau de bord toutes les 2 s (5 s fenêtre en arrière-plan), la vie privée
+        // toutes les 3 s ; les autres seulement sur une action.
+        let live_every = if focused { 2.0 } else { 5.0 };
+        if now - self.last_refresh >= live_every {
             self.live = self.backend.live();
             self.last_refresh = now;
         }
@@ -178,7 +198,11 @@ impl PrismApp {
             (self.privacy, self.privacy_conns) = self.backend.privacy();
             self.privacy_refresh = now;
         }
-        ctx.request_repaint_after(std::time::Duration::from_secs(1));
+        match self.page {
+            Page::Dashboard => ctx.request_repaint_after(std::time::Duration::from_secs_f64(live_every)),
+            Page::Privacy => ctx.request_repaint_after(std::time::Duration::from_secs(3)),
+            _ => {}
+        }
 
         if self.console {
             self.console_ui(root);
@@ -204,9 +228,21 @@ impl PrismApp {
             )
             .show(root, |ui| self.header(ui));
 
+        // Changement de page : fondu et léger glissement (0,18 s).
+        if self.shown_page != self.page {
+            self.shown_page = self.page;
+            self.page_since = now;
+        }
+        let k = ((now - self.page_since) / 0.18).clamp(0.0, 1.0) as f32;
+        if k < 1.0 {
+            ctx.request_repaint();
+        }
+        let ease = 1.0 - (1.0 - k).powi(3);
         egui::CentralPanel::no_frame()
             .frame(egui::Frame::new().fill(th::bg()).inner_margin(Margin::symmetric(24, 8)))
             .show(root, |ui| {
+                ui.set_opacity(ease);
+                ui.add_space((1.0 - ease) * 12.0);
                 egui::ScrollArea::vertical()
                     .auto_shrink([false, false])
                     .show(ui, |ui| match self.page {
@@ -224,7 +260,21 @@ impl PrismApp {
 
     fn nav(&mut self, ui: &mut egui::Ui) {
         ui.horizontal(|ui| {
-            ui.label(RichText::new("♦").size(30.0).color(th::accent()));
+            // Logo : se construit à l'ouverture (2,5 s), tourne au survol, immobile sinon.
+            let now = ui.input(|i| i.time);
+            let opened = *self.opened_at.get_or_insert(now);
+            let (rect, resp) = ui.allocate_exact_size(Vec2::new(40.0, 46.0), Sense::hover());
+            let since = (now - opened) as f32;
+            let spin_id = ui.id().with("logo-spin");
+            let spin = ui.ctx().animate_bool_with_time(spin_id, resp.hovered(), 0.4);
+            let angle_id = ui.id().with("logo-angle");
+            let mut angle: f32 = ui.ctx().data(|d| d.get_temp(angle_id)).unwrap_or(0.6);
+            if since < 2.5 || spin > 0.0 {
+                angle += 0.03 * (1.0 + spin * 1.5);
+                ui.ctx().data_mut(|d| d.insert_temp(angle_id, angle));
+                ui.ctx().request_repaint();
+            }
+            crate::logo::draw_prism(ui.painter(), rect.center(), 15.0, angle, since * 2.0, false, now as f32);
             ui.vertical(|ui| {
                 ui.label(RichText::new("PRISM").size(20.0).strong().color(th::text()));
                 ui.label(RichText::new("gaming · cybersécurité").small().color(th::muted()));
@@ -233,10 +283,16 @@ impl PrismApp {
         ui.add_space(26.0);
         for p in Page::ALL {
             let selected = self.page == p;
+            // Survol : le fond s'éclaire en 0,12 s (état du survol de l'image précédente).
+            let hid = ui.id().with(("nav-hover", p.label()));
+            let was_hovered: bool = ui.ctx().data(|d| d.get_temp(hid)).unwrap_or(false);
+            let h = ui
+                .ctx()
+                .animate_bool_with_time(hid.with("a"), was_hovered && !selected, 0.12);
             let (fill, fg) = if selected {
                 (th::accent_dim(), th::accent())
             } else {
-                (Color32::TRANSPARENT, th::text())
+                (th::card().gamma_multiply(h), th::text())
             };
             let resp = egui::Frame::new()
                 .fill(fill)
@@ -251,6 +307,7 @@ impl PrismApp {
                 })
                 .response
                 .interact(Sense::click());
+            ui.ctx().data_mut(|d| d.insert_temp(hid, resp.hovered()));
             if resp.clicked() {
                 self.page = p;
             }
@@ -1871,6 +1928,31 @@ impl eframe::App for PrismApp {
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         self.show(ui);
     }
+}
+
+fn debug_frames(ctx: &egui::Context, now: f64) {
+    thread_local! {
+        static FRAMES: std::cell::Cell<(u32, f64)> = const { std::cell::Cell::new((0, 0.0)) };
+    }
+    let causes = ctx.repaint_causes();
+    FRAMES.with(|f| {
+        let (n, since) = f.get();
+        if now - since >= 1.0 {
+            let line = format!(
+                "{now:.1}s {} images/s · causes : {:?}\n",
+                n + 1,
+                causes.iter().map(|c| c.to_string()).collect::<Vec<_>>()
+            );
+            let path = prism_core::paths::user_dir().join("ui-debug.log");
+            if let Ok(mut file) = std::fs::OpenOptions::new().create(true).append(true).open(path) {
+                use std::io::Write;
+                let _ = file.write_all(line.as_bytes());
+            }
+            f.set((0, now));
+        } else {
+            f.set((n + 1, since));
+        }
+    });
 }
 
 // --- Briques visuelles --------------------------------------------------------

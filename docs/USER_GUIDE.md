@@ -563,3 +563,10 @@ Journals are never exported (they describe the original state of *this* PC).
 | A game refuses to start because of a tool | Close the flagged debugger/kernel-driver tool shown by `prism status` |
 | A window stays invisible after the Prism Bar was killed during an effect | Start the bar again (`prism bar on`): it makes such windows visible again (journal `fx-hidden.json`) |
 | An effect does not play | Create an empty `%ProgramData%\Prism\fx-debug.log`: within a second the bar writes what it receives and decides there (delete the file to stop) |
+
+- **The app uses CPU while open**: only the dashboard (every 2 s) and the privacy page
+  (every 3 s) redraw by themselves; on a PC without a working graphics driver (virtual
+  machines, basic display adapter) each frame is computed by the processor and costs a
+  lot — minimize or close the app, the engine and the bar do not need it. To see what
+  makes it redraw, start it with the environment variable `PRISM_UI_DEBUG=1`: frames per
+  second and their causes go to `%LOCALAPPDATA%\Prism\ui-debug.log`.

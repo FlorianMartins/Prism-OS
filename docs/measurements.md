@@ -364,6 +364,26 @@ to 0 for the test).
   could not be measured here — Widgets and the new Outlook need a signed-in Microsoft
   account in this VM.
 
+## 13. The app's own CPU use — 2026-10-04
+
+Same VM, which has no GPU: Windows renders the app's frames on the CPU (WARP).
+
+| prism-ui, idle | CPU (% of one core) |
+|---|---|
+| v0.7.2, dashboard shown | 97 % |
+| v0.7.2, minimized | 0 % |
+
+- The cost is the drawing itself: the app redrew once a second on every page, and in
+  this VM one frame costs about 0.7 s of CPU (software rendering). With a GPU a frame
+  takes a few milliseconds, but redrawing pages that do not change is wasted anyway.
+- Now only live pages redraw by themselves: the dashboard every 2 s (5 s when the window
+  is in the background), privacy every 3 s; every other page only on an action.
+  Measured with the new `PRISM_UI_DEBUG=1` diagnostic: about 1.4 frames per second on
+  the dashboard, all from that refresh; nothing loops. On this GPU-less VM the dashboard
+  still costs ~100 % of a core while shown; a real PC's GPU makes it negligible.
+- The new animations (logo built at launch, logo spinning on hover, page fade 0.18 s,
+  menu hover 0.12 s) only run while they play: nothing animates continuously.
+
 ## What cannot be measured in a VM
 
 - **FPS and micro-stutters**: this requires a real gaming PC, with a protocol published
