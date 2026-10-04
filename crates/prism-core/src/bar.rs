@@ -256,6 +256,8 @@ pub struct BarConfig {
     pub all_monitors: bool,
     /// Chaque barre ne montre que les fenêtres de son écran (sinon : toutes).
     pub windows_per_monitor: bool,
+    /// Thème de couleurs (barre, widgets, appli).
+    pub theme: crate::theme::ThemeConfig,
 }
 
 impl Default for BarConfig {
@@ -283,6 +285,7 @@ impl Default for BarConfig {
             fx: crate::fx::FxConfig::default(),
             all_monitors: true,
             windows_per_monitor: true,
+            theme: crate::theme::ThemeConfig::default(),
         }
     }
 }

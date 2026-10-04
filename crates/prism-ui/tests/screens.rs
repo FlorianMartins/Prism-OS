@@ -91,3 +91,14 @@ fn appearance_page_with_effects_fits() {
     assert!(has_accent(&img));
     assert!(right_margin_is_clear(&img), "la carte des effets déborde à droite");
 }
+
+/// Thème clair : la page Apparence (thèmes) se dessine avec la palette claire.
+#[test]
+fn light_theme_renders() {
+    let mut b = MockBackend::default();
+    b.bar.theme.preset = "clair".into();
+    let img = shot_with("apparence-theme-clair", Page::Appearance, false, b);
+    // Le fond clair domine la capture.
+    let light = img.pixels().filter(|p| p[0] > 200 && p[1] > 200 && p[2] > 180).count();
+    assert!(light > (img.width() * img.height()) as usize / 3, "fond clair attendu");
+}

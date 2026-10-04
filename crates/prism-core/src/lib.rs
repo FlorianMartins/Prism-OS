@@ -6,6 +6,7 @@
 
 pub mod allege;
 pub mod apparence;
+pub mod backup;
 pub mod bar;
 pub mod classify;
 pub mod config;
@@ -25,6 +26,7 @@ pub mod paths;
 pub mod plan;
 pub mod platform;
 pub mod privacy;
+pub mod theme;
 pub mod tools;
 pub mod watch;
 pub mod wobbly;

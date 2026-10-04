@@ -6,7 +6,7 @@ use prism_core::library::{Game, Store};
 use prism_core::model::human_bytes;
 
 use crate::backend::{AllegeRow, Backend, Live, StartupRow};
-use crate::theme::*;
+use crate::theme as th;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Page {
@@ -65,6 +65,8 @@ pub struct PrismApp {
     privacy: Vec<prism_core::privacy::Row>,
     privacy_conns: Vec<prism_core::privacy::TelemetryConnection>,
     privacy_refresh: f64,
+    /// Thème appliqué à l'interface au premier affichage.
+    theme_ready: bool,
     toast: Option<(String, bool)>,
     /// Mode console : lanceur plein écran, navigable au clavier ou à la manette.
     pub console: bool,
@@ -91,6 +93,7 @@ impl PrismApp {
             privacy,
             privacy_conns,
             privacy_refresh: 0.0,
+            theme_ready: false,
             toast: None,
             console: false,
             console_sel: 0,
@@ -113,6 +116,10 @@ impl PrismApp {
     /// Une frame, dans le `Ui` racine. Séparé de `eframe::App` pour les tests.
     pub fn show(&mut self, root: &mut egui::Ui) {
         let ctx = root.ctx().clone();
+        if !self.theme_ready {
+            th::set_theme(&ctx, &self.backend.bar_config().theme);
+            self.theme_ready = true;
+        }
         let now = ctx.input(|i| i.time);
         if now - self.last_refresh > 1.0 {
             self.live = self.backend.live();
@@ -133,16 +140,24 @@ impl PrismApp {
         egui::Panel::left("nav")
             .exact_size(212.0)
             .resizable(false)
-            .frame(egui::Frame::new().fill(PANEL).inner_margin(Margin::symmetric(14, 18)))
+            .frame(
+                egui::Frame::new()
+                    .fill(th::panel())
+                    .inner_margin(Margin::symmetric(14, 18)),
+            )
             .show(root, |ui| self.nav(ui));
 
         egui::Panel::top("header")
             .exact_size(58.0)
-            .frame(egui::Frame::new().fill(BG).inner_margin(Margin::symmetric(24, 12)))
+            .frame(
+                egui::Frame::new()
+                    .fill(th::bg())
+                    .inner_margin(Margin::symmetric(24, 12)),
+            )
             .show(root, |ui| self.header(ui));
 
         egui::CentralPanel::no_frame()
-            .frame(egui::Frame::new().fill(BG).inner_margin(Margin::symmetric(24, 8)))
+            .frame(egui::Frame::new().fill(th::bg()).inner_margin(Margin::symmetric(24, 8)))
             .show(root, |ui| {
                 egui::ScrollArea::vertical()
                     .auto_shrink([false, false])
@@ -160,19 +175,19 @@ impl PrismApp {
 
     fn nav(&mut self, ui: &mut egui::Ui) {
         ui.horizontal(|ui| {
-            ui.label(RichText::new("♦").size(30.0).color(ACCENT));
+            ui.label(RichText::new("♦").size(30.0).color(th::accent()));
             ui.vertical(|ui| {
-                ui.label(RichText::new("PRISM").size(20.0).strong().color(TEXT));
-                ui.label(RichText::new("gaming · cybersécurité").small().color(MUTED));
+                ui.label(RichText::new("PRISM").size(20.0).strong().color(th::text()));
+                ui.label(RichText::new("gaming · cybersécurité").small().color(th::muted()));
             });
         });
         ui.add_space(26.0);
         for p in Page::ALL {
             let selected = self.page == p;
             let (fill, fg) = if selected {
-                (ACCENT_DIM, ACCENT)
+                (th::accent_dim(), th::accent())
             } else {
-                (Color32::TRANSPARENT, TEXT)
+                (Color32::TRANSPARENT, th::text())
             };
             let resp = egui::Frame::new()
                 .fill(fill)
@@ -196,7 +211,7 @@ impl PrismApp {
             ui.label(
                 RichText::new(format!("v{}", env!("CARGO_PKG_VERSION")))
                     .small()
-                    .color(MUTED),
+                    .color(th::muted()),
             );
         });
     }
@@ -210,21 +225,21 @@ impl PrismApp {
                     self.result(r);
                 }
                 if self.live.watch_alive {
-                    pill(ui, "✔ Prism actif", OK);
+                    pill(ui, "✔ Prism actif", th::ok());
                 } else {
                     if ui.button("Démarrer Prism").clicked() {
                         let r = self.backend.start_watch();
                         self.result(r);
                     }
-                    pill(ui, "✖ Prism arrêté", BAD);
+                    pill(ui, "✖ Prism arrêté", th::bad());
                 }
                 if let Some(e) = &self.live.etat {
                     if !e.game.is_empty() {
-                        pill(ui, &format!("🎮 Mode Jeu : {}", e.game.join(", ")), ACCENT);
+                        pill(ui, &format!("🎮 Mode Jeu : {}", e.game.join(", ")), th::accent());
                     }
                 }
                 if let Some((msg, ok)) = &self.toast {
-                    ui.label(RichText::new(msg).color(if *ok { OK } else { BAD }));
+                    ui.label(RichText::new(msg).color(if *ok { th::ok() } else { th::bad() }));
                 }
             });
         });
@@ -241,14 +256,13 @@ impl PrismApp {
             let p = &profiles[i];
             let active = p.name == current;
             let resp = card(col, active, |ui| {
-                ui.label(
-                    RichText::new(&p.label)
-                        .size(17.0)
-                        .strong()
-                        .color(if active { ACCENT } else { TEXT }),
-                );
+                ui.label(RichText::new(&p.label).size(17.0).strong().color(if active {
+                    th::accent()
+                } else {
+                    th::text()
+                }));
                 ui.add_space(2.0);
-                ui.label(RichText::new(&p.description).small().color(MUTED));
+                ui.label(RichText::new(&p.description).small().color(th::muted()));
             });
             if resp.interact(Sense::click()).clicked() && !active {
                 chosen = Some(p.name.clone());
@@ -285,7 +299,7 @@ impl PrismApp {
                             human_bytes(m.standby_low)
                         ))
                         .small()
-                        .color(MUTED),
+                        .color(th::muted()),
                     );
                     if ui.button("Libérer la RAM des applis inactives").clicked() {
                         clean = true;
@@ -300,7 +314,7 @@ impl PrismApp {
                             .size(22.0)
                             .strong(),
                     );
-                    ui.label(RichText::new("Inactives : cœurs économes, basse consommation, RAM rendue. Tout revient dès que vous y retournez.").small().color(MUTED));
+                    ui.label(RichText::new("Inactives : cœurs économes, basse consommation, RAM rendue. Tout revient dès que vous y retournez.").small().color(th::muted()));
                     ui.add_space(4.0);
                     ui.horizontal_wrapped(|ui| {
                         for n in eased.iter().take(8) {
@@ -313,22 +327,22 @@ impl PrismApp {
                 card(col, false, |ui| {
                     stat_title(ui, "Mode Jeu");
                     if game.is_empty() {
-                        ui.label(RichText::new("En attente").size(22.0).strong().color(MUTED));
+                        ui.label(RichText::new("En attente").size(22.0).strong().color(th::muted()));
                         ui.label(
                             RichText::new("S'active tout seul au lancement d'un jeu.")
                                 .small()
-                                .color(MUTED),
+                                .color(th::muted()),
                         );
                     } else {
-                        ui.label(RichText::new(game.join(", ")).size(22.0).strong().color(ACCENT));
+                        ui.label(RichText::new(game.join(", ")).size(22.0).strong().color(th::accent()));
                         ui.label(
                             RichText::new("Arrière-plan en retrait, RAM rendue, indexation en pause.")
                                 .small()
-                                .color(MUTED),
+                                .color(th::muted()),
                         );
                     }
                     ui.add_space(4.0);
-                    ui.label(RichText::new(&cores).small().color(MUTED));
+                    ui.label(RichText::new(&cores).small().color(th::muted()));
                 });
             }
         });
@@ -350,7 +364,7 @@ impl PrismApp {
                         .striped(true)
                         .show(ui, |ui| {
                             for h in ["Processus", "CPU", "RAM", "Classe"] {
-                                ui.label(RichText::new(h).small().color(MUTED));
+                                ui.label(RichText::new(h).small().color(th::muted()));
                             }
                             ui.end_row();
                             for p in top.iter().take(9) {
@@ -366,7 +380,7 @@ impl PrismApp {
                 section(col, "Activité récente");
                 card(col, false, |ui| {
                     if recent.is_empty() {
-                        ui.label(RichText::new("Rien pour l'instant.").color(MUTED));
+                        ui.label(RichText::new("Rien pour l'instant.").color(th::muted()));
                     }
                     for line in recent.iter().rev().take(10) {
                         ui.label(RichText::new(line).small());
@@ -385,7 +399,7 @@ impl PrismApp {
                     "{} jeu(x) installé(s) détecté(s) : Steam, Epic, GOG, Battle.net.",
                     self.games.len()
                 ))
-                .color(MUTED),
+                .color(th::muted()),
             );
             ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                 if ui.button("🕹  Mode console").clicked() {
@@ -437,12 +451,18 @@ impl PrismApp {
         }
         let mut launch = None;
         egui::CentralPanel::no_frame()
-            .frame(egui::Frame::new().fill(BG).inner_margin(Margin::symmetric(56, 40)))
+            .frame(
+                egui::Frame::new()
+                    .fill(th::bg())
+                    .inner_margin(Margin::symmetric(56, 40)),
+            )
             .show(root, |ui| {
                 ui.horizontal(|ui| {
-                    ui.label(RichText::new("♦ PRISM").size(28.0).strong().color(ACCENT));
+                    ui.label(RichText::new("♦ PRISM").size(28.0).strong().color(th::accent()));
                     ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                        ui.label(RichText::new("Flèches : choisir · Entrée : jouer · Échap : quitter").color(MUTED));
+                        ui.label(
+                            RichText::new("Flèches : choisir · Entrée : jouer · Échap : quitter").color(th::muted()),
+                        );
                     });
                 });
                 ui.add_space(30.0);
@@ -473,14 +493,17 @@ impl PrismApp {
                 RichText::new(
                     "Désactiver une appli au démarrage ne la supprime pas : elle se lance quand vous l'ouvrez.",
                 )
-                .color(MUTED),
+                .color(th::muted()),
             );
             ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                 if ui.button("Tout restaurer").clicked() {
                     action = Some(self.backend.startup_restore());
                 }
                 if ui
-                    .add(egui::Button::new(RichText::new("Appliquer les conseils").color(BG)).fill(ACCENT))
+                    .add(
+                        egui::Button::new(RichText::new("Appliquer les conseils").color(th::on_accent()))
+                            .fill(th::accent()),
+                    )
                     .clicked()
                 {
                     action = Some(self.backend.startup_recommended());
@@ -505,9 +528,9 @@ impl PrismApp {
                                 l.on_hover_text(full);
                             }
                             badge(ui, &r.advice);
-                            ui.label(RichText::new(r.source.label()).small().color(MUTED));
+                            ui.label(RichText::new(r.source.label()).small().color(th::muted()));
                         });
-                        ui.label(RichText::new(&r.why).small().color(MUTED));
+                        ui.label(RichText::new(&r.why).small().color(th::muted()));
                     });
                 });
             });
@@ -531,23 +554,23 @@ impl PrismApp {
                         RichText::new(format!("{on} / {total}"))
                             .size(30.0)
                             .strong()
-                            .color(ACCENT),
+                            .color(th::accent()),
                     );
-                    ui.label(RichText::new("protections en place").color(MUTED));
+                    ui.label(RichText::new("protections en place").color(th::muted()));
                 });
                 ui.add_space(16.0);
                 ui.vertical(|ui| {
                     ui.add(
                         egui::ProgressBar::new(if total > 0 { on as f32 / total as f32 } else { 0.0 })
                             .desired_width(260.0)
-                            .fill(ACCENT),
+                            .fill(th::accent()),
                     );
                     ui.label(
                         RichText::new(
                             "Stratégies officielles de Windows et règles du Pare-feu Windows, tout réversible.",
                         )
                         .small()
-                        .color(MUTED),
+                        .color(th::muted()),
                     );
                 });
                 ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
@@ -564,7 +587,10 @@ impl PrismApp {
                         action = Some(self.backend.privacy_apply(Level::Strict));
                     }
                     if ui
-                        .add(egui::Button::new(RichText::new("Recommandé").color(BG).strong()).fill(ACCENT))
+                        .add(
+                            egui::Button::new(RichText::new("Recommandé").color(th::on_accent()).strong())
+                                .fill(th::accent()),
+                        )
                         .on_hover_text("Aucune fonction utile perdue")
                         .clicked()
                     {
@@ -578,7 +604,8 @@ impl PrismApp {
         card(ui, false, |ui| {
             if self.privacy_conns.is_empty() {
                 ui.label(
-                    RichText::new("✔  Aucun composant de télémétrie surveillé ne communique en ce moment.").color(OK),
+                    RichText::new("✔  Aucun composant de télémétrie surveillé ne communique en ce moment.")
+                        .color(th::ok()),
                 );
             } else {
                 ui.label(
@@ -586,7 +613,7 @@ impl PrismApp {
                         "⚠  {} connexion(s) ouverte(s) par la télémétrie",
                         self.privacy_conns.len()
                     ))
-                    .color(WARN),
+                    .color(th::warn()),
                 );
                 egui::Grid::new("tele")
                     .num_columns(3)
@@ -594,8 +621,8 @@ impl PrismApp {
                     .show(ui, |ui| {
                         for k in &self.privacy_conns {
                             ui.label(&k.component);
-                            ui.label(RichText::new(&k.remote).monospace().color(MUTED));
-                            ui.label(RichText::new(&k.state).small().color(MUTED));
+                            ui.label(RichText::new(&k.remote).monospace().color(th::muted()));
+                            ui.label(RichText::new(&k.state).small().color(th::muted()));
                             ui.end_row();
                         }
                     });
@@ -610,7 +637,7 @@ impl PrismApp {
             ui.add_space(12.0);
             ui.horizontal(|ui| {
                 section(ui, cat.label());
-                ui.label(RichText::new(format!("{c_on}/{c_total}")).small().color(MUTED));
+                ui.label(RichText::new(format!("{c_on}/{c_total}")).small().color(th::muted()));
             });
             card(ui, false, |ui| {
                 egui::Grid::new(format!("vp-{cat:?}"))
@@ -620,10 +647,10 @@ impl PrismApp {
                     .show(ui, |ui| {
                         for r in &rows {
                             let (mark, color) = match &r.state {
-                                State::On => ("✔", OK),
-                                State::Off => ("·", MUTED),
-                                State::Absent => ("–", MUTED),
-                                State::Unknown(_) => ("⚠", WARN),
+                                State::On => ("✔", th::ok()),
+                                State::Off => ("·", th::muted()),
+                                State::Absent => ("–", th::muted()),
+                                State::Unknown(_) => ("⚠", th::warn()),
                             };
                             ui.label(RichText::new(mark).color(color));
                             let mut tip = r.why.clone();
@@ -639,7 +666,7 @@ impl PrismApp {
                                 ui.set_min_width(620.0);
                                 ui.label(&r.label);
                                 if let Some(l) = &r.lose {
-                                    ui.label(RichText::new(format!("On renonce à : {l}")).small().color(MUTED));
+                                    ui.label(RichText::new(format!("On renonce à : {l}")).small().color(th::muted()));
                                 }
                             });
                             if !tip.is_empty() {
@@ -652,7 +679,7 @@ impl PrismApp {
                                 (_, Some(l)) => l.label().to_string(),
                                 _ => String::new(),
                             };
-                            ui.label(RichText::new(tag).small().color(MUTED));
+                            ui.label(RichText::new(tag).small().color(th::muted()));
                             ui.end_row();
                         }
                     });
@@ -670,7 +697,7 @@ impl PrismApp {
                 RichText::new(
                     "72 services dont les anti-cheats et les mises à jour ont besoin ne sont jamais touchés.",
                 )
-                .color(MUTED),
+                .color(th::muted()),
             );
             ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                 if ui.button("Tout restaurer").clicked() {
@@ -703,7 +730,7 @@ impl PrismApp {
                 ui.label(
                     RichText::new(format!("{done}/{} appliqué(s) · {note}", rows.len()))
                         .small()
-                        .color(MUTED),
+                        .color(th::muted()),
                 );
                 ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                     if ui.button(format!("Appliquer « {title} »")).clicked() {
@@ -719,15 +746,15 @@ impl PrismApp {
                     .show(ui, |ui| {
                         for r in &rows {
                             ui.label(RichText::new(if r.done { "✔" } else { "·" }).color(if r.done {
-                                OK
+                                th::ok()
                             } else {
-                                MUTED
+                                th::muted()
                             }));
                             ui.label(&r.label).on_hover_text(&r.why);
                             ui.label(
                                 RichText::new(format!("{}  ›  {}", r.current, r.target))
                                     .small()
-                                    .color(MUTED),
+                                    .color(th::muted()),
                             );
                             ui.end_row();
                         }
@@ -745,7 +772,7 @@ impl PrismApp {
         let mut action: Option<Result<String, String>> = None;
         ui.label(
             RichText::new("Réglages officiels de Windows et effets dessinés par Prism dans sa propre couche, tous réversibles. Rien n'est injecté dans les applis ni dans le compositeur de Windows : compatible avec les anti-cheats.")
-                .color(MUTED),
+                .color(th::muted()),
         );
         ui.add_space(10.0);
         self.bar_section(ui, &mut action);
@@ -757,7 +784,7 @@ impl PrismApp {
             if let Some(p) = presets.get(i) {
                 let resp = card(col, false, |ui| {
                     ui.label(RichText::new(&p.label).size(17.0).strong());
-                    ui.label(RichText::new(&p.description).small().color(MUTED));
+                    ui.label(RichText::new(&p.description).small().color(th::muted()));
                 });
                 if resp.interact(Sense::click()).clicked() {
                     action = Some(self.backend.appearance_preset(&p.id));
@@ -768,7 +795,7 @@ impl PrismApp {
                     ui.label(
                         RichText::new("Remet exactement ce que Windows avait avant Prism.")
                             .small()
-                            .color(MUTED),
+                            .color(th::muted()),
                     );
                 });
                 if resp.interact(Sense::click()).clicked() {
@@ -796,8 +823,13 @@ impl PrismApp {
                             ui.horizontal(|ui| {
                                 for (i, opt) in r.options.iter().enumerate() {
                                     let selected = r.current == Some(i);
-                                    let text = RichText::new(opt).color(if selected { BG } else { TEXT });
-                                    let b = egui::Button::new(text).fill(if selected { ACCENT } else { CARD_HI });
+                                    let text =
+                                        RichText::new(opt).color(if selected { th::on_accent() } else { th::text() });
+                                    let b = egui::Button::new(text).fill(if selected {
+                                        th::accent()
+                                    } else {
+                                        th::card_hi()
+                                    });
                                     if ui.add(b).clicked() && !selected {
                                         action = Some(self.backend.appearance_set(&r.id, i));
                                     }
@@ -821,6 +853,8 @@ impl PrismApp {
         let running = self.backend.bar_running();
         let mut cfg = self.backend.bar_config();
         let before = cfg.clone();
+        self.theme_section(ui, &mut cfg.theme);
+        ui.add_space(12.0);
         ui.horizontal(|ui| {
             section(ui, "Prism Bar");
             ui.label(
@@ -828,16 +862,16 @@ impl PrismApp {
                     "Votre barre des tâches : n'importe quel bord, taille et opacité au choix, widgets système.",
                 )
                 .small()
-                .color(MUTED),
+                .color(th::muted()),
             );
             ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                 if running {
                     if ui.button("Arrêter la barre").clicked() {
                         *action = Some(self.backend.bar_stop());
                     }
-                    pill(ui, "✔ en marche", OK);
+                    pill(ui, "✔ en marche", th::ok());
                 } else if ui
-                    .add(egui::Button::new(RichText::new("Lancer la barre").color(BG)).fill(ACCENT))
+                    .add(egui::Button::new(RichText::new("Lancer la barre").color(th::on_accent())).fill(th::accent()))
                     .clicked()
                 {
                     *action = Some(self.backend.bar_start());
@@ -860,14 +894,18 @@ impl PrismApp {
                     ui.set_width(rest);
                     let field = |ui: &mut egui::Ui, name: &str| {
                         ui.add_space(4.0);
-                        ui.label(RichText::new(name).small().color(MUTED));
+                        ui.label(RichText::new(name).small().color(th::muted()));
                     };
                     field(ui, "Position");
                     ui.horizontal(|ui| {
                         for e in Edge::ALL {
                             let sel = cfg.edge == e;
-                            let b = egui::Button::new(RichText::new(e.label()).color(if sel { BG } else { TEXT }))
-                                .fill(if sel { ACCENT } else { CARD_HI });
+                            let b = egui::Button::new(RichText::new(e.label()).color(if sel {
+                                th::on_accent()
+                            } else {
+                                th::text()
+                            }))
+                            .fill(if sel { th::accent() } else { th::card_hi() });
                             if ui.add(b).clicked() {
                                 cfg.edge = e;
                             }
@@ -984,7 +1022,7 @@ impl PrismApp {
             ui.label(
                 RichText::new("Lampe de génie, gélatine, zoom : dessinés par Prism (la Prism Bar doit tourner), jamais sur un jeu ni en plein écran.")
                     .small()
-                    .color(MUTED),
+                    .color(th::muted()),
             );
         });
         let was_enabled = cfg.fx.enabled;
@@ -1056,13 +1094,88 @@ impl PrismApp {
             if let Err(e) = self.backend.set_bar_config(&cfg) {
                 *action = Some(Err(e));
             }
+            if cfg.theme != before.theme {
+                th::set_theme(ui.ctx(), &cfg.theme);
+            }
         }
+    }
+
+    /// Thèmes de couleurs : la barre, les widgets et l'appli changent ensemble.
+    fn theme_section(&mut self, ui: &mut egui::Ui, theme: &mut prism_core::theme::ThemeConfig) {
+        use prism_core::theme::{ThemeConfig, PRESETS};
+        let c = |rgb: [u8; 3]| egui::Color32::from_rgb(rgb[0], rgb[1], rgb[2]);
+        ui.horizontal(|ui| {
+            section(ui, "Thème");
+            ui.label(
+                RichText::new("Couleurs de la Prism Bar, des widgets et de l'appli.")
+                    .small()
+                    .color(th::muted()),
+            );
+        });
+        card(ui, false, |ui| {
+            ui.horizontal_wrapped(|ui| {
+                for p in &PRESETS {
+                    let pal = ThemeConfig {
+                        preset: p.id.into(),
+                        accent: None,
+                    }
+                    .palette();
+                    let selected = theme.preset == p.id;
+                    let (rect, resp) = ui.allocate_exact_size(egui::vec2(132.0, 56.0), egui::Sense::click());
+                    let painter = ui.painter_at(rect);
+                    painter.rect_filled(rect, 8.0, c(pal.bg));
+                    let bar = egui::Rect::from_min_size(
+                        egui::pos2(rect.left() + 10.0, rect.bottom() - 16.0),
+                        egui::vec2(rect.width() - 20.0, 6.0),
+                    );
+                    painter.rect_filled(bar, 3.0, c(pal.card_hi));
+                    painter.rect_filled(
+                        egui::Rect::from_min_size(bar.min, egui::vec2(bar.width() * 0.45, 6.0)),
+                        3.0,
+                        c(pal.accent),
+                    );
+                    painter.text(
+                        egui::pos2(rect.left() + 10.0, rect.top() + 10.0),
+                        egui::Align2::LEFT_TOP,
+                        p.label,
+                        egui::FontId::proportional(13.0),
+                        c(pal.text),
+                    );
+                    let stroke = if selected {
+                        egui::Stroke::new(2.0, c(pal.accent))
+                    } else if resp.hovered() {
+                        egui::Stroke::new(1.0, th::muted())
+                    } else {
+                        egui::Stroke::new(1.0, th::border())
+                    };
+                    painter.rect_stroke(rect, 8.0, stroke, egui::StrokeKind::Inside);
+                    if resp.clicked() {
+                        theme.preset = p.id.into();
+                    }
+                }
+            });
+            ui.add_space(6.0);
+            ui.horizontal(|ui| {
+                let mut custom = theme.accent.is_some();
+                if ui.checkbox(&mut custom, "Accent personnalisé").changed() {
+                    theme.accent = custom.then(|| theme.palette().accent);
+                }
+                if let Some(a) = theme.accent.as_mut() {
+                    ui.color_edit_button_srgb(a);
+                    ui.label(
+                        RichText::new("le texte posé sur l'accent s'adapte pour rester lisible")
+                            .small()
+                            .color(th::muted()),
+                    );
+                }
+            });
+        });
     }
 
     // --- Outils -----------------------------------------------------------------
 
     fn tools_page(&mut self, ui: &mut egui::Ui) {
-        ui.label(RichText::new("Rien n'est installé par défaut et rien ne tourne pendant le jeu. Les outils gênants pour les anti-cheats sont signalés.").color(MUTED));
+        ui.label(RichText::new("Rien n'est installé par défaut et rien ne tourne pendant le jeu. Les outils gênants pour les anti-cheats sont signalés.").color(th::muted()));
         ui.add_space(8.0);
         let packs = self.backend.packs();
         let mut install = None;
@@ -1079,10 +1192,10 @@ impl PrismApp {
                     });
                     for (name, warn) in &p.tools {
                         ui.horizontal(|ui| {
-                            ui.label(RichText::new("•").color(ACCENT));
+                            ui.label(RichText::new("•").color(th::accent()));
                             ui.label(name);
                             if let Some(w) = warn {
-                                ui.label(RichText::new("⚠ anti-cheat").small().color(WARN))
+                                ui.label(RichText::new("⚠ anti-cheat").small().color(th::warn()))
                                     .on_hover_text(w);
                             }
                         });
@@ -1136,18 +1249,18 @@ fn row(ui: &mut egui::Ui, n: usize, mut add: impl FnMut(usize, &mut egui::Ui)) {
 }
 
 fn section(ui: &mut egui::Ui, title: &str) {
-    ui.label(RichText::new(title.to_uppercase()).small().strong().color(MUTED));
+    ui.label(RichText::new(title.to_uppercase()).small().strong().color(th::muted()));
     ui.add_space(2.0);
 }
 
 fn stat_title(ui: &mut egui::Ui, title: &str) {
-    ui.label(RichText::new(title).small().color(ACCENT));
+    ui.label(RichText::new(title).small().color(th::accent()));
 }
 
 fn card(ui: &mut egui::Ui, highlighted: bool, add: impl FnOnce(&mut egui::Ui)) -> egui::Response {
     egui::Frame::new()
-        .fill(if highlighted { ACCENT_DIM } else { CARD })
-        .stroke(Stroke::new(1.0, if highlighted { ACCENT } else { BORDER }))
+        .fill(if highlighted { th::accent_dim() } else { th::card() })
+        .stroke(Stroke::new(1.0, if highlighted { th::accent() } else { th::border() }))
         .corner_radius(CornerRadius::same(10))
         .inner_margin(Margin::same(14))
         .show(ui, |ui| {
@@ -1170,43 +1283,47 @@ fn pill(ui: &mut egui::Ui, text: &str, color: Color32) {
 fn chip(ui: &mut egui::Ui, text: &str) {
     // Un simple libellé surligné : il se replie correctement dans une rangée.
     ui.add(
-        egui::Label::new(RichText::new(format!(" {text} ")).small().background_color(CARD_HI))
-            .wrap_mode(egui::TextWrapMode::Extend),
+        egui::Label::new(
+            RichText::new(format!(" {text} "))
+                .small()
+                .background_color(th::card_hi()),
+        )
+        .wrap_mode(egui::TextWrapMode::Extend),
     );
 }
 
 fn badge(ui: &mut egui::Ui, advice: &str) {
     let color = match advice {
-        "à désactiver" => WARN,
-        "protégé" => OK,
-        "à garder" => OK,
-        "optionnel" => ACCENT,
-        _ => MUTED,
+        "à désactiver" => th::warn(),
+        "protégé" => th::ok(),
+        "à garder" => th::ok(),
+        "optionnel" => th::accent(),
+        _ => th::muted(),
     };
     pill(ui, advice, color);
 }
 
 fn class_color(class: &str) -> Color32 {
     match class {
-        "jeu" => ACCENT,
-        "arrière-plan" => WARN,
-        "compagnon" => OK,
-        _ => MUTED,
+        "jeu" => th::accent(),
+        "arrière-plan" => th::warn(),
+        "compagnon" => th::ok(),
+        _ => th::muted(),
     }
 }
 
 fn bar(ui: &mut egui::Ui, fraction: f32) {
     let (rect, _) = ui.allocate_exact_size(Vec2::new(ui.available_width(), 8.0), Sense::hover());
     let p = ui.painter();
-    p.rect_filled(rect, CornerRadius::same(4), CARD_HI);
+    p.rect_filled(rect, CornerRadius::same(4), th::card_hi());
     let mut fill = rect;
     fill.set_width(rect.width() * fraction.clamp(0.0, 1.0));
     let color = if fraction > 0.85 {
-        BAD
+        th::bad()
     } else if fraction > 0.7 {
-        WARN
+        th::warn()
     } else {
-        ACCENT
+        th::accent()
     };
     p.rect_filled(fill, CornerRadius::same(4), color);
 }
@@ -1224,11 +1341,18 @@ fn game_tile(ui: &mut egui::Ui, g: &Game, size: Vec2, selected: bool) -> egui::R
     let (rect, resp) = ui.allocate_exact_size(size, Sense::click());
     let hovered = resp.hovered() || selected;
     let p = ui.painter();
-    p.rect_filled(rect, CornerRadius::same(12), if hovered { CARD_HI } else { CARD });
+    p.rect_filled(
+        rect,
+        CornerRadius::same(12),
+        if hovered { th::card_hi() } else { th::card() },
+    );
     p.rect_stroke(
         rect,
         CornerRadius::same(12),
-        Stroke::new(if selected { 2.5 } else { 1.0 }, if hovered { ACCENT } else { BORDER }),
+        Stroke::new(
+            if selected { 2.5 } else { 1.0 },
+            if hovered { th::accent() } else { th::border() },
+        ),
         egui::StrokeKind::Inside,
     );
     let band = egui::Rect::from_min_size(rect.min, Vec2::new(rect.width(), 5.0));
@@ -1255,14 +1379,14 @@ fn game_tile(ui: &mut egui::Ui, g: &Game, size: Vec2, selected: bool) -> egui::R
         egui::Align2::LEFT_BOTTOM,
         &g.name,
         egui::FontId::proportional(if size.y > 140.0 { 19.0 } else { 15.0 }),
-        TEXT,
+        th::text(),
     );
     p.text(
         rect.left_bottom() + Vec2::new(16.0, -14.0),
         egui::Align2::LEFT_BOTTOM,
         g.store.label(),
         egui::FontId::proportional(12.0),
-        MUTED,
+        th::muted(),
     );
     if hovered {
         p.text(
@@ -1270,7 +1394,7 @@ fn game_tile(ui: &mut egui::Ui, g: &Game, size: Vec2, selected: bool) -> egui::R
             egui::Align2::RIGHT_BOTTOM,
             "▶ Jouer",
             egui::FontId::proportional(13.0),
-            ACCENT,
+            th::accent(),
         );
     }
     resp
@@ -1334,10 +1458,14 @@ fn bar_preview(ui: &mut egui::Ui, cfg: &prism_core::bar::BarConfig) {
         to_screen(bar.right as f32, bar.bottom as f32),
     );
     let radius = if cfg.rounded { 6 } else { 0 };
+    // Couleurs du thème choisi (celui de la configuration, même avant d'être enregistré).
+    let pal = cfg.theme.palette();
+    let c = |rgb: [u8; 3]| Color32::from_rgb(rgb[0], rgb[1], rgb[2]);
+    let tint = |base: [u8; 3], to: [u8; 3]| c(prism_core::theme::mix(base, to, 0.35));
     p.rect_filled(
         br,
         CornerRadius::same(radius),
-        Color32::from_rgba_unmultiplied(0x12, 0x17, 0x1e, alpha),
+        Color32::from_rgba_unmultiplied(pal.bg[0], pal.bg[1], pal.bg[2], alpha),
     );
     for it in layout(cfg, bar.width(), bar.height(), 3) {
         let r = egui::Rect::from_min_max(
@@ -1346,13 +1474,13 @@ fn bar_preview(ui: &mut egui::Ui, cfg: &prism_core::bar::BarConfig) {
         )
         .shrink(1.5);
         let color = match it.widget {
-            Widget::Start => ACCENT,
-            Widget::Windows if it.index == Some(0) => ACCENT_DIM,
-            Widget::Windows => CARD_HI,
-            Widget::Cpu | Widget::Ram | Widget::Gpu => Color32::from_rgb(0x2e, 0x5a, 0x4c),
-            Widget::GameMode => Color32::from_rgb(0x3a, 0x33, 0x60),
-            Widget::Network => Color32::from_rgb(0x3d, 0x4a, 0x2a),
-            Widget::Clock => Color32::from_rgb(0x44, 0x4c, 0x58),
+            Widget::Start => c(pal.accent),
+            Widget::Windows if it.index == Some(0) => c(pal.accent_dim),
+            Widget::Windows => c(pal.card_hi),
+            Widget::Cpu | Widget::Ram | Widget::Gpu => tint(pal.card, pal.ok),
+            Widget::GameMode => tint(pal.card, pal.accent),
+            Widget::Network => tint(pal.card, pal.warn),
+            Widget::Clock => c(pal.card_hi),
         };
         p.rect_filled(r, CornerRadius::same(2), color);
     }
@@ -1369,7 +1497,7 @@ fn toggle_switch(on: &mut bool) -> impl egui::Widget + '_ {
         }
         let t = ui.ctx().animate_bool_responsive(resp.id, *on);
         let enabled = ui.is_enabled();
-        let bg = if *on { ACCENT } else { CARD_HI };
+        let bg = if *on { th::accent() } else { th::card_hi() };
         let p = ui.painter();
         p.rect_filled(
             rect,
@@ -1377,7 +1505,11 @@ fn toggle_switch(on: &mut bool) -> impl egui::Widget + '_ {
             if enabled { bg } else { bg.gamma_multiply(0.4) },
         );
         let x = egui::lerp(rect.left() + 10.0..=rect.right() - 10.0, t);
-        p.circle_filled(egui::pos2(x, rect.center().y), 7.0, if *on { BG } else { MUTED });
+        p.circle_filled(
+            egui::pos2(x, rect.center().y),
+            7.0,
+            if *on { th::on_accent() } else { th::muted() },
+        );
         resp
     }
 }

@@ -1,43 +1,103 @@
-//! Identité visuelle : sombre, sobre, un seul accent (le cyan de Prism).
+//! Identité visuelle : un fond, un seul accent ; palette au choix (thèmes de
+//! `prism_core::theme`, cyan de Prism par défaut).
 
 use eframe::egui::{self, Color32, CornerRadius, FontFamily, FontId, Stroke, TextStyle, Visuals};
+use prism_core::theme::{mix, Palette, Rgb, ThemeConfig};
 
-pub const BG: Color32 = Color32::from_rgb(0x0d, 0x11, 0x17);
-pub const PANEL: Color32 = Color32::from_rgb(0x15, 0x1b, 0x23);
-pub const CARD: Color32 = Color32::from_rgb(0x1b, 0x22, 0x2c);
-pub const CARD_HI: Color32 = Color32::from_rgb(0x22, 0x2b, 0x37);
-pub const BORDER: Color32 = Color32::from_rgb(0x2a, 0x33, 0x40);
-pub const TEXT: Color32 = Color32::from_rgb(0xe6, 0xed, 0xf3);
-pub const MUTED: Color32 = Color32::from_rgb(0x8b, 0x96, 0xa3);
-pub const ACCENT: Color32 = Color32::from_rgb(0x5c, 0xcf, 0xe6);
-pub const ACCENT_DIM: Color32 = Color32::from_rgb(0x1d, 0x3d, 0x47);
-pub const OK: Color32 = Color32::from_rgb(0x57, 0xd9, 0xa3);
-pub const WARN: Color32 = Color32::from_rgb(0xe8, 0xb3, 0x4b);
-pub const BAD: Color32 = Color32::from_rgb(0xf4, 0x70, 0x67);
+thread_local! {
+    /// Palette active (thème choisi dans Apparence, `bar.json`). Par fil : l'interface
+    /// est dessinée sur un seul fil, et les tests de captures, parallèles, ne se
+    /// marchent pas dessus.
+    static PALETTE: std::cell::Cell<Option<(Palette, Rgb)>> = const { std::cell::Cell::new(None) };
+}
+
+fn current() -> (Palette, Rgb) {
+    PALETTE.with(|p| p.get()).unwrap_or_else(|| {
+        let t = ThemeConfig::default();
+        (t.palette(), t.on_accent())
+    })
+}
+
+fn c(rgb: Rgb) -> Color32 {
+    Color32::from_rgb(rgb[0], rgb[1], rgb[2])
+}
+
+pub fn bg() -> Color32 {
+    c(current().0.bg)
+}
+pub fn panel() -> Color32 {
+    c(current().0.panel)
+}
+pub fn card() -> Color32 {
+    c(current().0.card)
+}
+pub fn card_hi() -> Color32 {
+    c(current().0.card_hi)
+}
+pub fn border() -> Color32 {
+    c(current().0.border)
+}
+pub fn text() -> Color32 {
+    c(current().0.text)
+}
+pub fn muted() -> Color32 {
+    c(current().0.muted)
+}
+pub fn accent() -> Color32 {
+    c(current().0.accent)
+}
+pub fn accent_dim() -> Color32 {
+    c(current().0.accent_dim)
+}
+/// Texte posé sur l'accent (boutons pleins).
+pub fn on_accent() -> Color32 {
+    c(current().1)
+}
+pub fn ok() -> Color32 {
+    c(current().0.ok)
+}
+pub fn warn() -> Color32 {
+    c(current().0.warn)
+}
+pub fn bad() -> Color32 {
+    c(current().0.bad)
+}
+
+/// Applique un thème (au démarrage et quand il change dans Apparence).
+pub fn set_theme(ctx: &egui::Context, theme: &ThemeConfig) {
+    PALETTE.with(|p| p.set(Some((theme.palette(), theme.on_accent()))));
+    apply(ctx);
+}
 
 pub fn apply(ctx: &egui::Context) {
-    let mut v = Visuals::dark();
-    v.panel_fill = BG;
-    v.window_fill = PANEL;
-    v.extreme_bg_color = Color32::from_rgb(0x0a, 0x0d, 0x12);
-    v.faint_bg_color = CARD;
-    v.override_text_color = Some(TEXT);
-    v.selection.bg_fill = ACCENT_DIM;
-    v.selection.stroke = Stroke::new(1.0, ACCENT);
-    v.hyperlink_color = ACCENT;
+    let (p, _) = current();
+    let dark = prism_core::theme::luminance(p.bg) < 0.4;
+    let mut v = if dark { Visuals::dark() } else { Visuals::light() };
+    v.panel_fill = bg();
+    v.window_fill = panel();
+    v.extreme_bg_color = c(mix(p.bg, if dark { [0, 0, 0] } else { [255, 255, 255] }, 0.3));
+    v.faint_bg_color = card();
+    v.override_text_color = Some(text());
+    v.selection.bg_fill = accent_dim();
+    v.selection.stroke = Stroke::new(1.0, accent());
+    v.hyperlink_color = accent();
     let r = CornerRadius::same(6);
-    v.widgets.noninteractive.bg_fill = CARD;
-    v.widgets.noninteractive.bg_stroke = Stroke::new(1.0, BORDER);
-    v.widgets.noninteractive.fg_stroke = Stroke::new(1.0, TEXT);
-    v.widgets.inactive.bg_fill = CARD_HI;
-    v.widgets.inactive.weak_bg_fill = CARD_HI;
+    v.widgets.noninteractive.bg_fill = card();
+    v.widgets.noninteractive.bg_stroke = Stroke::new(1.0, border());
+    v.widgets.noninteractive.fg_stroke = Stroke::new(1.0, text());
+    v.widgets.inactive.bg_fill = card_hi();
+    v.widgets.inactive.weak_bg_fill = card_hi();
+    v.widgets.inactive.fg_stroke = Stroke::new(1.0, text());
     v.widgets.inactive.corner_radius = r;
-    v.widgets.hovered.bg_fill = Color32::from_rgb(0x2b, 0x36, 0x44);
-    v.widgets.hovered.weak_bg_fill = Color32::from_rgb(0x2b, 0x36, 0x44);
-    v.widgets.hovered.bg_stroke = Stroke::new(1.0, ACCENT);
+    let hover = c(mix(p.card_hi, p.text, 0.08));
+    v.widgets.hovered.bg_fill = hover;
+    v.widgets.hovered.weak_bg_fill = hover;
+    v.widgets.hovered.bg_stroke = Stroke::new(1.0, accent());
+    v.widgets.hovered.fg_stroke = Stroke::new(1.0, text());
     v.widgets.hovered.corner_radius = r;
-    v.widgets.active.bg_fill = ACCENT_DIM;
-    v.widgets.active.weak_bg_fill = ACCENT_DIM;
+    v.widgets.active.bg_fill = accent_dim();
+    v.widgets.active.weak_bg_fill = accent_dim();
+    v.widgets.active.fg_stroke = Stroke::new(1.0, text());
     v.widgets.active.corner_radius = r;
     ctx.set_visuals(v);
 

@@ -195,6 +195,11 @@ prism bar off       # stop it (the Windows taskbar comes back)
 
 Configure it live in **prism-ui → Apparence**:
 
+- **theme** (top of the page): Prism, Nord, Dracula, Catppuccin Mocha, Gruvbox, Tokyo
+  Night, Rouge gaming or Clair (light, Solarized), plus an optional custom accent
+  colour. The bar, the desktop widgets and the app change together; text on the accent
+  colour switches between dark and light to stay readable;
+
 - position (top, bottom, left, right), thickness, margin (floating bar), opacity,
   rounded corners;
 - hide the Windows taskbar while the bar runs (uses Windows' own auto-hide option and
@@ -304,6 +309,22 @@ prism config path
 ```
 
 Invalid files are refused with a clear message rather than half-applied.
+
+### Export and import your whole setup
+
+```powershell
+prism config export my-setup.json   # bar and theme, Prism configuration, appearance, applied levels
+prism config import my-setup.json   # on this PC or another one (administrator for the levels)
+```
+
+The file holds the Prism Bar settings (edge, widgets, transparency, effects, theme…),
+your `config.toml` if you have one, the Windows appearance settings, and which debloat
+and privacy levels are **fully** applied. Importing writes the bar settings (the bar
+picks them up within a second), keeps your previous `config.toml` as
+`config.toml.bak`, then applies appearance and levels through the usual journals — so
+`prism apparence restore`, `prism allege restore` and `prism vie-privee restore` still
+undo everything. Import only adds: a level absent from the file is not removed.
+Journals are never exported (they describe the original state of *this* PC).
 
 ## 15. Troubleshooting
 

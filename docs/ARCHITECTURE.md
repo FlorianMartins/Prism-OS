@@ -60,7 +60,7 @@ in the interface can be undone by `prism … restore`, and vice versa.
 | **v0.3** ✓ (partial) | interface: `prism-ui` dashboard, game launcher + console mode, Store app startup tasks, Appearance (official Windows animation/effects/theme settings with presets), Prism Bar (native Win32 taskbar on any screen edge, one per screen), desktop widgets, per-app transparency rules, scheduled-task debloat — [spec](specs/v0.3-interface.md). Still planned: Prism as a Windows service, tiling window manager |
 | **v0.4** ✓ | window effects: 7 effects (genie, squash, jelly, zoom, fade, 3D tilt, fall apart) per action on minimize/restore/open/close, glide/elastic/crossfade on maximize and snap, jelly while dragging, software-rendered in the Prism Bar's click-through overlay, measured per animation (`prism fx stats`); per-element transparency (menus, dropdowns, tooltips, dialogs) — [spec](specs/v0.4-effects.md) |
 | **v0.5** ✓ | privacy: 21 official policies / Settings options and 4 Windows Firewall rules (telemetry service, CompatTelRunner, DeviceCensus, error reports) at two levels, read-only view of what debloat already does, dashboard with live telemetry connections — [spec](specs/v0.5-privacy.md) |
-| v0.6 | customization: themes, tiling window manager (if not delivered in v0.3), exportable profiles |
+| **v0.6** (partial) | customization: colour themes for the bar, widgets and app (8 presets, custom accent, WCAG contrast tested) ✓, export/import of the whole setup ✓ — [spec](specs/v0.6-customization.md). Next: tiling window manager |
 | v0.7 | installer, signed updates, published FPS measurements |
 
 ## Principles

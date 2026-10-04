@@ -38,14 +38,49 @@ const TIMER_ID: usize = 1;
 const fn rgb(r: u8, g: u8, b: u8) -> COLORREF {
     r as u32 | ((g as u32) << 8) | ((b as u32) << 16)
 }
-const BG: COLORREF = rgb(0x12, 0x17, 0x1e);
-const ITEM: COLORREF = rgb(0x1f, 0x27, 0x32);
-const ITEM_ACTIVE: COLORREF = rgb(0x1d, 0x3d, 0x47);
-const TEXT: COLORREF = rgb(0xe6, 0xed, 0xf3);
-const MUTED: COLORREF = rgb(0x8b, 0x96, 0xa3);
-const ACCENT: COLORREF = rgb(0x5c, 0xcf, 0xe6);
-const OK: COLORREF = rgb(0x57, 0xd9, 0xa3);
-const WARN: COLORREF = rgb(0xe8, 0xb3, 0x4b);
+/// Couleurs de la barre, tirées du thème (`bar.json`) ; relues à chaque changement.
+#[derive(Clone, Copy)]
+struct Colors {
+    bg: COLORREF,
+    item: COLORREF,
+    item_active: COLORREF,
+    text: COLORREF,
+    muted: COLORREF,
+    accent: COLORREF,
+    ok: COLORREF,
+    warn: COLORREF,
+}
+
+impl Colors {
+    fn from_theme(t: &prism_core::theme::ThemeConfig) -> Colors {
+        let p = t.palette();
+        let c = |v: [u8; 3]| rgb(v[0], v[1], v[2]);
+        Colors {
+            bg: c(p.bg),
+            item: c(p.card_hi),
+            item_active: c(p.accent_dim),
+            text: c(p.text),
+            muted: c(p.muted),
+            accent: c(p.accent),
+            ok: c(p.ok),
+            warn: c(p.warn),
+        }
+    }
+}
+
+thread_local! {
+    static COLORS: std::cell::Cell<Option<Colors>> = const { std::cell::Cell::new(None) };
+}
+
+fn colors() -> Colors {
+    COLORS
+        .with(|c| c.get())
+        .unwrap_or_else(|| Colors::from_theme(&prism_core::theme::ThemeConfig::default()))
+}
+
+fn set_colors(t: &prism_core::theme::ThemeConfig) {
+    COLORS.with(|c| c.set(Some(Colors::from_theme(t))));
+}
 
 fn wide(s: &str) -> Vec<u16> {
     s.encode_utf16().chain(Some(0)).collect()
@@ -596,7 +631,7 @@ impl Bar {
             let mem = CreateCompatibleDC(hdc);
             let bmp = CreateCompatibleBitmap(hdc, w, h);
             let old = SelectObject(mem, bmp as HGDIOBJ);
-            fill(mem, rc, BG);
+            fill(mem, rc, colors().bg);
             fill(
                 mem,
                 RECT {
@@ -605,7 +640,7 @@ impl Bar {
                     right: w,
                     bottom: self.scaled(3),
                 },
-                ACCENT,
+                colors().accent,
             );
             SetBkMode(mem, TRANSPARENT as i32);
             let huge = make_font(self.scaled(52), 300);
@@ -634,7 +669,7 @@ impl Bar {
                     text(
                         mem,
                         huge,
-                        TEXT,
+                        colors().text,
                         top,
                         &format!("{:02}:{:02}", t.wHour, t.wMinute),
                         DT_LEFT,
@@ -642,7 +677,7 @@ impl Bar {
                     text(
                         mem,
                         font,
-                        MUTED,
+                        colors().muted,
                         bottom,
                         &date_fr(t.wDayOfWeek, t.wDay, t.wMonth, t.wYear),
                         DT_LEFT,
@@ -682,8 +717,8 @@ impl Bar {
                             bottom: top + row_h / 2 + 4,
                             ..inner
                         };
-                        text(mem, small, MUTED, line, label, DT_LEFT);
-                        text(mem, font, TEXT, line, shown, DT_RIGHT);
+                        text(mem, small, colors().muted, line, label, DT_LEFT);
+                        text(mem, font, colors().text, line, shown, DT_RIGHT);
                         if let Some(v) = value {
                             let bar = RECT {
                                 left: inner.left,
@@ -691,12 +726,12 @@ impl Bar {
                                 right: inner.right,
                                 bottom: top + row_h / 2 + 10,
                             };
-                            fill(mem, bar, ITEM);
+                            fill(mem, bar, colors().item);
                             let filled = RECT {
                                 right: bar.left + ((bar.right - bar.left) as f32 * v / 100.0) as i32,
                                 ..bar
                             };
-                            fill(mem, filled, if *v > 85.0 { WARN } else { ACCENT });
+                            fill(mem, filled, if *v > 85.0 { colors().warn } else { colors().accent });
                         }
                     }
                 }
@@ -710,21 +745,21 @@ impl Bar {
                         bottom: inner.top + self.scaled(34),
                         ..inner
                     };
-                    text(mem, small, MUTED, head, label, DT_LEFT);
+                    text(mem, small, colors().muted, head, label, DT_LEFT);
                     let shown = value.map(|v| format!("{v:.0} %")).unwrap_or_else(|| "—".into());
-                    text(mem, big, TEXT, head, &shown, DT_RIGHT);
+                    text(mem, big, colors().text, head, &shown, DT_RIGHT);
                     let graph = RECT {
                         top: head.bottom + self.scaled(6),
                         ..inner
                     };
-                    graph_line(mem, graph, hist.values(), ACCENT);
+                    graph_line(mem, graph, hist.values(), colors().accent);
                 }
                 DeskKind::Network => {
                     let half = (inner.bottom - inner.top) / 2;
                     text(
                         mem,
                         small,
-                        MUTED,
+                        colors().muted,
                         RECT {
                             bottom: inner.top + half / 2,
                             ..inner
@@ -744,7 +779,7 @@ impl Bar {
                     text(
                         mem,
                         big,
-                        OK,
+                        colors().ok,
                         down,
                         &format!("↓ {}", human_rate(self.sample.net_down)),
                         DT_LEFT,
@@ -752,7 +787,7 @@ impl Bar {
                     text(
                         mem,
                         font,
-                        ACCENT,
+                        colors().accent,
                         up,
                         &format!("↑ {}", human_rate(self.sample.net_up)),
                         DT_LEFT,
@@ -794,6 +829,7 @@ impl Bar {
         if stamp != self.cfg_stamp {
             self.cfg_stamp = stamp;
             let new = BarConfig::load();
+            set_colors(&new.theme);
             if new.hide_windows_taskbar != self.cfg.hide_windows_taskbar {
                 self.taskbar_prev = set_taskbar_autohide(new.hide_windows_taskbar, self.taskbar_prev);
             }
@@ -1668,7 +1704,7 @@ impl Bar {
                     right: w,
                     bottom: h,
                 },
-                BG,
+                colors().bg,
             );
             SetBkMode(mem, TRANSPARENT as i32);
             let horizontal = self.cfg.edge.horizontal();
@@ -1680,7 +1716,7 @@ impl Bar {
                 let r = inset(p.rect, 3);
                 match p.widget {
                     Widget::Start => {
-                        text(mem, bold, ACCENT, r, "◆", DT_CENTER);
+                        text(mem, bold, colors().accent, r, "◆", DT_CENTER);
                     }
                     Widget::Windows => {
                         if let Some(win) = p
@@ -1688,7 +1724,15 @@ impl Bar {
                             .and_then(|i| panel.wins.get(i))
                             .and_then(|i| self.windows.get(*i))
                         {
-                            fill(mem, r, if win.hwnd == fg { ITEM_ACTIVE } else { ITEM });
+                            fill(
+                                mem,
+                                r,
+                                if win.hwnd == fg {
+                                    colors().item_active
+                                } else {
+                                    colors().item
+                                },
+                            );
                             if win.hwnd == fg {
                                 let line = if horizontal {
                                     RECT {
@@ -1705,7 +1749,7 @@ impl Bar {
                                         bottom: r.bottom,
                                     }
                                 };
-                                fill(mem, line, ACCENT);
+                                fill(mem, line, colors().accent);
                             }
                             let label = if horizontal {
                                 win.title.clone()
@@ -1725,7 +1769,7 @@ impl Bar {
                             text(
                                 mem,
                                 font,
-                                TEXT,
+                                colors().text,
                                 tr,
                                 &label,
                                 if horizontal { DT_LEFT } else { DT_CENTER },
@@ -1736,7 +1780,7 @@ impl Bar {
                     Widget::Ram => meter(mem, r, "RAM", self.sample.ram, &self.ram, horizontal, font, small),
                     Widget::Gpu => match self.sample.gpu {
                         Some(g) => meter(mem, r, "GPU", g, &self.gpu, horizontal, font, small),
-                        None => text(mem, small, MUTED, r, "GPU —", DT_CENTER),
+                        None => text(mem, small, colors().muted, r, "GPU —", DT_CENTER),
                     },
                     Widget::Network => {
                         let s = if horizontal {
@@ -1748,13 +1792,13 @@ impl Bar {
                         } else {
                             "NET".to_string()
                         };
-                        text(mem, small, TEXT, r, &s, DT_CENTER);
+                        text(mem, small, colors().text, r, &s, DT_CENTER);
                     }
                     Widget::GameMode => {
                         let (s, c) = if self.game {
-                            ("● Jeu", ACCENT)
+                            ("● Jeu", colors().accent)
                         } else {
-                            ("○ Jeu", MUTED)
+                            ("○ Jeu", colors().muted)
                         };
                         text(mem, font, c, r, s, DT_CENTER);
                     }
@@ -1773,7 +1817,7 @@ impl Bar {
                             text(
                                 mem,
                                 bold,
-                                TEXT,
+                                colors().text,
                                 top,
                                 &format!("{:02}:{:02}", t.wHour, t.wMinute),
                                 DT_CENTER,
@@ -1781,7 +1825,7 @@ impl Bar {
                             text(
                                 mem,
                                 small,
-                                MUTED,
+                                colors().muted,
                                 bottom,
                                 &format!("{:02}/{:02}/{}", t.wDay, t.wMonth, t.wYear),
                                 DT_CENTER,
@@ -1790,7 +1834,7 @@ impl Bar {
                             text(
                                 mem,
                                 bold,
-                                TEXT,
+                                colors().text,
                                 r,
                                 &format!("{:02}:{:02}", t.wHour, t.wMinute),
                                 DT_CENTER,
@@ -1837,7 +1881,7 @@ fn date_fr(dow: u16, day: u16, month: u16, year: u16) -> String {
 
 /// Courbe d'historique dans un rectangle (valeurs 0..=100).
 unsafe fn graph_line(hdc: HDC, g: RECT, vals: &[f32], color: COLORREF) {
-    fill(hdc, g, ITEM);
+    fill(hdc, g, colors().item);
     if vals.len() < 2 || g.right <= g.left {
         return;
     }
@@ -1920,17 +1964,17 @@ unsafe fn meter(
     small: HFONT,
 ) {
     let color = if value > 85.0 {
-        WARN
+        colors().warn
     } else if value > 60.0 {
-        ACCENT
+        colors().accent
     } else {
-        OK
+        colors().ok
     };
     if !horizontal {
         text(
             hdc,
             small,
-            MUTED,
+            colors().muted,
             RECT {
                 bottom: r.top + (r.bottom - r.top) / 2,
                 ..r
@@ -1955,7 +1999,7 @@ unsafe fn meter(
     text(
         hdc,
         small,
-        MUTED,
+        colors().muted,
         RECT {
             right: split,
             bottom: r.top + (r.bottom - r.top) / 2 + 2,
@@ -2320,6 +2364,7 @@ pub fn run() -> Result<(), String> {
         }
         BAR_HWND.with(|b| b.set(hwnd as isize));
         let cfg = BarConfig::load();
+        set_colors(&cfg.theme);
         let taskbar_prev = if cfg.hide_windows_taskbar {
             set_taskbar_autohide(true, None)
         } else {

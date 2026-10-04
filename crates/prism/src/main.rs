@@ -42,6 +42,8 @@ Utilisation : prism <commande>
   apparence               animations, effets, thème (réglages officiels de Windows)
   apparence <préréglage>  performance | fluide ; apparence set <id> <option> ; restore
   config init|check|path  copie modifiable de la configuration
+  config export <fichier> toute la configuration (barre, thème, apparence, niveaux) dans un fichier
+  config import <fichier> la réapplique, sur ce PC ou un autre (admin pour les niveaux)
   autostart on|off        lance le Mode Jeu à l'ouverture de session (admin)
   bar on|off              lance / arrête la Prism Bar ; bar autostart on|off
   fx demo | fx stats      démonstration mesurée des effets ; mesures des dernières animations
@@ -291,7 +293,7 @@ fn platform_command(_cfg: &Config, args: &[&str]) -> Result<(), String> {
     match args.first() {
         Some(
             &("status" | "watch" | "ram" | "autostart" | "allege" | "top" | "demarrage" | "jeux" | "apparence" | "bar"
-            | "vie-privee"),
+            | "vie-privee" | "config"),
         ) => Err("cette commande agit sur Windows ; ici, essayez `prism demo`".into()),
         _ => Err(format!("commande inconnue : {}\n\n{HELP}", args.join(" "))),
     }
@@ -579,6 +581,129 @@ fn platform_command(cfg: &Config, args: &[&str]) -> Result<(), String> {
                 .ok_or_else(|| format!("préréglage inconnu « {preset} »"))?
                 .clone();
             apparence_run(move |sys, j| prism_core::apparence::apply(sys, &c, &p.values, j))
+        }
+        ["config", "export", file] => {
+            use prism_core::{allege, apparence, backup, privacy};
+            let config_toml = std::fs::read_to_string(sys::config_path()).ok();
+            let ac = apparence::Catalog::builtin();
+            let appearance = apparence::current(&mut prism_win::WindowsAppearance, &ac)
+                .into_iter()
+                .filter_map(|(id, v)| v.ok().flatten().map(|v| (id, v)))
+                .collect();
+            let rows = privacy::status(&mut prism_win::WindowsPrivacy::new(), &privacy::Catalog::builtin());
+            let b = backup::Backup {
+                format: backup::FORMAT,
+                prism_version: env!("CARGO_PKG_VERSION").into(),
+                bar: prism_core::bar::BarConfig::load(),
+                config_toml,
+                appearance,
+                allege: backup::allege_applied(&mut prism_win::WindowsSystemConfig, &allege::Catalog::builtin()),
+                privacy: backup::privacy_applied(&rows),
+            };
+            std::fs::write(file, backup::to_json(&b)?).map_err(|e| format!("{file} : {e}"))?;
+            println!("Configuration exportée dans {file}");
+            println!("  barre : bord {:?}, thème {}", b.bar.edge, b.bar.theme.label());
+            println!(
+                "  configuration de Prism : {}",
+                if b.config_toml.is_some() {
+                    "personnalisée"
+                } else {
+                    "par défaut"
+                }
+            );
+            println!("  apparence : {} réglage(s)", b.appearance.len());
+            let tiers: Vec<&str> = b.allege.iter().map(|t| t.label()).collect();
+            println!(
+                "  allègement appliqué : {}",
+                if tiers.is_empty() {
+                    "aucun".into()
+                } else {
+                    tiers.join(", ")
+                }
+            );
+            println!(
+                "  vie privée : {}",
+                b.privacy.map(|l| l.label()).unwrap_or("aucun niveau complet")
+            );
+            Ok(())
+        }
+        ["config", "import", file] => {
+            use prism_core::{allege, apparence, backup, privacy};
+            let bytes = std::fs::read(file).map_err(|e| format!("{file} : {e}"))?;
+            let (b, warnings) = backup::parse(&bytes)?;
+            for w in &warnings {
+                println!("  ⚠ {w}");
+            }
+            let mut failed = 0usize;
+            b.bar.save()?;
+            println!("✓ barre et thème ({})", b.bar.theme.label());
+            if let Some(t) = &b.config_toml {
+                let path = sys::config_path();
+                if path.exists() {
+                    std::fs::copy(&path, path.with_extension("toml.bak")).map_err(|e| e.to_string())?;
+                }
+                std::fs::create_dir_all(sys::data_dir()).map_err(|e| e.to_string())?;
+                std::fs::write(&path, t).map_err(|e| e.to_string())?;
+                println!("✓ configuration de Prism (l'ancienne est gardée en config.toml.bak)");
+            }
+            if !b.appearance.is_empty() {
+                let ac = apparence::Catalog::builtin();
+                let path = sys::data_dir().join("apparence.json");
+                let mut j = apparence::AppearanceJournal::load(&path)?;
+                let r = apparence::apply(&mut prism_win::WindowsAppearance, &ac, &b.appearance, &mut j);
+                j.save(&path)?;
+                failed += r.failed.len();
+                println!(
+                    "✓ apparence : {} changé(s), {} déjà en place, {} échec(s)",
+                    r.done.len(),
+                    r.unchanged.len(),
+                    r.failed.len()
+                );
+            }
+            if !b.allege.is_empty() {
+                let c = allege::Catalog::builtin();
+                let path = sys::data_dir().join("allegement.json");
+                let mut j = allege::AllegeJournal::load(&path)?;
+                let r = allege::apply(
+                    &mut prism_win::WindowsSystemConfig,
+                    &c,
+                    &allege::plan(&c, &b.allege),
+                    &mut j,
+                    &mut |j| j.save(&path),
+                );
+                failed += r.failed.len();
+                println!(
+                    "✓ allègement : {} appliqué(s), {} déjà fait(s), {} échec(s)",
+                    r.done.len(),
+                    r.unchanged.len(),
+                    r.failed.len()
+                );
+            }
+            if let Some(level) = b.privacy {
+                let c = privacy::Catalog::builtin();
+                let path = privacy::journal_path();
+                let mut j = privacy::Journal::load(&path)?;
+                let r = privacy::apply(
+                    &mut prism_win::WindowsPrivacy::new(),
+                    &privacy::plan(&c, level),
+                    &mut j,
+                    &mut |j| j.save(&path),
+                );
+                failed += r.failed.len();
+                println!(
+                    "✓ vie privée « {} » : {} appliqué(s), {} déjà fait(s), {} échec(s)",
+                    level.label(),
+                    r.done.len(),
+                    r.unchanged.len(),
+                    r.failed.len()
+                );
+            }
+            println!("Tout reste réversible : apparence, allege et vie-privee restore.");
+            if failed == 0 {
+                Ok(())
+            } else {
+                Err(format!("{failed} changement(s) refusé(s) (droits administrateur ?)"))
+            }
         }
         ["vie-privee"] => {
             use prism_core::privacy::{status, Catalog};

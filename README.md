@@ -37,6 +37,10 @@ tools. Every change is journaled and reversible.
   screen (each bar shows that screen's windows, or all of them), adjustable
   thickness, floating margin, opacity and widgets (CPU, RAM, GPU, network, Game Mode,
   clock); hides during fullscreen games.
+- **Themes** — Prism, Nord, Dracula, Catppuccin, Gruvbox, Tokyo Night, a red gaming
+  theme and a light one, or your own accent colour, for the bar, widgets and app
+  (every preset is tested for readable contrast).
+- **Export / import** (`prism config export|import`) — your whole setup in one file.
 - **Desktop widgets and transparency** — Conky-style widgets; translucent app windows,
   menus, dropdown lists, tooltips and dialogs, each with its own opacity (never games).
 - **Window effects, KDE/Bazzite-style** — a choice per action: genie lamp, squash,
@@ -109,7 +113,7 @@ off-screen by the tests into `target/ui-shots/` (needs a Vulkan driver; on Linux
 ## Roadmap
 
 v0.1 engine ✓ · v0.2 process management ✓ · v0.3 interface and customisation ✓ ·
-v0.4 window effects ✓ · v0.5 privacy ✓ ·
+v0.4 window effects ✓ · v0.5 privacy ✓ · v0.6 themes and export ✓ (tiling next) ·
 next: Prism as a Windows service, tiling window manager, installer and signed updates,
 FPS measurements on real hardware. Details:
 [ARCHITECTURE.md](docs/ARCHITECTURE.md).
