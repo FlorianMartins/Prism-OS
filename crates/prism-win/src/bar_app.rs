@@ -135,6 +135,8 @@ struct Bar {
     /// Abonnement aux changements de position, limité à l'appli au premier plan
     /// (pas aux mouvements de souris de tout le système) : (abonnement, processus).
     loc_hook: Option<(isize, u32)>,
+    /// Fenêtres en tuiles.
+    tiler: crate::tiler::Tiler,
 }
 
 /// Gélatine pendant un déplacement : la vraie fenêtre, rendue invisible, est
@@ -296,6 +298,21 @@ fn fx_dump(img: &prism_core::fx::Image, name: &str) {
     }
     let _ = std::fs::write(dir.join(format!("{name}.ppm")), ppm);
 }
+
+/// Raccourcis des tuiles (Win+Ctrl+Alt+…). Vérifié en VM (Windows 11 26H2) : Windows
+/// prend déjà Win+Alt+W, F, Y et les flèches, et la Game Bar Win+Alt+B, G, K, M, R, T ;
+/// Win+Ctrl+Alt est entièrement libre, et ne se confond pas avec AltGr (qui ne
+/// comprend jamais la touche Windows).
+const HOTKEYS: [(i32, u32, &str); 8] = [
+    (1, 0x57, "Win+Ctrl+Alt+W : tuiles oui / non"),
+    (2, 0x20, "Win+Ctrl+Alt+Espace : disposition suivante"),
+    (3, 0x0D, "Win+Ctrl+Alt+Entrée : fenêtre active en principale"),
+    (4, 0x25, "Win+Ctrl+Alt+Gauche : fenêtre précédente"),
+    (5, 0x27, "Win+Ctrl+Alt+Droite : fenêtre suivante"),
+    (6, 0x26, "Win+Ctrl+Alt+Haut : agrandir la principale"),
+    (7, 0x28, "Win+Ctrl+Alt+Bas : réduire la principale"),
+    (8, 0x46, "Win+Ctrl+Alt+F : fenêtre active flottante / en tuile"),
+];
 
 const WM_FX: u32 = WM_APP + 3;
 /// Image suivante de la gélatine de déplacement (message que la barre se poste à
@@ -830,6 +847,9 @@ impl Bar {
             self.cfg_stamp = stamp;
             let new = BarConfig::load();
             set_colors(&new.theme);
+            if self.cfg.tiling.enabled && !new.tiling.enabled {
+                self.tiler.restore_all();
+            }
             if new.hide_windows_taskbar != self.cfg.hide_windows_taskbar {
                 self.taskbar_prev = set_taskbar_autohide(new.hide_windows_taskbar, self.taskbar_prev);
             }
@@ -840,6 +860,9 @@ impl Bar {
 
     fn tick(&mut self) {
         self.reload_config_if_changed();
+        for l in self.tiler.log.drain(..) {
+            fx_log(|| format!("tuiles : {l}"));
+        }
         if self.monitors_changed() {
             self.dock();
         }
@@ -856,6 +879,7 @@ impl Bar {
         self.game = Etat::load().is_some_and(|e| !e.game.is_empty());
         self.windows = list_windows(self.hwnd);
         self.apply_opacity_rules();
+        self.retile();
         self.relayout();
         // SAFETY: invalidation de nos propres fenêtres.
         unsafe {
@@ -971,7 +995,7 @@ impl Bar {
                 .and_then(|p| p.rsplit('\\').next())
                 .unwrap_or_default()
                 .to_string();
-            if prism_core::classify::is_game_process(&exe, path.as_deref(), &self.game_cfg) {
+            if prism_core::classify::window_untouchable(&exe, path.as_deref(), &self.game_cfg) {
                 return false;
             }
         }
@@ -1393,6 +1417,9 @@ impl Bar {
         let Some(old) = self.geo.insert(key, new) else {
             return;
         };
+        if self.tiler.recently_moved(h) {
+            return; // placée par les tuiles : pas d'animation « agrandir »
+        }
         let resized = (new.width() - old.width()).abs() > 8 || (new.height() - old.height()).abs() > 8;
         if !resized || at.elapsed() > Duration::from_millis(250) || old.width() < 200 || old.height() < 120 {
             return;
@@ -1524,6 +1551,21 @@ impl Bar {
         if !self.cfg.fx.enabled {
             return;
         }
+        let structural = events.iter().any(|(ev, _, _)| {
+            matches!(
+                *ev,
+                EVENT_OBJECT_SHOW_ID
+                    | EVENT_OBJECT_HIDE_ID
+                    | EVENT_SYSTEM_MINIMIZESTART_ID
+                    | EVENT_SYSTEM_MINIMIZEEND_ID
+            )
+        });
+        if structural && self.cfg.tiling.enabled {
+            // Fenêtre ouverte, fermée, réduite ou rendue : les tuiles se réorganisent
+            // tout de suite (sans attendre la seconde suivante).
+            self.windows = list_windows(self.hwnd);
+            self.retile();
+        }
         for (ev, key, at) in events {
             let h = key as HWND;
             fx_log(|| {
@@ -1543,6 +1585,9 @@ impl Bar {
                 // Jamais abandonné : c'est lui qui rend la vraie fenêtre.
                 if let Some(d) = self.drag.as_mut().filter(|d| d.hwnd == h) {
                     d.released.get_or_insert(at);
+                }
+                if self.cfg.tiling.enabled {
+                    self.tile_drop(h);
                 }
                 continue;
             }
@@ -1618,6 +1663,135 @@ impl Bar {
                 _ => {}
             }
         }
+    }
+
+    /// Fenêtres à mettre en tuiles : comme la barre des tâches, sans jeu, plein écran,
+    /// exclusion ni fenêtre de Prism.
+    fn tile_candidates(&self) -> Vec<HWND> {
+        self.windows
+            .iter()
+            .filter(|w| w.pid != std::process::id())
+            .map(|w| w.hwnd)
+            .filter(|h| crate::tiler::tileable_shape(*h) && !is_fullscreen(*h))
+            .filter(|h| {
+                let mut pid = 0u32;
+                // SAFETY: sortie locale.
+                unsafe { GetWindowThreadProcessId(*h, &mut pid) };
+                let path = crate::win::process_path(pid);
+                let exe = path
+                    .as_deref()
+                    .and_then(|p| p.rsplit('\\').next())
+                    .unwrap_or_default()
+                    .to_string();
+                !prism_core::classify::window_untouchable(&exe, path.as_deref(), &self.game_cfg)
+                    && !self.cfg.tiling.excluded(&exe)
+            })
+            .collect()
+    }
+
+    /// Met les fenêtres en tuiles (si activé et hors Mode Jeu : rien ne bouge pendant
+    /// une partie).
+    fn retile(&mut self) {
+        if !self.cfg.tiling.enabled || self.game {
+            return;
+        }
+        let wins = self.tile_candidates();
+        fx_log(|| {
+            let names: Vec<String> = wins
+                .iter()
+                .map(|h| {
+                    let t = self
+                        .windows
+                        .iter()
+                        .find(|w| w.hwnd == *h)
+                        .map(|w| w.title.clone())
+                        .unwrap_or_default();
+                    format!("{:#x} {t}", *h as isize)
+                })
+                .collect();
+            format!("tuiles : candidates {names:?}")
+        });
+        let n = self.tiler.apply(&wins, &self.cfg.tiling, self.scale);
+        for l in self.tiler.log.drain(..) {
+            fx_log(|| format!("tuiles : {l}"));
+        }
+        if n > 0 {
+            fx_log(|| format!("tuiles : {n} fenêtre(s) placée(s)"));
+        }
+    }
+
+    /// Fenêtre lâchée après un déplacement : sur la tuile d'une autre fenêtre du même
+    /// écran, elles échangent leur place ; sinon elle reprend la sienne.
+    fn tile_drop(&mut self, h: HWND) {
+        let mut cursor = POINT { x: 0, y: 0 };
+        // SAFETY: sortie locale.
+        unsafe { GetCursorPos(&mut cursor) };
+        let mon = crate::tiler::Tiler::monitor_of(h);
+        let target = self
+            .tiler
+            .order_of(mon)
+            .iter()
+            .copied()
+            .filter(|w| *w != h as isize)
+            .find(|w| crate::fx_overlay::visible_rect(*w as HWND).is_some_and(|r| r.contains(cursor.x, cursor.y)));
+        if let Some(t) = target {
+            self.tiler.swap(h, t as HWND);
+        }
+        self.windows = list_windows(self.hwnd);
+        self.retile();
+    }
+
+    /// Enregistre la configuration modifiée par la barre elle-même.
+    fn save_cfg(&mut self) {
+        let r = self.cfg.save();
+        fx_log(|| {
+            format!(
+                "configuration enregistrée : {r:?}, disposition {:?}",
+                self.cfg.tiling.layout
+            )
+        });
+        if r.is_ok() {
+            self.cfg_stamp = std::fs::metadata(BarConfig::path()).and_then(|m| m.modified()).ok();
+        }
+    }
+
+    /// Raccourci clavier des tuiles.
+    fn hotkey(&mut self, id: i32) {
+        fx_log(|| format!("raccourci {id}"));
+        // SAFETY: lecture d'état.
+        let fg = unsafe { GetForegroundWindow() };
+        let t = &mut self.cfg.tiling;
+        match id {
+            1 => {
+                t.enabled = !t.enabled;
+                if !t.enabled {
+                    self.tiler.restore_all();
+                }
+            }
+            2 => t.layout = t.layout.next(),
+            3 => self.tiler.promote(fg),
+            4 | 5 => {
+                if let Some(w) = self.tiler.neighbour(fg, if id == 4 { -1 } else { 1 }) {
+                    activate(w);
+                }
+                return;
+            }
+            6 => t.master_percent = (t.master_percent + 5).min(prism_core::tiling::PERCENT_MAX),
+            7 => t.master_percent = t.master_percent.saturating_sub(5).max(prism_core::tiling::PERCENT_MIN),
+            8 => {
+                let k = fg as isize;
+                if !self.tiler.floating.remove(&k) {
+                    self.tiler.floating.insert(k);
+                    self.tiler.release(fg, true);
+                }
+            }
+            _ => return,
+        }
+        if matches!(id, 1 | 2 | 6 | 7) {
+            self.save_cfg();
+        }
+        self.windows = list_windows(self.hwnd);
+        self.retile();
     }
 
     /// Démonstration mesurée : réduction, restauration, fermeture et ouverture
@@ -2237,6 +2411,10 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) 
             with_bar(|b| b.drag_frame());
             0
         }
+        WM_HOTKEY => {
+            with_bar(|b| b.hotkey(wp as i32));
+            0
+        }
         WM_TIMER => {
             with_bar(|b| b.tick());
             0
@@ -2293,6 +2471,7 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) 
         WM_DESTROY => {
             with_bar(|b| {
                 b.drag_end();
+                b.tiler.restore_all();
                 b.restore_opacity();
                 for d in b.desk.drain(..) {
                     DestroyWindow(d.hwnd);
@@ -2412,14 +2591,30 @@ pub fn run() -> Result<(), String> {
                 drag: None,
                 geo: HashMap::new(),
                 loc_hook: None,
+                tiler: crate::tiler::Tiler::with_saved_originals(),
             })
         });
         with_bar(|b| {
+            // Barre précédente arrêtée de force avec les tuiles actives, désactivées
+            // depuis : les fenêtres retrouvent leur place.
+            if !b.cfg.tiling.enabled {
+                b.tiler.restore_all();
+            }
             b.dock();
             b.tick();
         });
         ShowWindow(hwnd, SW_SHOWNOACTIVATE);
         SetTimer(hwnd, TIMER_ID, 1000, None);
+        {
+            use windows_sys::Win32::UI::Input::KeyboardAndMouse::{
+                RegisterHotKey, MOD_ALT, MOD_CONTROL, MOD_NOREPEAT, MOD_WIN,
+            };
+            for (id, vk, label) in HOTKEYS {
+                if RegisterHotKey(hwnd, id, MOD_WIN | MOD_CONTROL | MOD_ALT | MOD_NOREPEAT, vk) == 0 {
+                    fx_log(|| format!("raccourci déjà pris par une autre appli : {label}"));
+                }
+            }
+        }
         use windows_sys::Win32::UI::Accessibility::{SetWinEventHook, UnhookWinEvent};
         let flags = WINEVENT_OUTOFCONTEXT | WINEVENT_SKIPOWNPROCESS;
         // Apparitions/disparitions (transparence par élément, ouverture/fermeture),

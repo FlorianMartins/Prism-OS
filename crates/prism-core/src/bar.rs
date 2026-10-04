@@ -258,6 +258,8 @@ pub struct BarConfig {
     pub windows_per_monitor: bool,
     /// Thème de couleurs (barre, widgets, appli).
     pub theme: crate::theme::ThemeConfig,
+    /// Fenêtres en tuiles.
+    pub tiling: crate::tiling::TilingConfig,
 }
 
 impl Default for BarConfig {
@@ -286,6 +288,7 @@ impl Default for BarConfig {
             all_monitors: true,
             windows_per_monitor: true,
             theme: crate::theme::ThemeConfig::default(),
+            tiling: crate::tiling::TilingConfig::default(),
         }
     }
 }
@@ -330,6 +333,7 @@ impl BarConfig {
             fresh
         });
         self.desktop_opacity = self.desktop_opacity.clamp(OPACITY_MIN, 100);
+        self.tiling = self.tiling.sanitized();
         let mut kinds = Vec::new();
         self.desktop_widgets.retain(|w| {
             let fresh = !kinds.contains(&w.kind);

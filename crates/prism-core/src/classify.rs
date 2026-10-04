@@ -79,6 +79,17 @@ pub fn is_game_process(name: &str, path: Option<&str>, cfg: &Config) -> bool {
     any_matches(&cfg.lists.protected, &p.name) || is_game(&p, cfg)
 }
 
+/// Fenêtres auxquelles Prism ne touche pas (effets, tuiles) : celles d'un jeu, d'un
+/// anti-cheat ou d'un processus protégé. Exception : les fenêtres de l'Explorateur de
+/// fichiers, des fenêtres ordinaires — les déplacer ou les animer est sans risque, et
+/// le processus `explorer.exe` lui-même reste protégé du Mode Jeu.
+pub fn window_untouchable(name: &str, path: Option<&str>, cfg: &Config) -> bool {
+    if name.eq_ignore_ascii_case("explorer.exe") {
+        return false;
+    }
+    is_game_process(name, path, cfg)
+}
+
 fn is_game(p: &ProcInfo, cfg: &Config) -> bool {
     let lists = &cfg.lists;
     if any_matches(&lists.games, &p.name) {
@@ -224,5 +235,21 @@ pub(crate) mod tests {
         let s = snap(vec![p.clone()]);
         assert_eq!(classify(&p, &s, &cfg), Class::Game);
         assert_eq!(games_running(&s, &cfg), vec!["mygame.exe".to_string()]);
+    }
+
+    #[test]
+    fn explorer_windows_are_ordinary_but_games_and_anticheats_are_not() {
+        let cfg = Config::builtin();
+        assert!(
+            is_game_process("explorer.exe", Some("c:\\windows\\explorer.exe"), &cfg),
+            "processus protégé"
+        );
+        assert!(!window_untouchable(
+            "explorer.exe",
+            Some("c:\\windows\\explorer.exe"),
+            &cfg
+        ));
+        assert!(window_untouchable("vgc.exe", None, &cfg), "anti-cheat");
+        assert!(window_untouchable("dwm.exe", None, &cfg), "système");
     }
 }

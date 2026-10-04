@@ -855,6 +855,8 @@ impl PrismApp {
         let before = cfg.clone();
         self.theme_section(ui, &mut cfg.theme);
         ui.add_space(12.0);
+        tiling_section(ui, &mut cfg.tiling);
+        ui.add_space(12.0);
         ui.horizontal(|ui| {
             section(ui, "Prism Bar");
             ui.label(
@@ -1402,6 +1404,75 @@ fn game_tile(ui: &mut egui::Ui, g: &Game, size: Vec2, selected: bool) -> egui::R
 
 /// Aperçu de la barre sur un écran miniature, avec le même code de disposition que
 /// la vraie barre (`prism_core::bar::layout`).
+/// Fenêtres en tuiles : disposition, écarts, part de la principale, exclusions.
+fn tiling_section(ui: &mut egui::Ui, t: &mut prism_core::tiling::TilingConfig) {
+    use prism_core::tiling::{Layout, GAP_MAX, PERCENT_MAX, PERCENT_MIN};
+    ui.horizontal(|ui| {
+        section(ui, "Fenêtres en tuiles");
+        ui.label(
+            RichText::new("Les fenêtres se rangent seules côte à côte, écran par écran (la Prism Bar doit tourner).")
+                .small()
+                .color(th::muted()),
+        );
+    });
+    card(ui, false, |ui| {
+        ui.checkbox(&mut t.enabled, "Ranger les fenêtres en tuiles");
+        ui.add_enabled_ui(t.enabled, |ui| {
+            ui.horizontal(|ui| {
+                ui.label("Disposition");
+                for l in Layout::ALL {
+                    let sel = t.layout == l;
+                    let b = egui::Button::new(RichText::new(l.label()).color(if sel { th::on_accent() } else { th::text() }))
+                        .fill(if sel { th::accent() } else { th::card_hi() });
+                    if ui.add(b).clicked() {
+                        t.layout = l;
+                    }
+                }
+            });
+            ui.add(egui::Slider::new(&mut t.gap, 0..=GAP_MAX).text("écart entre les fenêtres").suffix(" px"));
+            ui.add_enabled(
+                t.layout == Layout::MasterStack,
+                egui::Slider::new(&mut t.master_percent, PERCENT_MIN..=PERCENT_MAX)
+                    .text("largeur de la fenêtre principale")
+                    .suffix(" %"),
+            );
+            ui.horizontal(|ui| {
+                ui.label("Jamais en tuiles");
+                let mut text = t.exclude.join(", ");
+                let resp = ui.add(
+                    egui::TextEdit::singleline(&mut text)
+                        .hint_text("ex. vlc.exe, *photoshop*")
+                        .desired_width(320.0),
+                );
+                if resp.changed() {
+                    t.exclude = text
+                        .split(',')
+                        .map(|x| x.trim().to_string())
+                        .filter(|x| !x.is_empty())
+                        .collect();
+                }
+            });
+            ui.label(
+                RichText::new(
+                    "Jamais un jeu, une fenêtre plein écran, une boîte de dialogue ni une fenêtre agrandie. \
+                     Une fenêtre qui ne tient pas dans sa tuile (taille minimale) reste flottante. \
+                     Désactiver remet chaque fenêtre à sa place.",
+                )
+                .small()
+                .color(th::muted()),
+            );
+            ui.label(
+                RichText::new(
+                    "Raccourcis : Win+Ctrl+Alt+W oui/non · Espace disposition suivante · Entrée fenêtre active en principale · \
+                     flèches gauche/droite fenêtre précédente/suivante · flèches haut/bas largeur de la principale · F flottante/en tuile",
+                )
+                .small()
+                .color(th::muted()),
+            );
+        });
+    });
+}
+
 fn bar_preview(ui: &mut egui::Ui, cfg: &prism_core::bar::BarConfig) {
     use prism_core::bar::{bar_rect, layout, Rect as BRect, Widget};
     let w = ui.available_width().min(520.0);

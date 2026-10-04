@@ -41,6 +41,9 @@ tools. Every change is journaled and reversible.
   theme and a light one, or your own accent colour, for the bar, widgets and app
   (every preset is tested for readable contrast).
 - **Export / import** (`prism config export|import`) — your whole setup in one file.
+- **Tiling window manager** — master + stack, columns, spiral or monocle, per screen,
+  with gaps and keyboard shortcuts (Win+Ctrl+Alt); never games or fullscreen windows;
+  everything back in place when turned off.
 - **Desktop widgets and transparency** — Conky-style widgets; translucent app windows,
   menus, dropdown lists, tooltips and dialogs, each with its own opacity (never games).
 - **Window effects, KDE/Bazzite-style** — a choice per action: genie lamp, squash,
@@ -113,8 +116,8 @@ off-screen by the tests into `target/ui-shots/` (needs a Vulkan driver; on Linux
 ## Roadmap
 
 v0.1 engine ✓ · v0.2 process management ✓ · v0.3 interface and customisation ✓ ·
-v0.4 window effects ✓ · v0.5 privacy ✓ · v0.6 themes and export ✓ (tiling next) ·
-next: Prism as a Windows service, tiling window manager, installer and signed updates,
+v0.4 window effects ✓ · v0.5 privacy ✓ · v0.6 themes, export and tiling ✓ ·
+next: Prism as a Windows service, installer and signed updates,
 FPS measurements on real hardware. Details:
 [ARCHITECTURE.md](docs/ARCHITECTURE.md).
 

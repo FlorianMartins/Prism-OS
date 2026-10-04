@@ -198,6 +198,15 @@ prism bar off       # stop it (the Windows taskbar comes back)
 
 Configure it live in **prism-ui → Apparence**:
 
+- **tiling** (*Fenêtres en tuiles*): windows arrange themselves side by side on each
+  screen — *Principale + pile* (main window + stack), *Colonnes*, *Spirale*, *Monocle* —
+  with adjustable gaps and main width, and a list of programs never tiled. Shortcuts:
+  **Win+Ctrl+Alt+W** on/off, **+Space** next layout, **+Enter** active window as main,
+  **+Left/Right** previous/next window, **+Up/Down** main width, **+F** float/tile the
+  active window. Drop a window on another one to swap them. Games, fullscreen windows,
+  dialogs and maximized windows are never tiled; a window too large for its tile (some
+  apps impose a minimum size) stays floating. Turning tiling off puts every window back
+  where it was;
 - **theme** (top of the page): Prism, Nord, Dracula, Catppuccin Mocha, Gruvbox, Tokyo
   Night, Rouge gaming or Clair (light, Solarized), plus an optional custom accent
   colour. The bar, the desktop widgets and the app change together; text on the accent

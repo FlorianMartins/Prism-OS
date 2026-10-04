@@ -25,6 +25,8 @@ mod startup;
 #[cfg(windows)]
 mod sysconfig;
 #[cfg(windows)]
+mod tiler;
+#[cfg(windows)]
 mod topology;
 #[cfg(windows)]
 mod win;

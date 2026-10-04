@@ -21,8 +21,8 @@ breaks one of these rules is rejected.
 8. **Never touch the services session (session 0).** Prism only acts on processes of
    the interactive user session, even if Prism itself runs elsewhere (over SSH, or as a
    service): WMI providers and licensing services must stay untouched.
-9. **Never touch a game's windows.** Per-app transparency, window styles and any future
-   window management skip every process classified as a game (same rules as Game Mode,
+9. **Never touch a game's windows.** Per-app transparency, window styles, effects and
+   tiling skip every process classified as a game (same rules as Game Mode,
    including detected library folders) and every fullscreen window.
 10. **Firewall rules only ever block Windows' own telemetry.** A privacy rule targets a
     telemetry service or an executable under `%SystemRoot%`; the catalogue parser and
