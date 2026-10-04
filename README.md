@@ -19,6 +19,9 @@ outils de sécurité et, bientôt, l'interface et la vie privée.
   inactifs, est réellement rendue au jeu, **sans** vider le cache où vivent les données
   du jeu. Explication complète : [spec §4](docs/specs/v0.1-mode-jeu.md#4-politique-ram--pourquoi-cet-ordre-précis).
 - **Profils** : Gaming, Équilibré, Cyber.
+- **Allègement de Windows réversible** (`prism allege`) : télémétrie, services
+  inutiles, Edge en arrière-plan… avec 72 services protégés que les anti-cheats
+  exigent. Gains mesurés et honnêtes : [docs/mesures.md](docs/mesures.md).
 - **Outils cyber à la demande** : Wireshark, Burp, ZAP, Sysinternals, x64dbg, Kali sous
   WSL (nmap, sqlmap, hashcat…). Rien n'est installé par défaut, rien ne tourne pendant
   le jeu, et les outils qui gênent les anti-cheats (débogueurs) sont signalés.
@@ -35,6 +38,7 @@ prism status               # ce que Prism voit : profil, RAM, jeux, conflits
 prism profile gaming       # ou balanced, cyber
 prism watch                # Mode Jeu automatique (Ctrl-C restaure tout)
 prism ram clean            # libère la RAM de l'arrière-plan maintenant
+prism allege apply         # allègement sûr (avance : plus poussé) ; allege restore annule
 prism tools                # packs d'outils cyber
 prism autostart on         # au démarrage de la session (console administrateur)
 ```
@@ -76,6 +80,8 @@ Sous Windows : `cargo build --release -p prism`.
 | `docs/` | [architecture](docs/ARCHITECTURE.md), [spec v0.1](docs/specs/v0.1-mode-jeu.md), [règles anti-cheat](docs/anticheat-rules.md) |
 
 ## Feuille de route
+
+Mesures publiées : [docs/mesures.md](docs/mesures.md).
 
 v0.2 interface (tableau de bord, lanceur, mode console, cœurs P/E et X3D) · v0.3 vie
 privée (télémétrie, debloat réversible) · v0.4 personnalisation · v0.5 installateur et
