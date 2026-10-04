@@ -559,6 +559,12 @@ fn watch(cfg: &Config, quiet: bool) -> Result<(), String> {
     ));
     let mut watcher = Watcher::default();
     let mut daily = Daily::default();
+    let mut etat = prism_core::etat::Etat {
+        cores: prism_core::cores::split(&w.cpus).map(|s| s.describe()),
+        ..Default::default()
+    };
+    let mut written = prism_core::etat::Etat::default();
+    let mut ticks: u64 = 0;
     out.line(&format!(
         "Prism en marche (profil {}) : Mode Quotidien permanent, Mode Jeu automatique.",
         sys::active_profile(cfg)
@@ -590,6 +596,29 @@ fn watch(cfg: &Config, quiet: bool) -> Result<(), String> {
                     }
                     for f in &r.failed {
                         out.line(&format!("  ÉCHEC : {f}"));
+                    }
+                }
+                let mut lines: Vec<String> = r.done.iter().map(|d| format!("Quotidien : {d}")).collect();
+                match &event {
+                    Event::Engaged { games, .. } => lines.push(format!("Mode Jeu : {}", games.join(", "))),
+                    Event::Released { .. } => lines.push("Fin du Mode Jeu, réglages restaurés".into()),
+                    _ => {}
+                }
+                for l in lines {
+                    etat.push_recent(format!("{} {l}", &sys::now_utc()[11..19]));
+                }
+                etat.profile = profile_name.clone();
+                etat.game = watcher.games.clone();
+                etat.eased = daily.eased_names(&snap);
+                etat.mem = snap.mem;
+                ticks += 1;
+                if !etat.same_content(&written) || ticks % 5 == 0 {
+                    etat.updated_unix = std::time::SystemTime::now()
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .map(|d| d.as_secs())
+                        .unwrap_or(0);
+                    if etat.save().is_ok() {
+                        written = etat.clone();
                     }
                 }
                 match event {

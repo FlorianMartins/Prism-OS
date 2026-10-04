@@ -32,6 +32,8 @@ pub enum Event {
 #[derive(Default)]
 pub struct Watcher {
     pub session: Option<GameSession>,
+    /// Jeux de la partie en cours (pour l'état affiché).
+    pub games: Vec<String>,
     quiet_polls: u32,
     /// Passages depuis la dernière purge de surveillance (limite la cadence).
     since_watch_purge: u32,
@@ -63,6 +65,7 @@ impl Watcher {
         if !games.is_empty() {
             self.quiet_polls = 0;
             let first = self.session.is_none();
+            self.games = games.clone();
             let report = engage(platform, store, cfg, profile_name, profile, &mut self.session, snap);
             return if first {
                 Event::Engaged {
@@ -100,6 +103,7 @@ impl Watcher {
     /// Restaure tout de suite (fin de la surveillance, Ctrl-C).
     pub fn release(&mut self, platform: &mut dyn Platform, store: &mut dyn JournalStore) -> Event {
         self.quiet_polls = 0;
+        self.games.clear();
         match self.session.take() {
             Some(s) => Event::Released {
                 report: restore(platform, store, &s.journal),

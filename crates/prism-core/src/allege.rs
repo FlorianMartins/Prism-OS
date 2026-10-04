@@ -40,6 +40,19 @@ impl Tier {
     }
 }
 
+impl StartType {
+    pub fn label_fr(self) -> &'static str {
+        match self {
+            StartType::Boot => "Démarrage noyau",
+            StartType::System => "Système",
+            StartType::Auto => "Auto",
+            StartType::AutoDelayed => "Auto (différé)",
+            StartType::Manual => "Manuel",
+            StartType::Disabled => "Désactivé",
+        }
+    }
+}
+
 /// Mode de démarrage d'un service Windows.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]

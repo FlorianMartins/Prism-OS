@@ -24,7 +24,7 @@ pub use library::installed_games;
 #[cfg(windows)]
 pub use startup::WindowsStartup;
 #[cfg(windows)]
-pub use sysconfig::WindowsSystemConfig;
+pub use sysconfig::{is_elevated, relaunch_elevated, WindowsSystemConfig};
 #[cfg(windows)]
 pub use topology::cpus as cpu_topology;
 

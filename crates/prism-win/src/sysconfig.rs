@@ -345,3 +345,58 @@ pub(crate) fn resume_service(name: &str) -> prism_core::platform::Outcome {
     }
     Outcome::Done(None)
 }
+
+/// Le processus courant tourne-t-il avec un jeton élevé (administrateur) ?
+pub fn is_elevated() -> bool {
+    use windows_sys::Win32::Foundation::{CloseHandle, HANDLE};
+    use windows_sys::Win32::Security::{GetTokenInformation, TokenElevation, TOKEN_ELEVATION, TOKEN_QUERY};
+    use windows_sys::Win32::System::Threading::{GetCurrentProcess, OpenProcessToken};
+    // SAFETY: jeton du processus courant, sortie locale de taille exacte, handle fermé.
+    unsafe {
+        let mut token: HANDLE = std::ptr::null_mut();
+        if OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, &mut token) == 0 {
+            return false;
+        }
+        let mut elev = TOKEN_ELEVATION { TokenIsElevated: 0 };
+        let mut len = 0u32;
+        let ok = GetTokenInformation(
+            token,
+            TokenElevation,
+            &mut elev as *mut _ as *mut core::ffi::c_void,
+            std::mem::size_of::<TOKEN_ELEVATION>() as u32,
+            &mut len,
+        );
+        CloseHandle(token);
+        ok != 0 && elev.TokenIsElevated != 0
+    }
+}
+
+/// Relance l'exécutable courant en administrateur (fenêtre UAC). `Ok` si lancé.
+pub fn relaunch_elevated() -> Result<(), String> {
+    use windows_sys::Win32::UI::Shell::ShellExecuteW;
+    use windows_sys::Win32::UI::WindowsAndMessaging::SW_SHOWNORMAL;
+    let exe = std::env::current_exe().map_err(|e| e.to_string())?;
+    let file: Vec<u16> = exe
+        .as_os_str()
+        .to_string_lossy()
+        .encode_utf16()
+        .chain(Some(0))
+        .collect();
+    let verb: Vec<u16> = "runas".encode_utf16().chain(Some(0)).collect();
+    // SAFETY: chaînes larges terminées par zéro ; pas de fenêtre parente.
+    let r = unsafe {
+        ShellExecuteW(
+            std::ptr::null_mut(),
+            verb.as_ptr(),
+            file.as_ptr(),
+            std::ptr::null(),
+            std::ptr::null(),
+            SW_SHOWNORMAL,
+        )
+    };
+    if r as isize > 32 {
+        Ok(())
+    } else {
+        Err("élévation refusée ou impossible".into())
+    }
+}

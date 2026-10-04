@@ -65,6 +65,19 @@ impl Daily {
         self.tracks.values().filter(|t| t.eased).count()
     }
 
+    /// Noms des applis allégées en ce moment (triés, sans doublon).
+    pub fn eased_names(&self, snap: &Snapshot) -> Vec<String> {
+        let mut names: Vec<String> = snap
+            .procs
+            .iter()
+            .filter(|p| self.tracks.get(&p.id).is_some_and(|t| t.eased))
+            .map(|p| p.name.clone())
+            .collect();
+        names.sort();
+        names.dedup();
+        names
+    }
+
     fn save(&self, store: &mut dyn JournalStore, report: &mut Report) {
         let res = if self.journal.entries.is_empty() {
             store.clear()

@@ -288,6 +288,12 @@ mod tests {
     }
 
     #[test]
+    fn utf8_bom_from_windows_editors_is_tolerated() {
+        let with_bom = format!("\u{feff}{DEFAULT_TOML}");
+        assert!(Config::parse(with_bom.trim_start_matches('\u{feff}')).is_ok());
+    }
+
+    #[test]
     fn unknown_profile_lists_known_ones() {
         let err = Config::builtin().profile("turbo").unwrap_err();
         assert!(err.contains("gaming") && err.contains("cyber"));
