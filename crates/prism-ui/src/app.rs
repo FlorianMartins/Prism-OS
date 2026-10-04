@@ -764,6 +764,17 @@ impl PrismApp {
                             .text("opacité des widgets")
                             .suffix(" %"),
                     );
+                    field(
+                        ui,
+                        "Transparence des éléments (toutes les applis classiques, jamais les jeux)",
+                    );
+                    for k in prism_core::bar::ElementKind::ALL {
+                        ui.add(
+                            egui::Slider::new(cfg.element_opacity.get_mut(k), RULE_OPACITY_MIN..=100)
+                                .text(k.label())
+                                .suffix(" %"),
+                        );
+                    }
                     field(ui, "Transparence des applis (jamais sur un jeu ni en plein écran)");
                     let mut remove = None;
                     for (i, r) in cfg.opacity_rules.iter_mut().enumerate() {

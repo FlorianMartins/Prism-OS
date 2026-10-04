@@ -172,7 +172,10 @@ Configure it live in **prism-ui → Apparence**:
 - **desktop widgets**: clock, system panel, CPU/RAM/GPU graphs, network speed. Drag them
   with the mouse; their position is remembered;
 - **per-app transparency**: e.g. `windowsterminal.exe` at 90 %. Never applied to a game
-  or a fullscreen window.
+  or a fullscreen window;
+- **per-element transparency**: separate opacity for menus and context menus, dropdown
+  lists, tooltips and dialog boxes, in every classic app (100 % = untouched). Menus drawn
+  inside modern WinUI apps are part of the app window and cannot be targeted on their own.
 
 Settings are stored in `%ProgramData%\Prism\bar.json` and applied within a second.
 

@@ -1021,6 +1021,51 @@ fn open_prism_ui() {
     }
 }
 
+/// Un menu, une liste déroulante, une infobulle ou une boîte de dialogue vient
+/// d'apparaître (événement d'accessibilité officiel, reçu hors du processus de
+/// l'appli : aucune injection). On lui applique l'opacité de sa catégorie.
+unsafe extern "system" fn on_object_show(
+    _hook: windows_sys::Win32::UI::Accessibility::HWINEVENTHOOK,
+    _event: u32,
+    hwnd: HWND,
+    id_object: i32,
+    id_child: i32,
+    _thread: u32,
+    _time: u32,
+) {
+    if hwnd.is_null() || id_object != OBJID_WINDOW || id_child != 0 {
+        return;
+    }
+    let mut buf = [0u16; 64];
+    let n = GetClassNameW(hwnd, buf.as_mut_ptr(), buf.len() as i32);
+    if n <= 0 {
+        return;
+    }
+    let class = String::from_utf16_lossy(&buf[..n as usize]);
+    with_bar(|b| {
+        let Some(op) = b.cfg.element_opacity.for_class(&class) else {
+            return;
+        };
+        let mut pid = 0u32;
+        GetWindowThreadProcessId(hwnd, &mut pid);
+        let path = crate::win::process_path(pid);
+        let exe = path
+            .as_deref()
+            .and_then(|p| p.rsplit('\\').next())
+            .unwrap_or_default()
+            .to_string();
+        if prism_core::classify::is_game_process(&exe, path.as_deref(), &b.game_cfg) {
+            return; // jamais dans un jeu
+        }
+        let ex = GetWindowLongPtrW(hwnd, GWL_EXSTYLE);
+        if ex as u32 & WS_EX_LAYERED != 0 {
+            return; // l'élément gère déjà sa transparence
+        }
+        SetWindowLongPtrW(hwnd, GWL_EXSTYLE, ex | WS_EX_LAYERED as isize);
+        SetLayeredWindowAttributes(hwnd, 0, (op as u32 * 255 / 100) as u8, LWA_ALPHA);
+    });
+}
+
 unsafe extern "system" fn desk_wndproc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) -> LRESULT {
     match msg {
         WM_PAINT => {
@@ -1225,10 +1270,23 @@ pub fn run() -> Result<(), String> {
         });
         ShowWindow(hwnd, SW_SHOWNOACTIVATE);
         SetTimer(hwnd, TIMER_ID, 1000, None);
+        use windows_sys::Win32::UI::Accessibility::{SetWinEventHook, UnhookWinEvent};
+        let hook = SetWinEventHook(
+            EVENT_OBJECT_SHOW,
+            EVENT_OBJECT_SHOW,
+            null_mut(),
+            Some(on_object_show),
+            0,
+            0,
+            WINEVENT_OUTOFCONTEXT | WINEVENT_SKIPOWNPROCESS,
+        );
         let mut msg: MSG = std::mem::zeroed();
         while GetMessageW(&mut msg, null_mut(), 0, 0) > 0 {
             TranslateMessage(&msg);
             DispatchMessageW(&msg);
+        }
+        if !hook.is_null() {
+            UnhookWinEvent(hook);
         }
     }
     Ok(())

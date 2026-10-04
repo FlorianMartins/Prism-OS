@@ -137,6 +137,94 @@ pub struct OpacityRule {
 /// En dessous, une fenêtre devient illisible.
 pub const RULE_OPACITY_MIN: u8 = 30;
 
+/// Éléments d'interface dont l'opacité se règle séparément (dans toutes les applis
+/// classiques, jamais dans un jeu).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ElementKind {
+    Menu,
+    Dropdown,
+    Tooltip,
+    Dialog,
+}
+
+impl ElementKind {
+    pub const ALL: [ElementKind; 4] = [
+        ElementKind::Menu,
+        ElementKind::Dropdown,
+        ElementKind::Tooltip,
+        ElementKind::Dialog,
+    ];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            ElementKind::Menu => "Menus et menus contextuels",
+            ElementKind::Dropdown => "Listes déroulantes",
+            ElementKind::Tooltip => "Infobulles",
+            ElementKind::Dialog => "Boîtes de dialogue",
+        }
+    }
+
+    /// Catégorie d'une fenêtre d'après sa classe Windows (classes système stables
+    /// depuis Windows 95). Les menus des applis WinUI/XAML sont dessinés dans la
+    /// fenêtre de l'appli : ils n'ont pas de classe propre et ne sont pas concernés.
+    pub fn from_class(class: &str) -> Option<ElementKind> {
+        match class {
+            "#32768" => Some(ElementKind::Menu),
+            "ComboLBox" => Some(ElementKind::Dropdown),
+            "tooltips_class32" => Some(ElementKind::Tooltip),
+            "#32770" => Some(ElementKind::Dialog),
+            _ => None,
+        }
+    }
+}
+
+/// Opacité par catégorie d'élément, en pourcentage (100 = non touché).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct ElementOpacity {
+    pub menu: u8,
+    pub dropdown: u8,
+    pub tooltip: u8,
+    pub dialog: u8,
+}
+
+impl Default for ElementOpacity {
+    fn default() -> Self {
+        ElementOpacity {
+            menu: 100,
+            dropdown: 100,
+            tooltip: 100,
+            dialog: 100,
+        }
+    }
+}
+
+impl ElementOpacity {
+    pub fn get(&self, k: ElementKind) -> u8 {
+        match k {
+            ElementKind::Menu => self.menu,
+            ElementKind::Dropdown => self.dropdown,
+            ElementKind::Tooltip => self.tooltip,
+            ElementKind::Dialog => self.dialog,
+        }
+    }
+
+    pub fn get_mut(&mut self, k: ElementKind) -> &mut u8 {
+        match k {
+            ElementKind::Menu => &mut self.menu,
+            ElementKind::Dropdown => &mut self.dropdown,
+            ElementKind::Tooltip => &mut self.tooltip,
+            ElementKind::Dialog => &mut self.dialog,
+        }
+    }
+
+    /// Opacité à appliquer à une fenêtre de cette classe (`None` : ne pas toucher).
+    pub fn for_class(&self, class: &str) -> Option<u8> {
+        ElementKind::from_class(class).map(|k| self.get(k)).filter(|o| *o < 100)
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct BarConfig {
@@ -160,6 +248,8 @@ pub struct BarConfig {
     pub desktop_opacity: u8,
     /// Transparence par appli (jamais appliquée à un jeu ni à une fenêtre plein écran).
     pub opacity_rules: Vec<OpacityRule>,
+    /// Transparence par type d'élément (menus, listes, infobulles, dialogues).
+    pub element_opacity: ElementOpacity,
 }
 
 impl Default for BarConfig {
@@ -183,6 +273,7 @@ impl Default for BarConfig {
             desktop_widgets: Vec::new(),
             desktop_opacity: 85,
             opacity_rules: Vec::new(),
+            element_opacity: ElementOpacity::default(),
         }
     }
 }
@@ -219,6 +310,10 @@ impl BarConfig {
         for r in &mut self.opacity_rules {
             r.process = r.process.trim().to_lowercase();
             r.opacity = r.opacity.clamp(RULE_OPACITY_MIN, 100);
+        }
+        for k in ElementKind::ALL {
+            let o = self.element_opacity.get_mut(k);
+            *o = (*o).clamp(RULE_OPACITY_MIN, 100);
         }
         let mut names: Vec<String> = Vec::new();
         self.opacity_rules.retain(|r| {
@@ -662,6 +757,30 @@ mod tests {
             "jamais illisible"
         );
         assert_eq!(cfg.rule_for("notepad.exe"), None);
+    }
+
+    #[test]
+    fn element_opacity_is_per_category_and_untouched_at_100() {
+        let mut cfg = BarConfig::default();
+        assert_eq!(
+            cfg.element_opacity.for_class("#32768"),
+            None,
+            "100 % : on ne touche à rien"
+        );
+        cfg.element_opacity.menu = 80;
+        cfg.element_opacity.tooltip = 5;
+        let cfg = cfg.sanitized();
+        assert_eq!(cfg.element_opacity.for_class("#32768"), Some(80));
+        assert_eq!(
+            cfg.element_opacity.for_class("tooltips_class32"),
+            Some(RULE_OPACITY_MIN)
+        );
+        assert_eq!(cfg.element_opacity.for_class("ComboLBox"), None);
+        assert_eq!(
+            cfg.element_opacity.for_class("Chrome_WidgetWin_1"),
+            None,
+            "fenêtre ordinaire"
+        );
     }
 
     #[test]

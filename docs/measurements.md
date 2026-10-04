@@ -112,6 +112,7 @@ Same Windows 11 VM, run in the interactive user session.
 | Desktop widgets: clock with French date, system panel (CPU, RAM 2.5 / 12.0 GB, GPU, network), CPU graph | ✓ (GPU counters were available even in the VM) |
 | `prism bar off`: Windows taskbar back (not auto-hidden), widgets gone, Notepad no longer layered | ✓ |
 | Memory of `prism-bar.exe` with three desktop widgets | **15 MB** |
+| Per-element transparency: the Windows "Run" dialog (`#32770`) at 60 % | ✓ (visibly translucent) |
 
 ## What cannot be measured in a VM
 
