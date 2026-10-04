@@ -4,6 +4,8 @@ description = "Prism OS — Mode Jeu, RAM, profils et outils cyber pour Windows"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
 
 [[bin]]
 name = "prism"

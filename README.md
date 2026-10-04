@@ -100,3 +100,13 @@ v0.2 moteur ✓ (Mode Quotidien, cœurs P/E et X3D, démarrage, réglages jeu) �
 interface (tableau de bord, lanceur, mode console) et service Windows · v0.4 vie
 privée (télémétrie, debloat réversible) · v0.5 personnalisation · v0.6 installateur et
 mesures FPS publiées. Détails : [ARCHITECTURE.md](docs/ARCHITECTURE.md).
+
+## Licence
+
+Prism OS est un logiciel libre, au choix sous l'une de ces deux licences :
+
+- [MIT](LICENSE-MIT)
+- [Apache 2.0](LICENSE-APACHE)
+
+Sauf mention contraire, toute contribution envoyée au projet est publiée sous ces
+deux mêmes licences, sans condition supplémentaire.
