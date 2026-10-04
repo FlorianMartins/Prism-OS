@@ -32,8 +32,10 @@ tools. Every change is journaled and reversible.
 - **Prism Bar** — a native taskbar on any edge (top, bottom, left, right), adjustable
   thickness, floating margin, opacity and widgets (CPU, RAM, GPU, network, Game Mode,
   clock); hides during fullscreen games.
-- **Desktop widgets and per-app transparency** — Conky-style widgets; translucent app
-  windows (never games).
+- **Desktop widgets and transparency** — Conky-style widgets; translucent app windows,
+  menus, dropdown lists, tooltips and dialogs, each with its own opacity (never games).
+- **Window effects** — genie lamp, jelly and zoom on minimize, restore, open and close,
+  drawn by Prism with official APIs; adjustable duration and intensity.
 - **App** (`prism-ui`) — dashboard, game launcher with a console mode, and every
   setting above.
 - **Cyber tools on demand** — Wireshark, Burp, ZAP, Sysinternals, x64dbg, Kali under WSL
@@ -55,6 +57,7 @@ From a Windows 11 test VM ([details and protocol](docs/measurements.md)):
 | Debloat "advanced" services | −10 processes, ≈ −95 MB |
 | `prism watch` memory footprint | ≈ 3 MB |
 | Prism Bar with three desktop widgets | ≈ 15 MB |
+| Window effects: latency to first frame / time per frame | 3–6 ms / 1.5 ms, 0 dropped frames |
 
 FPS and anti-cheat compatibility cannot be measured in a VM; they will be measured on
 real gaming hardware.
@@ -96,6 +99,7 @@ off-screen by the tests into `target/ui-shots/` (needs a Vulkan driver; on Linux
 ## Roadmap
 
 v0.1 engine ✓ · v0.2 process management ✓ · v0.3 interface and customisation ✓ ·
+v0.4 window effects ✓ ·
 next: Prism as a Windows service, tiling window manager, multi-monitor bar, privacy
 dashboard, installer and signed updates, FPS measurements on real hardware. Details:
 [ARCHITECTURE.md](docs/ARCHITECTURE.md).

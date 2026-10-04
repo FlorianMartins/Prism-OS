@@ -133,6 +133,37 @@ Same Windows 11 VM, run in the interactive user session.
 | Memory of `prism-bar.exe` with three desktop widgets | **15 MB** |
 | Per-element transparency: the Windows "Run" dialog (`#32770`) at 60 % | ✓ (visibly translucent) |
 
+## 6. Window effects — 2026-10-04
+
+Same VM (WARP software rendering, no GPU), notepad window of about 900×575 px, default
+settings (genie, 350 ms, 60 Hz). Each figure is read from `prism fx stats`, which
+records every animation the bar plays.
+
+| Trigger | Latency to first frame | Time per frame (avg / max) | Dropped frames |
+|---|---|---|---|
+| Click on the bar button → minimize | 3.5–4.8 ms | 1.5–1.6 ms / 6.1 ms | 0 / 49 |
+| Minimize by Windows (title-bar button, shortcut) | 4.5–5.6 ms | 1.4–1.5 ms / 4.6 ms | 0 / 52 |
+| Restore by Windows | 4.3–4.6 ms | 1.4 ms / 3.1 ms | 0 / 51 |
+| `prism fx demo` (restore, close, open) | 2–3 ms | ≈ 2.0 ms | 0 |
+
+- **Latency is below one frame** (16.7 ms at 60 Hz). The expensive step is copying the
+  window (`PrintWindow`, 18–46 ms in this VM). It never sits between the action and the
+  effect: the copy is taken when the window gets focus, or when the mouse button goes
+  down on the bar (a click lasts about 100 ms), and is ready when the effect starts.
+- **Cost**: a frame takes 1.4–2 ms on one CPU core, so a 350 ms effect uses about 10 % of
+  one core for a third of a second. The bar uses 19 MB with effects on (15 MB without).
+- Animations that arrive more than 250 ms late are skipped instead of played late.
+
+Bugs found by these measurements and fixed:
+
+- An effect triggered by Prism itself was also received back from Windows and animated a
+  second time, up to 501 ms late.
+- A minimized window still counts as visible and receives focus. It was copied in its
+  parked 160×28 shape and restored from that tiny image. Minimized windows are no longer
+  copied.
+- Waiting 40 ms for a new window to finish drawing made the open effect start 167 ms
+  late. The wait was removed.
+
 ## What cannot be measured in a VM
 
 - **FPS and micro-stutters**: this requires a real gaming PC, with a protocol published

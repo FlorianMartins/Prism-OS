@@ -86,8 +86,9 @@ struct Bar {
     overlay: Option<crate::fx_overlay::Overlay>,
     /// Dernière copie de chaque fenêtre (pour réduire, restaurer, fermer avec effet).
     snaps: HashMap<isize, crate::fx_overlay::Snap>,
-    /// Événements provoqués par Prism lui-même (à ignorer quand Windows les renvoie).
-    skip: HashMap<isize, Instant>,
+    /// Événements provoqués par Prism lui-même (fenêtre, événement attendu) : ignorés
+    /// une fois quand Windows les renvoie, quel que soit le délai de traitement.
+    skip: HashMap<(isize, u32), Instant>,
     stats: Vec<prism_core::fx::FxStat>,
 }
 
@@ -649,6 +650,12 @@ impl Bar {
                 return false;
             }
         }
+        // Une fenêtre réduite est rangée hors écran par Windows (160x28) : sa
+        // géométrie utile est celle de sa dernière copie, pas celle-là.
+        // SAFETY: lecture d'état.
+        if unsafe { IsIconic(hwnd) } != 0 {
+            return self.snaps.contains_key(&(hwnd as isize));
+        }
         match crate::fx_overlay::visible_rect(hwnd) {
             Some(r) => r.width() >= 200 && r.height() >= 120 && !is_fullscreen(hwnd),
             None => false,
@@ -762,6 +769,29 @@ impl Bar {
         let _ = prism_core::fx::save_stats(&self.stats);
     }
 
+    /// Appui sur un bouton de fenêtre : on copie la fenêtre pendant que le doigt
+    /// est encore sur le bouton (un clic dure environ 100 ms), l'effet de réduction
+    /// démarre alors sans attente au relâchement.
+    fn prepare_click(&mut self, x: i32, y: i32) {
+        let Some(h) = self
+            .items
+            .iter()
+            .find(|p| p.rect.contains(x, y) && p.widget == Widget::Windows)
+            .and_then(|p| p.index)
+            .and_then(|i| self.windows.get(i))
+            .map(|w| w.hwnd)
+        else {
+            return;
+        };
+        // SAFETY: lectures d'état.
+        let ready = unsafe { GetForegroundWindow() == h && IsIconic(h) == 0 };
+        if ready && self.cfg.fx.minimize != prism_core::fx::Effect::None && self.fx_allowed(h, true) {
+            if let Some(s) = crate::fx_overlay::capture(h) {
+                self.snaps.insert(h as isize, s);
+            }
+        }
+    }
+
     /// Clic sur une fenêtre de la barre : réduction ou restauration avec effet.
     /// `false` si aucun effet ne s'applique (le clic active alors la fenêtre).
     fn fx_click(&mut self, h: HWND, name: &str) -> bool {
@@ -774,10 +804,16 @@ impl Bar {
         let (iconic, foreground) = unsafe { (IsIconic(h) != 0, GetForegroundWindow() == h) };
         let fx = self.cfg.fx.clone();
         if foreground && !iconic && fx.minimize != prism_core::fx::Effect::None {
-            let Some(snap) = crate::fx_overlay::capture(h) else {
+            // Copie faite à l'appui du bouton (voir `prepare_click`) si elle est fraîche,
+            // sinon maintenant.
+            let fresh = self
+                .snaps
+                .remove(&key)
+                .filter(|s| s.at.elapsed() < Duration::from_millis(1500));
+            let Some(snap) = fresh.or_else(|| crate::fx_overlay::capture(h)) else {
                 return false;
             };
-            self.skip.insert(key, Instant::now());
+            self.skip.insert((key, EVENT_SYSTEM_MINIMIZESTART_ID), Instant::now());
             let target = self.target_for(h);
             // La fenêtre est réduite dès que la couche la recouvre.
             self.play_effect(
@@ -798,7 +834,7 @@ impl Bar {
             let Some(snap) = self.snaps.remove(&key) else {
                 return false;
             };
-            self.skip.insert(key, Instant::now());
+            self.skip.insert((key, EVENT_SYSTEM_MINIMIZEEND_ID), Instant::now());
             let target = self.target_for(h);
             let hidden = crate::fx_overlay::hide_temp(h);
             // Restaurée invisible sous la couche, rendue visible à la dernière image.
@@ -823,13 +859,14 @@ impl Bar {
         }
         for (ev, key, at) in events {
             let h = key as HWND;
-            if let Some(t) = self.skip.get(&key) {
-                if t.elapsed() < Duration::from_millis(2000)
-                    && matches!(ev, EVENT_SYSTEM_MINIMIZESTART_ID | EVENT_SYSTEM_MINIMIZEEND_ID)
-                {
-                    self.skip.remove(&key);
-                    continue;
+            if let Some(t) = self.skip.remove(&(key, ev)) {
+                if t.elapsed() < Duration::from_secs(10) {
+                    continue; // Prism l'a provoqué lui-même : déjà animé
                 }
+            }
+            // Une animation en retard est pire que pas d'animation (vu en VM : 501 ms).
+            if ev != EVENT_SYSTEM_FOREGROUND_ID && at.elapsed() > Duration::from_millis(250) {
+                continue;
             }
             let fx = self.cfg.fx.clone();
             match ev {
@@ -866,8 +903,6 @@ impl Bar {
                         && self.fx_allowed(h, true) =>
                 {
                     if let Some(ex) = crate::fx_overlay::hide_temp(h) {
-                        // Laisse l'appli dessiner sa première image avant de la copier.
-                        std::thread::sleep(Duration::from_millis(40));
                         if let Some(snap) = crate::fx_overlay::capture(h) {
                             let target = self.target_for(h);
                             self.play_effect(fx.open, FxKind::Appear, &snap, target, at, "ouverture", || {});
@@ -903,10 +938,21 @@ impl Bar {
         }
         // SAFETY: lecture de la fenêtre au premier plan.
         let fg = unsafe { GetForegroundWindow() };
-        let h = if self.fx_allowed(fg, true) {
+        // Pas le terminal d'où l'on vient de lancer la démo.
+        let console = |w: HWND| {
+            let mut buf = [0u16; 64];
+            // SAFETY: tampon local.
+            let n = unsafe { GetClassNameW(w, buf.as_mut_ptr(), buf.len() as i32) };
+            let class = String::from_utf16_lossy(&buf[..n.max(0) as usize]);
+            class == "ConsoleWindowClass" || class == "CASCADIA_HOSTING_WINDOW_CLASS"
+        };
+        let h = if self.fx_allowed(fg, true) && !console(fg) {
             Some(fg)
         } else {
-            self.windows.iter().map(|w| w.hwnd).find(|w| self.fx_allowed(*w, true))
+            self.windows
+                .iter()
+                .map(|w| w.hwnd)
+                .find(|w| self.fx_allowed(*w, true) && !console(*w))
         };
         if let Some(h) = h {
             activate(h);
@@ -1489,6 +1535,12 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) 
             0
         }
         WM_ERASEBKGND => 1,
+        WM_LBUTTONDOWN => {
+            let x = (lp & 0xffff) as i16 as i32;
+            let y = ((lp >> 16) & 0xffff) as i16 as i32;
+            with_bar(|b| b.prepare_click(x, y));
+            0
+        }
         WM_LBUTTONUP => {
             let x = (lp & 0xffff) as i16 as i32;
             let y = ((lp >> 16) & 0xffff) as i16 as i32;

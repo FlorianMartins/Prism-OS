@@ -121,6 +121,12 @@ impl Drop for Dib {
 /// Copie la fenêtre telle qu'elle s'affiche. `None` si Windows refuse.
 pub fn capture(hwnd: HWND) -> Option<Snap> {
     let t0 = Instant::now();
+    // Une fenêtre réduite reste « visible » pour Windows et reçoit même le focus,
+    // mais elle est rangée hors écran en 160x28 : la copier écraserait la bonne copie.
+    // SAFETY: lecture d'état.
+    if unsafe { IsIconic(hwnd) } != 0 {
+        return None;
+    }
     let visible = visible_rect(hwnd)?;
     let mut full = RECT {
         left: 0,

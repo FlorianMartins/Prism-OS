@@ -211,6 +211,25 @@ fn allege_list() -> Result<(), String> {
     Ok(())
 }
 
+#[cfg_attr(not(windows), allow(dead_code))]
+/// Minuscules sans accents : une option se trouve même si la console a abîmé
+/// les accents (« Instantanee », « instantanée » et « Instantanée » se valent).
+fn fold(s: &str) -> String {
+    s.to_lowercase()
+        .chars()
+        .map(|c| match c {
+            'à' | 'â' | 'ä' => 'a',
+            'é' | 'è' | 'ê' | 'ë' => 'e',
+            'î' | 'ï' => 'i',
+            'ô' | 'ö' => 'o',
+            'ù' | 'û' | 'ü' => 'u',
+            'ç' => 'c',
+            other => other,
+        })
+        .filter(|c| c.is_ascii_alphanumeric() || *c == ' ' || *c == '(' || *c == ')')
+        .collect()
+}
+
 fn tools_install(cfg: &Config, pack: &str) -> Result<(), String> {
     for t in resolve_pack(cfg, pack)? {
         println!("== {}", t.name);
@@ -497,11 +516,13 @@ fn platform_command(cfg: &Config, args: &[&str]) -> Result<(), String> {
             use prism_core::apparence::Catalog;
             let c = Catalog::builtin();
             let k = c.knob(id).ok_or_else(|| format!("réglage inconnu « {id} »"))?.clone();
-            let wanted = option.join(" ").to_lowercase();
+            let wanted = fold(&option.join(" "));
             let o = k
                 .options
                 .iter()
-                .find(|o| o.label.to_lowercase() == wanted)
+                .enumerate()
+                .find(|(i, o)| fold(&o.label) == wanted || (i + 1).to_string() == wanted)
+                .map(|(_, o)| o)
                 .ok_or_else(|| format!("option inconnue « {wanted} » pour {id}"))?
                 .value
                 .clone();
@@ -819,5 +840,14 @@ fn log_report(out: &sys::Out, r: &prism_core::engine::Report) {
     ));
     for f in &r.failed {
         out.line(&format!("  ÉCHEC : {f}"));
+    }
+}
+
+#[cfg(test)]
+mod cli_tests {
+    #[test]
+    fn options_match_without_accents() {
+        assert_eq!(super::fold("Instantanée"), super::fold("instantanee"));
+        assert_eq!(super::fold("Vif (100 ms)"), "vif (100 ms)");
     }
 }

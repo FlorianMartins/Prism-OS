@@ -179,6 +179,35 @@ Configure it live in **prism-ui → Apparence**:
 
 Settings are stored in `%ProgramData%\Prism\bar.json` and applied within a second.
 
+### Window effects
+
+Beyond Windows' own animations, the Prism Bar draws its own window effects. Turn them on
+in **prism-ui → Apparence → Effets de fenêtres** (window effects):
+
+| Setting | Choices |
+|---|---|
+| Réduire / Restaurer / Ouvrir / Fermer (minimize / restore / open / close) | Aucun (none), Lampe de génie (genie lamp: the window is sucked into its bar button, and comes back out of it), Gélatine (jelly: spring-damped wobble), Zoom et fondu (zoom and fade) |
+| Durée (duration) | 120–900 ms |
+| Intensité (deformation intensity) | 0–100 % |
+
+- The Prism Bar must be running: it plays the effects in a click-through overlay.
+- Turning the effects on also sets Windows' own minimize animation to *Instantanée*
+  (instant), so the two do not overlap. **Apparence → Réglages d'origine** (original
+  settings) puts it back.
+- Effects never apply to a game, to a fullscreen window, or while Game Mode is active.
+- Minimize and restore get the effect whether you click the bar button, use the window's
+  title-bar button or a keyboard shortcut.
+
+Check them and their cost on your PC:
+
+```powershell
+prism fx demo     # plays minimize, restore, close and open on the foreground window (nothing is really closed)
+prism fx stats    # latency, time per frame and dropped frames of the last 50 animations
+```
+
+A smooth effect shows `0/…` dropped frames and a latency of a few milliseconds. Measured
+figures: [measurements §6](measurements.md).
+
 ## 11. Undo everything
 
 | What | Command |
@@ -187,7 +216,7 @@ Settings are stored in `%ProgramData%\Prism\bar.json` and applied within a secon
 | Startup apps | `prism demarrage restore` |
 | Debloat | `prism allege restore` |
 | Appearance | `prism apparence restore` |
-| Prism Bar, transparency | `prism bar off` |
+| Prism Bar, transparency, window effects | `prism bar off` (effects); `prism apparence restore` (Windows' minimize animation) |
 
 Journals live in `%ProgramData%\Prism\` (`journal.json`, `quotidien.json`,
 `demarrage.json`, `allegement.json`, `apparence.json`).
