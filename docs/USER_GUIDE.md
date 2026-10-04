@@ -400,6 +400,21 @@ No keyboard hook is installed (some anti-cheats flag them), so the Windows key k
 opening Windows' menu. *Menu Démarrer de Prism* in the bar settings switches the Start
 button back to Windows' menu.
 
+### System tray (*Zone système* widget)
+
+With the Windows taskbar hidden, its notification area (volume, network, app icons) is
+out of reach, so the bar has a *Zone système* widget with three buttons:
+
+- **volume** → Windows' Quick Settings (volume, Wi-Fi, Bluetooth, accessibility), like
+  Win+A;
+- **bell** → notifications and calendar, like Win+N;
+- **arrow** → shows the Windows taskbar for 10 seconds, to reach the icons of apps in
+  the notification area (Discord, Steam…), then hides it again.
+
+Prism cannot host the notification area itself (Windows keeps it for Explorer while it
+runs). The widget is added once, before the clock, to bars configured before it existed;
+remove it in the widget list if you do not want it.
+
 ### Window effects
 
 Beyond Windows' own animations, the Prism Bar draws its own window effects. Turn them on

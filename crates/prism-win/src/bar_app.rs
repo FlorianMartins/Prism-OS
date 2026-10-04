@@ -113,6 +113,8 @@ struct Bar {
     game: bool,
     /// Widgets du bureau masqués (plein écran).
     desk_hidden: bool,
+    /// Barre Windows montrée quelques secondes (zone système : icônes des applis).
+    tray_peek: Option<Instant>,
     scale: f32,
     desk: Vec<DeskWin>,
     /// Règles du Mode Jeu, pour ne jamais rendre un jeu transparent.
@@ -318,6 +320,14 @@ const HOTKEYS: [(i32, u32, &str); 8] = [
     (7, 0x28, "Win+Ctrl+Alt+Bas : réduire la principale"),
     (8, 0x46, "Win+Ctrl+Alt+F : fenêtre active flottante / en tuile"),
 ];
+
+/// Durée pendant laquelle la barre Windows reste montrée (bouton « icônes » de la zone
+/// système).
+const TRAY_PEEK: Duration = Duration::from_secs(10);
+
+/// Glyphes de la police d'icônes de Windows (Segoe MDL2 Assets) : volume,
+/// notifications, icônes des applis.
+const TRAY_GLYPHS: [&str; 3] = ["\u{E767}", "\u{EA8F}", "\u{E70E}"];
 
 /// Identifiant du raccourci Alt+F1 (menu Démarrer de Prism).
 const START_HOTKEY: i32 = 100;
@@ -1032,7 +1042,10 @@ impl Bar {
         if self.monitors_changed() {
             self.dock();
         }
-        if self.cfg.hide_windows_taskbar && !self.desk_hidden && any_taskbar_visible() {
+        if self.tray_peek.is_some_and(|t| t.elapsed() > TRAY_PEEK) {
+            self.tray_peek = None;
+        }
+        if self.cfg.hide_windows_taskbar && !self.desk_hidden && self.tray_peek.is_none() && any_taskbar_visible() {
             set_taskbars_visible(false);
         }
         FX_DEBUG.store(
@@ -1152,6 +1165,32 @@ impl Bar {
             return;
         };
         match widget {
+            Widget::Tray => {
+                let Some(item) = self
+                    .panel(panel)
+                    .and_then(|p| p.items.iter().find(|i| i.widget == Widget::Tray))
+                else {
+                    return;
+                };
+                let r = item.rect;
+                let horizontal = matches!(self.cfg.edge, Edge::Top | Edge::Bottom);
+                let part = if horizontal {
+                    ((x - r.left) * 3 / (r.right - r.left).max(1)).clamp(0, 2)
+                } else {
+                    ((y - r.top) * 3 / (r.bottom - r.top).max(1)).clamp(0, 2)
+                };
+                match part {
+                    // Paramètres rapides (volume, Wi-Fi, Bluetooth) : Win+A.
+                    0 => press_win_combo(0x41),
+                    // Notifications et calendrier : Win+N.
+                    1 => press_win_combo(0x4E),
+                    // Icônes des applis : la barre Windows, quelques secondes.
+                    _ => {
+                        self.tray_peek = Some(Instant::now());
+                        set_taskbars_visible(true);
+                    }
+                }
+            }
             Widget::Start => {
                 if self.cfg.prism_start_menu {
                     self.open_start_menu(Some(panel));
@@ -2189,6 +2228,13 @@ impl Bar {
                         };
                         text(mem, small, colors().text, r, &s, DT_CENTER);
                     }
+                    Widget::Tray => {
+                        let icons = make_icon_font(scaled(15));
+                        for (i, part) in tray_parts(r, horizontal).iter().enumerate() {
+                            text(mem, icons, colors().text, *part, TRAY_GLYPHS[i], DT_CENTER);
+                        }
+                        DeleteObject(icons as HGDIOBJ);
+                    }
                     Widget::GameMode => {
                         let (s, c) = if self.game {
                             ("● Jeu", colors().accent)
@@ -2509,6 +2555,68 @@ fn activate(hwnd: HWND) {
     }
 }
 
+/// Win + une touche (raccourci de Windows, sans hook : une simple frappe simulée).
+fn press_win_combo(vk: u16) {
+    let key = |vk, flags| INPUT {
+        r#type: INPUT_KEYBOARD,
+        Anonymous: INPUT_0 {
+            ki: KEYBDINPUT {
+                wVk: vk,
+                wScan: 0,
+                dwFlags: flags,
+                time: 0,
+                dwExtraInfo: 0,
+            },
+        },
+    };
+    let inputs = [
+        key(VK_LWIN, 0),
+        key(vk, 0),
+        key(vk, KEYEVENTF_KEYUP),
+        key(VK_LWIN, KEYEVENTF_KEYUP),
+    ];
+    // SAFETY: tableau local de quatre entrées clavier.
+    unsafe { SendInput(4, inputs.as_ptr(), size_of::<INPUT>() as i32) };
+}
+
+/// Les trois zones du widget « zone système ».
+fn tray_parts(r: RECT, horizontal: bool) -> [RECT; 3] {
+    let mut out = [r; 3];
+    for (i, p) in out.iter_mut().enumerate() {
+        let i = i as i32;
+        if horizontal {
+            let w = (r.right - r.left) / 3;
+            p.left = r.left + i * w;
+            p.right = p.left + w;
+        } else {
+            let h = (r.bottom - r.top) / 3;
+            p.top = r.top + i * h;
+            p.bottom = p.top + h;
+        }
+    }
+    out
+}
+
+pub(crate) unsafe fn make_icon_font(px: i32) -> HFONT {
+    let face = wide("Segoe MDL2 Assets");
+    CreateFontW(
+        -px,
+        0,
+        0,
+        0,
+        400,
+        0,
+        0,
+        0,
+        DEFAULT_CHARSET as u32,
+        0,
+        0,
+        CLEARTYPE_QUALITY as u32,
+        0,
+        face.as_ptr(),
+    )
+}
+
 fn press_win_key() {
     let key = |flags| INPUT {
         r#type: INPUT_KEYBOARD,
@@ -2779,7 +2887,11 @@ pub fn run() -> Result<(), String> {
             return Err("CreateWindowExW a échoué".into());
         }
         BAR_HWND.with(|b| b.set(hwnd as isize));
-        let cfg = BarConfig::load();
+        let mut cfg = BarConfig::load();
+        // Zone système ajoutée une fois aux barres déjà configurées.
+        if cfg.migrate() {
+            let _ = cfg.save();
+        }
         set_colors(&cfg.theme);
         if cfg.hide_windows_taskbar {
             hide_taskbar();
@@ -2807,6 +2919,7 @@ pub fn run() -> Result<(), String> {
                 }],
                 game: false,
                 desk_hidden: false,
+                tray_peek: None,
                 scale,
                 desk: Vec::new(),
                 game_cfg: {

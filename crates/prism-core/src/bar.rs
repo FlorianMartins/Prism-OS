@@ -45,11 +45,14 @@ pub enum Widget {
     Gpu,
     Network,
     GameMode,
+    /// Zone système : Paramètres rapides (volume, réseau), notifications, icônes des
+    /// applis (barre Windows montrée quelques secondes).
+    Tray,
     Clock,
 }
 
 impl Widget {
-    pub const ALL: [Widget; 8] = [
+    pub const ALL: [Widget; 9] = [
         Widget::Start,
         Widget::Windows,
         Widget::Cpu,
@@ -57,6 +60,7 @@ impl Widget {
         Widget::Gpu,
         Widget::Network,
         Widget::GameMode,
+        Widget::Tray,
         Widget::Clock,
     ];
 
@@ -69,6 +73,7 @@ impl Widget {
             Widget::Gpu => "Carte graphique",
             Widget::Network => "Réseau",
             Widget::GameMode => "Mode Jeu",
+            Widget::Tray => "Zone système",
             Widget::Clock => "Horloge",
         }
     }
@@ -264,6 +269,32 @@ pub struct BarConfig {
     pub prism_start_menu: bool,
     /// Applis épinglées en haut du menu Démarrer de Prism (identifiants `shell:AppsFolder`).
     pub start_pinned: Vec<String>,
+    /// La zone système a déjà été ajoutée une fois aux barres existantes (migration).
+    /// Absent d'un ancien `bar.json` : faux (la valeur par défaut de la structure, vraie
+    /// pour une barre neuve, ne doit pas s'appliquer ici).
+    #[serde(default)]
+    pub tray_added: bool,
+}
+
+impl BarConfig {
+    /// Barre configurée avant l'arrivée de la zone système : elle est ajoutée une fois,
+    /// avant l'horloge (sans elle, la barre Windows masquée rend le volume, le réseau et
+    /// les icônes des applis inaccessibles). Retirée ensuite, elle ne revient pas.
+    pub fn migrate(&mut self) -> bool {
+        if self.tray_added {
+            return false;
+        }
+        self.tray_added = true;
+        if !self.widgets.contains(&Widget::Tray) {
+            let at = self
+                .widgets
+                .iter()
+                .position(|w| *w == Widget::Clock)
+                .unwrap_or(self.widgets.len());
+            self.widgets.insert(at, Widget::Tray);
+        }
+        true
+    }
 }
 
 impl Default for BarConfig {
@@ -282,6 +313,7 @@ impl Default for BarConfig {
                 Widget::Cpu,
                 Widget::Ram,
                 Widget::GameMode,
+                Widget::Tray,
                 Widget::Clock,
             ],
             desktop_widgets: Vec::new(),
@@ -295,6 +327,7 @@ impl Default for BarConfig {
             tiling: crate::tiling::TilingConfig::default(),
             prism_start_menu: true,
             start_pinned: Vec::new(),
+            tray_added: true,
         }
     }
 }
@@ -525,6 +558,7 @@ fn extent(w: Widget, thickness: i32, horizontal: bool) -> i32 {
         Widget::Cpu | Widget::Ram | Widget::Gpu => 92,
         Widget::Network => 120,
         Widget::GameMode => 110,
+        Widget::Tray => 108,
         Widget::Clock => 112,
         Widget::Windows => 0, // remplit l'espace restant
     }
@@ -635,6 +669,17 @@ impl History {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn tray_is_added_once_to_existing_bars() {
+        let mut c: BarConfig = serde_json::from_str(r#"{"widgets":["start","windows","clock"]}"#).unwrap();
+        assert!(c.migrate());
+        assert_eq!(c.widgets, [Widget::Start, Widget::Windows, Widget::Tray, Widget::Clock]);
+        c.widgets.retain(|w| *w != Widget::Tray);
+        assert!(!c.migrate());
+        assert!(!c.widgets.contains(&Widget::Tray));
+        assert!(!BarConfig::default().migrate());
+    }
 
     const SCREEN: Rect = Rect {
         left: 0,
