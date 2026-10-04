@@ -61,6 +61,8 @@ pub struct PrismApp {
     live: Live,
     startup: Vec<StartupRow>,
     allege: Vec<AllegeRow>,
+    /// Plan automatique des jeux à anti-cheat noyau.
+    noyau: prism_core::noyau::Reglages,
     games: Vec<Game>,
     privacy: Vec<prism_core::privacy::Row>,
     privacy_conns: Vec<prism_core::privacy::TelemetryConnection>,
@@ -85,6 +87,7 @@ impl PrismApp {
         let live = backend.live();
         let startup = backend.startup().unwrap_or_default();
         let allege = backend.allege();
+        let noyau = backend.noyau();
         let games = backend.games();
         let (privacy, privacy_conns) = backend.privacy();
         let welcome_done = backend.welcome_done();
@@ -95,6 +98,7 @@ impl PrismApp {
             live,
             startup,
             allege,
+            noyau,
             games,
             privacy,
             privacy_conns,
@@ -816,7 +820,7 @@ impl PrismApp {
         ui.horizontal(|ui| {
             ui.label(
                 RichText::new(
-                    "72 services dont les anti-cheats et les mises à jour ont besoin ne sont jamais touchés.",
+                    "72 services dont les anti-cheats et les mises à jour ont besoin ne sont jamais touchés. Tout est réversible (« Tout restaurer »).",
                 )
                 .color(th::muted()),
             );
@@ -826,6 +830,8 @@ impl PrismApp {
                 }
             });
         });
+        ui.add_space(10.0);
+        self.noyau_section(ui, &mut action);
         for (tier, title, note) in [
             (
                 Tier::Sur,
@@ -841,6 +847,11 @@ impl PrismApp {
                 Tier::Jeu,
                 "Réglages jeu",
                 "Mode Jeu Windows, GPU, jeux en fenêtre, souris.",
+            ),
+            (
+                Tier::Extreme,
+                "Extrême",
+                "Services d'arrière-plan à la demande, Widgets, Copilot, applis préinstallées retirées. Remis tout seuls pendant un jeu à anti-cheat noyau.",
             ),
         ] {
             ui.add_space(12.0);
@@ -884,6 +895,67 @@ impl PrismApp {
         }
         if let Some(r) = action {
             self.result(r);
+        }
+    }
+
+    /// Plan automatique des jeux à anti-cheat noyau : tout est actif par défaut, chaque
+    /// élément se coupe ici.
+    fn noyau_section(&mut self, ui: &mut egui::Ui, action: &mut Option<Result<String, String>>) {
+        section(ui, "Jeux à anti-cheat noyau");
+        ui.label(
+            RichText::new(
+                "Valorant, Call of Duty, Fortnite, Battlefield, Apex, jeux FACEIT… Quand le Mode Jeu démarre et qu'un anti-cheat noyau est détecté, Prism prépare la machine tout seul, puis remet tout à la fin de la partie. Rien n'est injecté, le jeu et l'anti-cheat ne sont jamais touchés.",
+            )
+            .small()
+            .color(th::muted()),
+        );
+        let before = self.noyau.clone();
+        let r = &mut self.noyau;
+        card(ui, false, |ui| {
+            ui.checkbox(&mut r.actif, RichText::new("Automatique (recommandé)").strong());
+            ui.add_enabled_ui(r.actif, |ui| {
+                ui.checkbox(
+                    &mut r.services_extreme,
+                    "Remettre les services du niveau Extrême pendant la partie",
+                );
+                ui.checkbox(
+                    &mut r.fermer_outils_genants,
+                    "Fermer les outils qui bloquent les anti-cheats (débogueurs, Cheat Engine, System Informer)",
+                );
+                ui.checkbox(
+                    &mut r.fermer_tous_les_outils,
+                    "Fermer aussi les autres outils (Wireshark, machines virtuelles : travail en cours perdu)",
+                );
+                ui.checkbox(
+                    &mut r.arreter_services_outils,
+                    "Arrêter les services et pilotes des outils (Npcap, VMware, pilotes Sysinternals), relancés après",
+                );
+                ui.checkbox(
+                    &mut r.eteindre_wsl,
+                    "Éteindre WSL / Kali (rend la mémoire de sa machine virtuelle)",
+                );
+                ui.add_space(6.0);
+                ui.label(RichText::new("Outils jamais touchés :").small().color(th::muted()));
+                let tools = prism_core::config::Config::builtin().tools;
+                ui.horizontal_wrapped(|ui| {
+                    for t in tools
+                        .iter()
+                        .filter(|t| !t.processes.is_empty() || !t.services.is_empty())
+                    {
+                        let mut kept = r.exclus.contains(&t.id);
+                        if ui.checkbox(&mut kept, &t.name).changed() {
+                            if kept {
+                                r.exclus.push(t.id.clone());
+                            } else {
+                                r.exclus.retain(|x| x != &t.id);
+                            }
+                        }
+                    }
+                });
+            });
+        });
+        if self.noyau != before {
+            *action = Some(self.backend.set_noyau(&self.noyau));
         }
     }
 

@@ -28,6 +28,8 @@ crates/
                  daily (Daily Mode) · cores (P/E, X3D) · allege · demarrage
                  library (installed games) · apparence (Appearance) · bar (Prism Bar)
                  etat (live state shared with the interface)
+                 cadence (engine: light PID check, full scan only when useful)
+                 noyau (kernel anti-cheat plan: detection, tool standby, enter/exit)
   prism-win/    execution on Windows (windows-sys): process snapshot, applying and
                  restoring each lever, startup entries, services/policies/scheduled
                  tasks, appearance settings, game library, metrics, Prism Bar window
@@ -36,7 +38,8 @@ crates/
   prism-ui/     binary prism-ui.exe: graphical interface (egui)
 config/
   default.toml     profiles, protected/companion/game lists, tool catalog
-  allegement.toml  debloat catalog (services, policies, scheduled tasks)
+  allegement.toml  debloat catalog (services, policies, scheduled tasks, preinstalled
+                   apps, protected services/tasks/apps)
   apparence.toml   appearance settings and presets
   demarrage.toml   startup-app recommendations
 ```
@@ -62,6 +65,8 @@ in the interface can be undone by `prism … restore`, and vice versa.
 | **v0.5** ✓ | privacy: 21 official policies / Settings options and 3 Windows Firewall rules (CompatTelRunner, DeviceCensus, error reports) at two levels, read-only view of what debloat already does, dashboard with live telemetry connections — [spec](specs/v0.5-privacy.md) |
 | **v0.6** ✓ | customization: colour themes for the bar, widgets and app (8 presets, custom accent, WCAG contrast tested), export/import of the whole setup, tiling window manager (4 layouts, per screen, shortcuts, exact undo) — [spec](specs/v0.6-customization.md) |
 | **v0.7** (partial) | MSI installer built from Linux in CI (Start menu, PATH, in-place upgrades) whose uninstall puts back everything Prism changed ✓; release workflow (tag → MSI + SHA256SUMS on GitHub) and `prism maj` updates verified by SHA-256 ✓ — [spec](specs/v0.7-installer.md). Still to do: code signing, published FPS measurements |
+| **v0.8** ✓ | settings that apply without administrator rights, administrator rights without prompt (on-demand task), start with Windows, Windows taskbar fully replaced by the Prism Bar |
+| **v0.9** (in progress) | CPU: bar 19.8 % → 0.26 % of a core (tiling loop fixed), two-speed engine; Extreme debloat level (services on demand, preinstalled apps removed and re-registered offline on undo); automatic, configurable kernel anti-cheat plan (Extreme services back for the game, cybersecurity tools on standby) |
 
 ## Principles
 

@@ -75,7 +75,7 @@ pub fn to_json(backup: &Backup) -> Result<String, String> {
 /// Niveaux d'allègement dont chaque élément est dans l'état voulu (ou absent).
 pub fn allege_applied(sys: &mut dyn allege::SystemConfig, catalog: &allege::Catalog) -> Vec<Tier> {
     let mut out = Vec::new();
-    for tier in [Tier::Sur, Tier::Avance, Tier::Jeu] {
+    for tier in [Tier::Sur, Tier::Avance, Tier::Jeu, Tier::Extreme] {
         let services = catalog.services.iter().filter(|s| s.tier == tier);
         let policies = catalog.policies.iter().filter(|p| p.tier == tier);
         let tasks = catalog.tasks.iter().filter(|t| t.tier == tier);
@@ -96,6 +96,10 @@ pub fn allege_applied(sys: &mut dyn allege::SystemConfig, catalog: &allege::Cata
         for t in tasks {
             any = true;
             all &= matches!(sys.task_enabled(&t.path), Ok(None) | Ok(Some(false)));
+        }
+        for a in catalog.apps.iter().filter(|a| a.tier == tier) {
+            any = true;
+            all &= matches!(sys.app_installed(&a.package), Ok(false));
         }
         if any && all {
             out.push(tier);

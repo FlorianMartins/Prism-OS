@@ -26,6 +26,7 @@ pub struct MockBackend {
     pub privacy_journal: prism_core::privacy::Journal,
     pub welcome_seen: bool,
     pub autostart_on: bool,
+    pub noyau: prism_core::noyau::Reglages,
 }
 
 impl Default for MockBackend {
@@ -128,6 +129,7 @@ impl Default for MockBackend {
             privacy_journal: prism_core::privacy::Journal::default(),
             welcome_seen: false,
             autostart_on: false,
+            noyau: Default::default(),
             log: Vec::new(),
         }
     }
@@ -303,7 +305,30 @@ impl Backend for MockBackend {
             done: self.applied.contains(&t.tier),
             why: t.why.clone(),
         }));
+        rows.extend(c.apps.iter().map(|a| {
+            AllegeRow {
+                tier: a.tier,
+                label: format!("Appli : {}", a.label),
+                current: if self.applied.contains(&a.tier) {
+                    "absente"
+                } else {
+                    "installée"
+                }
+                .into(),
+                target: "retirée".into(),
+                done: self.applied.contains(&a.tier),
+                why: a.why.clone(),
+            }
+        }));
         rows
+    }
+
+    fn noyau(&mut self) -> prism_core::noyau::Reglages {
+        self.noyau.clone()
+    }
+    fn set_noyau(&mut self, r: &prism_core::noyau::Reglages) -> Result<String, String> {
+        self.noyau = r.clone();
+        Ok("Plan « jeu noyau » enregistré".into())
     }
 
     fn allege_apply(&mut self, tier: Tier) -> Result<String, String> {

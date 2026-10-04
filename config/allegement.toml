@@ -33,6 +33,25 @@ protected_tasks = [
   '\Microsoft\XblGameSave\',
 ]
 
+# Paquets du Store jamais retirés (début du nom, clé de premier niveau).
+protected_apps = [
+  "Microsoft.WindowsStore", "Microsoft.StorePurchaseApp", "Microsoft.DesktopAppInstaller",
+  "Microsoft.Xbox", "Microsoft.GamingApp", "Microsoft.GamingServices",
+  "Microsoft.VCLibs", "Microsoft.UI.Xaml", "Microsoft.NET", "Microsoft.WindowsAppRuntime",
+  "Microsoft.SecHealthUI", "Microsoft.Windows.", "Microsoft.AAD", "Microsoft.AccountsControl",
+  "Microsoft.LockApp", "Microsoft.WindowsTerminal", "Microsoft.WindowsNotepad",
+  "Microsoft.WindowsCalculator", "Microsoft.Windows.Photos", "Microsoft.Paint",
+  "Microsoft.ScreenSketch", "Microsoft.HEIFImageExtension", "Microsoft.VP9VideoExtensions",
+  "Microsoft.WebMediaExtensions", "Microsoft.WebpImageExtension", "Microsoft.HEVCVideoExtension",
+  "Microsoft.AV1VideoExtension", "Microsoft.RawImageExtension",
+  # Shell de Windows 11 (pas tout le préfixe : WebExperience = Widgets, retirable).
+  "MicrosoftWindows.Client.CBS", "MicrosoftWindows.Client.Core", "MicrosoftWindows.Client.FileExp",
+  "MicrosoftWindows.Client.LKG", "MicrosoftWindows.Client.Photon", "MicrosoftWindows.Client.AIX",
+  "MicrosoftWindows.Client.OOBE", "MicrosoftWindows.Client.CoreAI", "MicrosoftWindows.CrossDevice",
+  "MicrosoftWindows.UndockedDevKit", "MicrosoftWindows.LKG",
+  "Microsoft.ApplicationCompatibilityEnhancements", "Microsoft.MicrosoftEdge",
+]
+
 [[protected]]
 reason = "Mises à jour : les anti-cheats et les jeux exigent un Windows à jour"
 services = ["wuauserv", "UsoSvc", "BITS", "WaaSMedicSvc", "TrustedInstaller", "msiserver", "DoSvc"]
@@ -207,6 +226,205 @@ tier = "avance"
 start = "disabled"
 why = "Envoie les rapports de plantage à Microsoft. Contrepartie : moins de diagnostic en cas de plantage système (les rapporteurs propres aux jeux continuent)."
 
+
+# --- Niveau extrême : démarrage à la demande (Windows les relance si un programme
+# en a besoin) ; remis comme avant pendant une partie protégée par un anti-cheat noyau.
+[[services]]
+name = "DPS"
+label = "Service de stratégie de diagnostic"
+tier = "extreme"
+start = "manual"
+why = "Détecte les problèmes et propose des dépannages ; tourne en permanence. Contrepartie : plus de diagnostic automatique (les dépanneurs restent lançables à la main)."
+
+[[services]]
+name = "WdiServiceHost"
+label = "Hôte du service de diagnostic"
+tier = "extreme"
+start = "manual"
+why = "Compagnon du diagnostic automatique. Contrepartie : idem."
+
+[[services]]
+name = "WdiSystemHost"
+label = "Hôte système de diagnostic"
+tier = "extreme"
+start = "manual"
+why = "Compagnon du diagnostic automatique. Contrepartie : idem."
+
+[[services]]
+name = "diagsvc"
+label = "Diagnostic execution service"
+tier = "extreme"
+start = "manual"
+why = "Exécute les diagnostics à la demande ; inutile en permanence."
+
+[[services]]
+name = "InventorySvc"
+label = "Inventaire et évaluation de compatibilité"
+tier = "extreme"
+start = "manual"
+why = "Inventorie les programmes pour la télémétrie de compatibilité."
+
+[[services]]
+name = "whesvc"
+label = "Expériences optimisées et intégrité de Windows"
+tier = "extreme"
+start = "manual"
+why = "Collecte de santé du système pour Microsoft."
+
+[[services]]
+name = "WSAIFabricSvc"
+label = "Infrastructure IA de Windows"
+tier = "extreme"
+start = "manual"
+why = "Moteur des fonctions IA locales (Recall, Click to Do) ; occupe de la RAM. Contrepartie : ces fonctions démarrent plus lentement."
+
+[[services]]
+name = "PhoneSvc"
+label = "Téléphonie (état du téléphone)"
+tier = "extreme"
+start = "manual"
+why = "Ne sert qu'aux appels par Phone Link / modem."
+
+[[services]]
+name = "TapiSrv"
+label = "Téléphonie TAPI"
+tier = "extreme"
+start = "manual"
+why = "Modems et téléphonie d'entreprise."
+
+[[services]]
+name = "SSDPSRV"
+label = "Découverte SSDP"
+tier = "extreme"
+start = "manual"
+why = "Découverte des appareils UPnP du réseau local. Contrepartie : imprimantes/médias réseau découverts plus tard (les jeux gèrent l'UPnP du routeur eux-mêmes)."
+
+[[services]]
+name = "upnphost"
+label = "Hôte de périphérique UPnP"
+tier = "extreme"
+start = "manual"
+why = "Pour partager ce PC comme appareil UPnP ; rarement utile."
+
+[[services]]
+name = "FDResPub"
+label = "Publication des ressources de découverte"
+tier = "extreme"
+start = "manual"
+why = "Annonce ce PC sur le réseau local. Contrepartie : ce PC n'apparaît plus dans « Réseau » chez les autres."
+
+[[services]]
+name = "fdPHost"
+label = "Hôte du fournisseur de découverte"
+tier = "extreme"
+start = "manual"
+why = "Découverte réseau des fonctions."
+
+[[services]]
+name = "lmhosts"
+label = "Assistance NetBIOS sur TCP/IP"
+tier = "extreme"
+start = "manual"
+why = "Ancien partage réseau NetBIOS."
+
+[[services]]
+name = "SEMgrSvc"
+label = "Paiements et NFC/SE"
+tier = "extreme"
+start = "manual"
+why = "Paiement sans contact sur PC : inutile sur un PC de jeu."
+
+[[services]]
+name = "WalletService"
+label = "Portefeuille"
+tier = "extreme"
+start = "manual"
+why = "Portefeuille Microsoft, inutilisé."
+
+[[services]]
+name = "AJRouter"
+label = "Routeur AllJoyn"
+tier = "extreme"
+start = "manual"
+why = "Objets connectés AllJoyn (abandonné)."
+
+[[services]]
+name = "NcdAutoSetup"
+label = "Configuration auto des appareils réseau"
+tier = "extreme"
+start = "manual"
+why = "Installe tout seul les appareils réseau détectés."
+
+[[services]]
+name = "stisvc"
+label = "Acquisition d'images (scanners)"
+tier = "extreme"
+start = "manual"
+why = "Scanners et appareils photo. Contrepartie : redémarre à la demande."
+
+[[services]]
+name = "icssvc"
+label = "Point d'accès sans fil mobile"
+tier = "extreme"
+start = "manual"
+why = "Partage de connexion Wi-Fi du PC."
+
+[[services]]
+name = "CscService"
+label = "Fichiers hors connexion"
+tier = "extreme"
+start = "manual"
+why = "Synchronisation des partages d'entreprise hors connexion."
+
+[[services]]
+name = "PrintNotify"
+label = "Extensions et notifications d'imprimante"
+tier = "extreme"
+start = "manual"
+why = "Notifications des pilotes d'imprimante."
+
+[[services]]
+name = "edgeupdate"
+label = "Mise à jour de Microsoft Edge"
+tier = "extreme"
+start = "manual"
+why = "Service de mise à jour d'Edge ; ses tâches planifiées continuent de le lancer."
+
+[[services]]
+name = "edgeupdatem"
+label = "Mise à jour de Microsoft Edge (à la demande)"
+tier = "extreme"
+start = "manual"
+why = "Idem."
+
+[[services]]
+name = "MicrosoftEdgeElevationService"
+label = "Élévation de Microsoft Edge"
+tier = "extreme"
+start = "manual"
+why = "Ne sert qu'à certaines mises à jour d'Edge."
+
+[[services]]
+name = "WbioSrvc"
+label = "Biométrie Windows"
+tier = "extreme"
+start = "manual"
+why = "Empreinte et visage (Windows Hello). Contrepartie : la connexion biométrique démarre un peu plus lentement."
+
+[[services]]
+name = "Wecsvc"
+label = "Collecteur d'événements Windows"
+tier = "extreme"
+start = "manual"
+why = "Collecte d'événements d'entreprise."
+
+[[services]]
+name = "RmSvc"
+label = "Gestion radio et mode avion"
+tier = "extreme"
+start = "manual"
+why = "Ne sert qu'au mode avion et aux radios."
+
 # ---------------------------------------------------------------------------
 # Registre : stratégies officielles et réglages documentés.
 # hive = hklm (défaut) | hkcu ; data = nombre (DWORD) ou "texte" (REG_SZ) ;
@@ -223,7 +441,8 @@ why = "0 coupe la télémétrie sur Entreprise/Éducation ; sur Famille/Pro, Win
 
 # Widgets : la stratégie Dsh\AllowNewsAndInterests est verrouillée par Windows 11
 # (accès refusé même en administrateur, vérifié en VM 26H2 le 2026-10-04). Prism ne
-# contourne pas une protection de Windows : désactiver les Widgets dans
+# contourne pas une protection de Windows : le niveau extrême retire le paquet des
+# Widgets (opération standard, réinstallable depuis le Store), sinon les désactiver dans
 # Paramètres > Personnalisation > Barre des tâches.
 
 [[registry]]
@@ -386,6 +605,34 @@ label = "Applis du Store bloquées en arrière-plan"
 tier = "avance"
 why = "Les applis du Store ne tournent plus quand elles sont fermées. Contrepartie : leurs notifications (Teams, WhatsApp du Store…) n'arrivent qu'à l'ouverture."
 
+
+# --- Niveau extrême
+[[registry]]
+hive = "hkcu"
+key = 'Software\Policies\Microsoft\Windows\WindowsCopilot'
+value = "TurnOffWindowsCopilot"
+data = 1
+reboot = true
+label = "Copilot désactivé"
+tier = "extreme"
+why = "Copilot est une appli WebView qui peut rester en arrière-plan. Contrepartie : plus de Copilot intégré (le site reste accessible)."
+
+[[registry]]
+key = 'SOFTWARE\Policies\Microsoft\Windows\Windows Chat'
+value = "ChatIcon"
+data = 3
+label = "Conversation Teams retirée de la barre"
+tier = "extreme"
+why = "Empêche le lancement de Teams (personnel) par la barre des tâches."
+
+[[registry]]
+key = 'SOFTWARE\Policies\Microsoft\Windows\Windows Search'
+value = "AllowCortana"
+data = 0
+label = "Cortana désactivée"
+tier = "extreme"
+why = "Ancien assistant vocal, encore présent sur certaines installations."
+
 # ---------------------------------------------------------------------------
 # Tâches planifiées (chemin complet du Planificateur de tâches)
 # ---------------------------------------------------------------------------
@@ -461,3 +708,162 @@ path = '\Microsoft\Windows\Application Experience\StartupAppTask'
 label = "Mesure de l'impact des applis au démarrage"
 tier = "avance"
 why = "Analyse le démarrage pour le Gestionnaire des tâches. Contrepartie : la colonne « Impact » n'y est plus mise à jour (Prism a ses propres conseils)."
+
+# ---------------------------------------------------------------------------
+# Applis préinstallées retirées au niveau extrême (pour l'utilisateur ; réinstallées
+# depuis le Store par « prism allege restore »).
+# ---------------------------------------------------------------------------
+[[apps]]
+package = "MicrosoftWindows.Client.WebExperience"
+label = "Widgets (panneau et hôte WebView)"
+store_id = "9MSSGKG348SP"
+tier = "extreme"
+why = "Le panneau Widgets garde un hôte WebView en mémoire en permanence (150 à 400 Mo). Windows verrouille sa stratégie de désactivation : on retire le paquet. Contrepartie : plus de panneau Widgets."
+
+[[apps]]
+package = "Microsoft.BingNews"
+label = "Actualités"
+store_id = "9WZDNCRFHVFW"
+tier = "extreme"
+why = "Flux d'actualités MSN."
+
+[[apps]]
+package = "Microsoft.BingWeather"
+label = "Météo"
+store_id = "9WZDNCRFJ3Q2"
+tier = "extreme"
+why = "Appli Météo MSN, rafraîchie en arrière-plan."
+
+[[apps]]
+package = "Microsoft.BingSearch"
+label = "Recherche Bing"
+store_id = "9NZBF4GT040C"
+tier = "extreme"
+why = "Intégration de Bing à Windows."
+
+[[apps]]
+package = "Microsoft.GetHelp"
+label = "Obtenir de l'aide"
+store_id = "9PKDZBMV1H3T"
+tier = "extreme"
+why = "Assistance Microsoft en ligne."
+
+[[apps]]
+package = "Microsoft.Getstarted"
+label = "Astuces"
+store_id = "9WZDNCRDTBJJ"
+tier = "extreme"
+why = "Conseils de prise en main."
+
+[[apps]]
+package = "Microsoft.MicrosoftSolitaireCollection"
+label = "Microsoft Solitaire Collection"
+store_id = "9WZDNCRFHWD2"
+tier = "extreme"
+why = "Jeux de cartes avec publicités."
+
+[[apps]]
+package = "Microsoft.WindowsFeedbackHub"
+label = "Hub de commentaires"
+store_id = "9NBLGGH4R32N"
+tier = "extreme"
+why = "Retours à Microsoft."
+
+[[apps]]
+package = "Microsoft.ZuneMusic"
+label = "Lecteur multimédia"
+store_id = "9WZDNCRFJ3PT"
+tier = "extreme"
+why = "Lecteur multimédia de Windows. Contrepartie : il faut un autre lecteur (VLC…)."
+
+[[apps]]
+package = "Microsoft.ZuneVideo"
+label = "Films et TV"
+store_id = "9WZDNCRFJ3P2"
+tier = "extreme"
+why = "Lecteur vidéo de la boutique de films."
+
+[[apps]]
+package = "Clipchamp.Clipchamp"
+label = "Clipchamp"
+store_id = "9P1J8S7CCWWT"
+tier = "extreme"
+why = "Éditeur vidéo en ligne."
+
+[[apps]]
+package = "Microsoft.Todos"
+label = "Microsoft To Do"
+store_id = "9NBLGGH5R558"
+tier = "extreme"
+why = "Listes de tâches synchronisées."
+
+[[apps]]
+package = "Microsoft.MicrosoftOfficeHub"
+label = "Microsoft 365 (Office)"
+store_id = "9WZDNCRD29V9"
+tier = "extreme"
+why = "Lanceur Office et publicités Microsoft 365."
+
+[[apps]]
+package = "Microsoft.PowerAutomateDesktop"
+label = "Power Automate"
+store_id = "9NFTCH6J7FHV"
+tier = "extreme"
+why = "Automatisation d'entreprise."
+
+[[apps]]
+package = "Microsoft.OutlookForWindows"
+label = "Outlook (nouveau)"
+store_id = "9NRX63209R7B"
+tier = "extreme"
+why = "Client mail en WebView, souvent lancé en arrière-plan. Contrepartie : utiliser le webmail ou un autre client."
+
+[[apps]]
+package = "MSTeams"
+label = "Microsoft Teams"
+store_id = "XP8BT8DW290MPQ"
+tier = "extreme"
+why = "Teams en WebView, démarre avec Windows. Contrepartie : le réinstaller si vous en avez besoin pour le travail."
+
+[[apps]]
+package = "Microsoft.YourPhone"
+label = "Phone Link (Lien avec Windows)"
+store_id = "9NMPJ99VJBWV"
+tier = "extreme"
+why = "Reste en arrière-plan pour le téléphone associé. Contrepartie : plus de SMS/notifications du téléphone sur le PC."
+
+[[apps]]
+package = "Microsoft.WindowsMaps"
+label = "Cartes"
+store_id = "9WZDNCRDTBVB"
+tier = "extreme"
+why = "Cartes hors ligne."
+
+[[apps]]
+package = "Microsoft.People"
+label = "Contacts"
+store_id = "9NBLGGH10PG8"
+tier = "extreme"
+why = "Carnet de contacts."
+
+[[apps]]
+package = "Microsoft.549981C3F5F10"
+label = "Cortana"
+store_id = "9NFFX4SZZ23L"
+tier = "extreme"
+why = "Ancien assistant."
+
+[[apps]]
+package = "Microsoft.Copilot"
+label = "Copilot (appli)"
+store_id = "9NHT9RB2F4HD"
+tier = "extreme"
+why = "Appli Copilot en WebView."
+
+[[apps]]
+package = "Microsoft.MicrosoftStickyNotes"
+label = "Pense-bêtes"
+store_id = "9NBLGGH4QGHW"
+tier = "extreme"
+why = "Notes synchronisées avec le compte Microsoft."
+

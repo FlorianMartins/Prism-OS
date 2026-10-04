@@ -286,6 +286,22 @@ impl Backend for WinBackend {
                 why: t.why.clone(),
             }
         }));
+        rows.extend(c.apps.iter().map(|a| {
+            let cur = sys.app_installed(&a.package);
+            let current = match &cur {
+                Ok(true) => "installée".into(),
+                Ok(false) => "absente".into(),
+                Err(e) => e.clone(),
+            };
+            AllegeRow {
+                tier: a.tier,
+                label: format!("Appli : {}", a.label),
+                current,
+                target: "retirée".into(),
+                done: matches!(cur, Ok(false)),
+                why: a.why.clone(),
+            }
+        }));
         rows
     }
 

@@ -33,6 +33,8 @@ mod tiler;
 #[cfg(windows)]
 mod topology;
 #[cfg(windows)]
+pub mod veille;
+#[cfg(windows)]
 mod win;
 
 #[cfg(windows)]
@@ -50,7 +52,8 @@ pub use topology::cpus as cpu_topology;
 
 #[cfg(windows)]
 pub use win::{
-    active_power_plan, flush_modified_list, memory_lists, proc_id, process_state, MemoryLists, WindowsPlatform,
+    active_power_plan, flush_modified_list, memory_lists, proc_id, process_state, terminate_verified, MemoryLists,
+    WindowsPlatform,
 };
 
 /// Une tâche planifiée est active sauf si sa section `<Settings>` dit le contraire.

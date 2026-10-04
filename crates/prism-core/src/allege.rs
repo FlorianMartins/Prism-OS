@@ -19,6 +19,10 @@ pub enum Tier {
     Avance,
     /// Réglages orientés jeu (Mode Jeu Windows, GPU, souris…).
     Jeu,
+    /// Allègement maximal : services d'arrière-plan en démarrage à la demande, Widgets,
+    /// Copilot, applis préinstallées retirées. Remis le temps d'une partie protégée par
+    /// un anti-cheat noyau.
+    Extreme,
 }
 
 impl Tier {
@@ -27,6 +31,7 @@ impl Tier {
             "sur" | "sûr" => Some(Tier::Sur),
             "avance" | "avancé" => Some(Tier::Avance),
             "jeu" => Some(Tier::Jeu),
+            "extreme" | "extrême" => Some(Tier::Extreme),
             _ => None,
         }
     }
@@ -36,6 +41,7 @@ impl Tier {
             Tier::Sur => "sûr",
             Tier::Avance => "avancé",
             Tier::Jeu => "jeu",
+            Tier::Extreme => "extrême",
         }
     }
 }
@@ -79,6 +85,19 @@ pub struct ServiceEntry {
     pub label: String,
     pub tier: Tier,
     pub start: StartType,
+    pub why: String,
+}
+
+/// Appli préinstallée (paquet du Store) retirée au niveau Extrême, réinstallable.
+#[derive(Clone, Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct AppEntry {
+    /// Nom du paquet (`Microsoft.BingNews`).
+    pub package: String,
+    pub label: String,
+    /// Identifiant du Store, pour la réinstaller (`winget install --source msstore`).
+    pub store_id: String,
+    pub tier: Tier,
     pub why: String,
 }
 
@@ -164,6 +183,11 @@ pub struct Catalog {
     /// Dossiers de tâches planifiées jamais touchés.
     #[serde(default)]
     pub protected_tasks: Vec<String>,
+    #[serde(default)]
+    pub apps: Vec<AppEntry>,
+    /// Paquets jamais retirés (début du nom) : Store, Xbox, runtimes, sécurité…
+    #[serde(default)]
+    pub protected_apps: Vec<String>,
 }
 
 /// Tâche planifiée à désactiver (chemin complet du Planificateur : `\Microsoft\…`).
@@ -190,6 +214,15 @@ impl Catalog {
             .iter()
             .any(|prefix| p.starts_with(&prefix.to_ascii_lowercase()))
             .then_some("dossier de tâches protégé (mises à jour, sécurité, TPM, heure…)")
+    }
+
+    /// Raison de protection d'un paquet, insensible à la casse.
+    pub fn app_protection(&self, package: &str) -> Option<&'static str> {
+        let p = package.to_ascii_lowercase();
+        self.protected_apps
+            .iter()
+            .any(|prefix| p.starts_with(&prefix.to_ascii_lowercase()))
+            .then_some("paquet protégé (Store, Xbox, runtimes, sécurité, shell)")
     }
 
     pub fn parse(text: &str) -> Result<Catalog, String> {
@@ -256,6 +289,21 @@ impl Catalog {
                 errors.push(format!("tâche en double : {}", t.path));
             }
         }
+        let mut seen = HashSet::new();
+        for a in &self.apps {
+            if self.app_protection(&a.package).is_some() {
+                errors.push(format!("appli {} : paquet protégé, interdit au catalogue", a.package));
+            }
+            if !seen.insert(a.package.to_ascii_lowercase()) {
+                errors.push(format!("appli en double : {}", a.package));
+            }
+            if a.store_id.trim().is_empty() || a.why.trim().is_empty() {
+                errors.push(format!(
+                    "appli {} : identifiant du Store et raison (why) exigés",
+                    a.package
+                ));
+            }
+        }
         if errors.is_empty() {
             Ok(())
         } else {
@@ -283,6 +331,11 @@ pub enum Change {
         path: String,
         enabled: bool,
     },
+    /// Retire une appli préinstallée (pour l'utilisateur).
+    RemoveApp {
+        package: String,
+        store_id: String,
+    },
 }
 
 impl Change {
@@ -293,12 +346,14 @@ impl Change {
             Change::Task { path, enabled } => {
                 format!("tâche {path} {}", if *enabled { "activée" } else { "désactivée" })
             }
+            Change::RemoveApp { package, .. } => format!("appli {package} retirée"),
         }
     }
 
     fn key(&self) -> String {
         match self {
             Change::ServiceStart { name, .. } => format!("svc:{}", name.to_ascii_lowercase()),
+            Change::RemoveApp { package, .. } => format!("app:{}", package.to_ascii_lowercase()),
             Change::Task { path, .. } => format!("task:{}", path.to_ascii_lowercase()),
             Change::Policy { key, value, .. } => {
                 format!("pol:{}\\{}", key.to_ascii_lowercase(), value.to_ascii_lowercase())
@@ -325,12 +380,18 @@ pub enum Original {
         path: String,
         was: bool,
     },
+    /// L'appli était installée : on la réinstalle depuis le Store.
+    App {
+        package: String,
+        store_id: String,
+    },
 }
 
 impl Original {
     fn key(&self) -> String {
         match self {
             Original::ServiceStart { name, .. } => format!("svc:{}", name.to_ascii_lowercase()),
+            Original::App { package, .. } => format!("app:{}", package.to_ascii_lowercase()),
             Original::Task { path, .. } => format!("task:{}", path.to_ascii_lowercase()),
             Original::Policy { key, value, .. } => {
                 format!("pol:{}\\{}", key.to_ascii_lowercase(), value.to_ascii_lowercase())
@@ -350,6 +411,7 @@ impl Original {
             Original::Task { path, was } => {
                 format!("tâche {path} <- {}", if *was { "activée" } else { "désactivée" })
             }
+            Original::App { package, .. } => format!("appli {package} remise"),
         }
     }
 }
@@ -366,6 +428,12 @@ pub trait SystemConfig {
     /// `Ok(None)` : la tâche n'existe pas sur cette machine.
     fn task_enabled(&mut self, path: &str) -> Result<Option<bool>, String>;
     fn set_task_enabled(&mut self, path: &str, enabled: bool) -> Result<(), String>;
+    /// L'appli (nom de paquet) est-elle installée pour l'utilisateur ?
+    fn app_installed(&mut self, package: &str) -> Result<bool, String>;
+    fn remove_app(&mut self, package: &str) -> Result<(), String>;
+    /// Remet l'appli : réenregistrée depuis la copie restée sur le disque (paquet
+    /// provisionné), sinon réinstallée depuis le Store.
+    fn install_app(&mut self, package: &str, store_id: &str) -> Result<(), String>;
 }
 
 pub fn plan(catalog: &Catalog, tiers: &[Tier]) -> Vec<Change> {
@@ -394,7 +462,15 @@ pub fn plan(catalog: &Catalog, tiers: &[Tier]) -> Vec<Change> {
             path: t.path.clone(),
             enabled: false,
         });
-    services.chain(policies).chain(tasks).collect()
+    let apps = catalog
+        .apps
+        .iter()
+        .filter(|a| tiers.contains(&a.tier))
+        .map(|a| Change::RemoveApp {
+            package: a.package.clone(),
+            store_id: a.store_id.clone(),
+        });
+    services.chain(policies).chain(tasks).chain(apps).collect()
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -503,6 +579,23 @@ pub fn apply(
                     }),
                 }
             }
+            Change::RemoveApp { package, store_id } => {
+                if let Some(reason) = catalog.app_protection(package) {
+                    r.failed.push(format!("{what} — refusé : {reason}"));
+                    continue;
+                }
+                match sys.app_installed(package) {
+                    Err(e) => Err(e),
+                    Ok(false) => {
+                        r.unchanged.push(format!("{what} — absente de cette machine"));
+                        continue;
+                    }
+                    Ok(true) => sys.remove_app(package).map(|()| Original::App {
+                        package: package.clone(),
+                        store_id: store_id.clone(),
+                    }),
+                }
+            }
         };
         match original {
             Ok(o) => {
@@ -535,6 +628,7 @@ pub fn restore(sys: &mut dyn SystemConfig, journal: &mut AllegeJournal) -> Alleg
             } => sys.set_policy(key, value, d),
             Original::Policy { key, value, was: None } => sys.delete_policy(key, value),
             Original::Task { path, was } => sys.set_task_enabled(path, *was),
+            Original::App { package, store_id } => sys.install_app(package, store_id),
         };
         match res {
             Ok(()) => r.done.push(o.describe()),
@@ -556,10 +650,25 @@ pub struct MockSystem {
     pub policies: std::collections::BTreeMap<(String, String), RegData>,
     /// Tâches connues : chemin (minuscules) -> activée.
     pub tasks: std::collections::BTreeMap<String, bool>,
+    /// Paquets installés (minuscules) et identifiant du Store de chacun.
+    pub apps: std::collections::BTreeMap<String, String>,
     pub writes: usize,
 }
 
 impl SystemConfig for MockSystem {
+    fn app_installed(&mut self, package: &str) -> Result<bool, String> {
+        Ok(self.apps.contains_key(&package.to_ascii_lowercase()))
+    }
+    fn remove_app(&mut self, package: &str) -> Result<(), String> {
+        self.writes += 1;
+        self.apps.remove(&package.to_ascii_lowercase());
+        Ok(())
+    }
+    fn install_app(&mut self, package: &str, store_id: &str) -> Result<(), String> {
+        self.writes += 1;
+        self.apps.insert(package.to_ascii_lowercase(), store_id.into());
+        Ok(())
+    }
     fn task_enabled(&mut self, path: &str) -> Result<Option<bool>, String> {
         Ok(self.tasks.get(&path.to_ascii_lowercase()).copied())
     }
@@ -626,6 +735,39 @@ mod tests {
 
     fn run(m: &mut MockSystem, c: &Catalog, tiers: &[Tier], j: &mut AllegeJournal) -> AllegeReport {
         apply(m, c, &plan(c, tiers), j, &mut |_| Ok(()))
+    }
+
+    #[test]
+    fn extreme_removes_preinstalled_apps_and_restore_reinstalls_them_from_the_store() {
+        let c = Catalog::builtin();
+        let mut m = stock_windows(&c);
+        m.apps.insert("microsoft.bingnews".into(), "9WZDNCRFHVFW".into());
+        m.apps.insert("microsoft.windowsstore".into(), "x".into());
+        let mut j = AllegeJournal::default();
+        // Les niveaux sûr/avancé ne touchent à aucune appli.
+        run(&mut m, &c, &[Tier::Sur, Tier::Avance], &mut j);
+        assert!(m.apps.contains_key("microsoft.bingnews"));
+        let r = run(&mut m, &c, &[Tier::Extreme], &mut j);
+        assert!(!m.apps.contains_key("microsoft.bingnews"));
+        assert!(m.apps.contains_key("microsoft.windowsstore"));
+        assert!(r.done.iter().any(|d| d.contains("Microsoft.BingNews")));
+        restore(&mut m, &mut j);
+        assert!(m.apps.contains_key("microsoft.bingnews"));
+        assert!(j.originals.is_empty());
+    }
+
+    #[test]
+    fn protected_app_is_refused_even_if_planned_by_hand() {
+        let c = Catalog::builtin();
+        let mut m = MockSystem::default();
+        m.apps.insert("microsoft.gamingapp".into(), "x".into());
+        let changes = [Change::RemoveApp {
+            package: "Microsoft.GamingApp".into(),
+            store_id: "9MV0B5HZVK9Z".into(),
+        }];
+        let r = apply(&mut m, &c, &changes, &mut AllegeJournal::default(), &mut |_| Ok(()));
+        assert_eq!(r.failed.len(), 1);
+        assert!(m.apps.contains_key("microsoft.gamingapp"));
     }
 
     #[test]

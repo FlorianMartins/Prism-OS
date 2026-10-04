@@ -22,11 +22,11 @@ use windows_sys::Win32::System::Services::{
     SERVICE_QUERY_CONFIG, SERVICE_QUERY_STATUS, SERVICE_START, SERVICE_STATUS, SERVICE_STOP, SERVICE_SYSTEM_START,
 };
 
-fn wide(s: &str) -> Vec<u16> {
+pub(crate) fn wide(s: &str) -> Vec<u16> {
     s.encode_utf16().chain(std::iter::once(0)).collect()
 }
 
-fn win_err(what: &str, code: u32) -> String {
+pub(crate) fn win_err(what: &str, code: u32) -> String {
     if code == ERROR_ACCESS_DENIED {
         format!("{what} : accès refusé (droits administrateur requis, ou réglage protégé par Windows)")
     } else {
@@ -47,7 +47,7 @@ fn split_hive(full: &str) -> Result<(HKEY, &str), String> {
     Ok((root, sub))
 }
 
-struct Sc(SC_HANDLE);
+pub(crate) struct Sc(pub(crate) SC_HANDLE);
 
 impl Drop for Sc {
     fn drop(&mut self) {
@@ -66,7 +66,7 @@ impl Drop for Key {
 }
 
 /// `Ok(None)` si le service n'existe pas.
-fn open_service(name: &str, access: u32) -> Result<Option<(Sc, Sc)>, String> {
+pub(crate) fn open_service(name: &str, access: u32) -> Result<Option<(Sc, Sc)>, String> {
     // SAFETY: chaînes larges terminées par zéro, handles vérifiés puis possédés.
     unsafe {
         let scm = OpenSCManagerW(null(), null(), SC_MANAGER_CONNECT);
@@ -129,7 +129,137 @@ fn read_start(svc: &Sc) -> Result<StartType, String> {
 
 pub struct WindowsSystemConfig;
 
+/// Paquets du Store installés pour l'utilisateur (noms en minuscules), relus au plus
+/// une fois par minute : chaque lecture lance PowerShell (≈ 1 s).
+static APPS: std::sync::Mutex<Option<(std::time::Instant, std::collections::HashSet<String>)>> =
+    std::sync::Mutex::new(None);
+
+/// Nom de paquet ou identifiant du Store sûr à passer en ligne de commande.
+fn safe_token(s: &str) -> Result<&str, String> {
+    if !s.is_empty()
+        && s.len() <= 128
+        && s.chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '-' | '_'))
+    {
+        Ok(s)
+    } else {
+        Err(format!("nom refusé « {s} »"))
+    }
+}
+
+fn hidden_cmd(exe: &str, args: &[&str]) -> Result<std::process::Output, String> {
+    use std::os::windows::process::CommandExt;
+    const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+    std::process::Command::new(exe)
+        .args(args)
+        .creation_flags(CREATE_NO_WINDOW)
+        .stdin(std::process::Stdio::null())
+        .output()
+        .map_err(|e| format!("{exe} : {e}"))
+}
+
+fn powershell(script: &str) -> Result<std::process::Output, String> {
+    hidden_cmd(
+        "powershell.exe",
+        &[
+            "-NoProfile",
+            "-NonInteractive",
+            "-ExecutionPolicy",
+            "Bypass",
+            "-Command",
+            script,
+        ],
+    )
+}
+
 impl SystemConfig for WindowsSystemConfig {
+    fn app_installed(&mut self, package: &str) -> Result<bool, String> {
+        let package = safe_token(package)?.to_ascii_lowercase();
+        let mut cache = APPS.lock().map_err(|_| "verrou".to_string())?;
+        let stale = cache
+            .as_ref()
+            .map_or(true, |(t, _)| t.elapsed() > std::time::Duration::from_secs(60));
+        if stale {
+            let out = powershell("Get-AppxPackage | ForEach-Object { $_.Name }")?;
+            if !out.status.success() {
+                return Err(format!(
+                    "liste des applis illisible : {}",
+                    String::from_utf8_lossy(&out.stderr).trim()
+                ));
+            }
+            let set = String::from_utf8_lossy(&out.stdout)
+                .lines()
+                .map(|l| l.trim().to_ascii_lowercase())
+                .filter(|l| !l.is_empty())
+                .collect();
+            *cache = Some((std::time::Instant::now(), set));
+        }
+        Ok(cache.as_ref().is_some_and(|(_, set)| set.contains(&package)))
+    }
+
+    fn remove_app(&mut self, package: &str) -> Result<(), String> {
+        let package = safe_token(package)?;
+        let out = powershell(&format!(
+            "$ErrorActionPreference='Stop'; Get-AppxPackage -Name '{package}' | Remove-AppxPackage"
+        ))?;
+        if let Ok(mut c) = APPS.lock() {
+            *c = None;
+        }
+        if out.status.success() {
+            Ok(())
+        } else {
+            Err(String::from_utf8_lossy(&out.stderr)
+                .lines()
+                .next()
+                .unwrap_or("échec")
+                .trim()
+                .to_string())
+        }
+    }
+
+    fn install_app(&mut self, package: &str, store_id: &str) -> Result<(), String> {
+        let package = safe_token(package)?;
+        let id = safe_token(store_id)?;
+        // 1. Copie restée sur le disque (paquet provisionné ou installé pour un autre
+        //    compte) : réenregistrée, hors ligne et sans compte Microsoft.
+        let out = powershell(&format!(
+            "$ErrorActionPreference='Stop'; \
+             $p = Get-AppxPackage -AllUsers -Name '{package}' | Sort-Object Version -Descending | Select-Object -First 1; \
+             if (-not $p) {{ exit 3 }}; \
+             Add-AppxPackage -Register (Join-Path $p.InstallLocation 'AppxManifest.xml') -DisableDevelopmentMode"
+        ))?;
+        if let Ok(mut c) = APPS.lock() {
+            *c = None;
+        }
+        if out.status.success() {
+            return Ok(());
+        }
+        // 2. Sinon, depuis le Store.
+        let out = hidden_cmd(
+            "winget.exe",
+            &[
+                "install",
+                "--id",
+                id,
+                "--source",
+                "msstore",
+                "--silent",
+                "--accept-package-agreements",
+                "--accept-source-agreements",
+            ],
+        )?;
+        if let Ok(mut c) = APPS.lock() {
+            *c = None;
+        }
+        // 0x8A15002B : déjà installé.
+        match out.status.code() {
+            Some(0) | Some(-1978335189) => Ok(()),
+            c => Err(format!(
+                "winget a échoué (code {c:?}) : réinstallable depuis le Microsoft Store, identifiant {id}"
+            )),
+        }
+    }
+
     fn task_enabled(&mut self, path: &str) -> Result<Option<bool>, String> {
         let out = schtasks(&["/Query", "/TN", path, "/XML"])?;
         if !out.status.success() {
@@ -198,9 +328,11 @@ impl SystemConfig for WindowsSystemConfig {
                 // Remis en automatique : on le relance tout de suite (sans attendre un redémarrage).
                 StartServiceW(svc.0, 0, null());
             }
-            if to == StartType::Disabled {
-                // Désactivé : on l'arrête aussi, pour un effet immédiat. Échec sans gravité
-                // (déjà arrêté, ou dépendances) : il ne redémarrera plus.
+            if matches!(to, StartType::Disabled | StartType::Manual) {
+                // Désactivé ou à la demande : on l'arrête aussi, pour rendre sa mémoire
+                // tout de suite. Échec sans gravité (déjà arrêté, dépendances, service
+                // qui refuse l'arrêt) ; un service « à la demande » est relancé par
+                // Windows dès qu'un programme en a besoin.
                 let mut status: SERVICE_STATUS = std::mem::zeroed();
                 ControlService(svc.0, SERVICE_CONTROL_STOP, &mut status);
             }

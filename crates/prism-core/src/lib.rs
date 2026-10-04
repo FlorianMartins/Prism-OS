@@ -7,8 +7,8 @@
 pub mod allege;
 pub mod apparence;
 pub mod backup;
-pub mod cadence;
 pub mod bar;
+pub mod cadence;
 pub mod classify;
 pub mod config;
 pub mod cores;
@@ -23,6 +23,7 @@ pub mod journal;
 pub mod library;
 pub mod mock;
 pub mod model;
+pub mod noyau;
 pub mod paths;
 pub mod plan;
 pub mod platform;

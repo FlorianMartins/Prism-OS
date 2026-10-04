@@ -91,6 +91,9 @@ pub enum ToolSource {
     Winget,
     WslDistro,
     KaliApt,
+    /// Non installé par Prism : seulement reconnu, pour être mis en veille pendant une
+    /// partie protégée par un anti-cheat noyau.
+    External,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -114,6 +117,10 @@ pub struct Tool {
     pub processes: Vec<String>,
     #[serde(default)]
     pub requires: Vec<String>,
+    /// Services et pilotes de l'outil, arrêtés pendant une partie protégée par un
+    /// anti-cheat noyau puis relancés (Npcap, pilote de Process Monitor…).
+    #[serde(default)]
+    pub services: Vec<String>,
 }
 
 fn default_eco_minutes() -> u64 {

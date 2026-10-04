@@ -320,7 +320,10 @@ pub fn draw_prism(p: &egui::Painter, c: Pos2, size: f32, angle: f32, build: f32,
     let mut faces: Vec<(f32, [Pos2; 3], Color32, f32)> = Vec::new();
     for k in 0..4 {
         let j = (k + 1) % 4;
-        for (i, (apex, a, b)) in [(top, ring[k], ring[j]), (bot, ring[j], ring[k])].into_iter().enumerate() {
+        for (i, (apex, a, b)) in [(top, ring[k], ring[j]), (bot, ring[j], ring[k])]
+            .into_iter()
+            .enumerate()
+        {
             let tri = [apex.0, a.0, b.0];
             let cross = (tri[1].x - tri[0].x) * (tri[2].y - tri[0].y) - (tri[1].y - tri[0].y) * (tri[2].x - tri[0].x);
             if cross >= 0.0 {
@@ -354,7 +357,10 @@ pub fn draw_prism(p: &egui::Painter, c: Pos2, size: f32, angle: f32, build: f32,
     // Arêtes fines et lumineuses des facettes visibles, après les facettes.
     let edge_a = ((build - 1.1) / 0.4).clamp(0.0, 1.0);
     if edge_a > 0.0 {
-        let s = Stroke::new(1.2, Color32::from_rgba_unmultiplied(220, 230, 255, (150.0 * edge_a) as u8));
+        let s = Stroke::new(
+            1.2,
+            Color32::from_rgba_unmultiplied(220, 230, 255, (150.0 * edge_a) as u8),
+        );
         for (_, tri, _, a) in &faces {
             if *a >= 1.0 {
                 p.line_segment([tri[0], tri[1]], s);
@@ -377,7 +383,10 @@ pub fn draw_prism(p: &egui::Painter, c: Pos2, size: f32, angle: f32, build: f32,
         let a = (t / 0.8).clamp(0.0, 1.0);
         let entry = Pos2::new(c.x - size * 2.2, c.y + size * 0.1);
         let hit = Pos2::new(c.x - size * 0.4, c.y);
-        p.line_segment([entry, hit], Stroke::new(3.0, Color32::from_rgba_unmultiplied(255, 255, 255, (230.0 * a) as u8)));
+        p.line_segment(
+            [entry, hit],
+            Stroke::new(3.0, Color32::from_rgba_unmultiplied(255, 255, 255, (230.0 * a) as u8)),
+        );
         let rainbow = [
             (0xff, 0x4d, 0x4d),
             (0xff, 0x9f, 0x40),

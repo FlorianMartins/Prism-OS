@@ -102,3 +102,17 @@ fn light_theme_renders() {
     let light = img.pixels().filter(|p| p[0] > 200 && p[1] > 200 && p[2] > 180).count();
     assert!(light > (img.width() * img.height()) as usize / 3, "fond clair attendu");
 }
+
+/// Page Allègement entière : niveau Extrême et plan « jeu noyau » tiennent dans la largeur.
+#[test]
+fn allege_page_with_extreme_and_kernel_plan_fits() {
+    let img = shot_sized(
+        "allegement-complete",
+        Page::Allege,
+        false,
+        MockBackend::default(),
+        4200.0,
+    );
+    assert!(has_accent(&img));
+    assert!(right_margin_is_clear(&img), "la page Allègement déborde à droite");
+}

@@ -100,6 +100,15 @@ pub trait Backend {
     fn allege_apply(&mut self, tier: Tier) -> Result<String, String>;
     fn allege_restore(&mut self) -> Result<String, String>;
 
+    /// Plan automatique des jeux à anti-cheat noyau (réglages de l'utilisateur).
+    fn noyau(&mut self) -> prism_core::noyau::Reglages {
+        prism_core::noyau::Reglages::charger(&prism_core::paths::user_dir())
+    }
+    fn set_noyau(&mut self, r: &prism_core::noyau::Reglages) -> Result<String, String> {
+        r.enregistrer(&prism_core::paths::user_dir())?;
+        Ok("Plan « jeu noyau » enregistré : appliqué à la prochaine partie".into())
+    }
+
     /// Tableau de bord vie privée et connexions ouvertes par la télémétrie.
     fn privacy(
         &mut self,

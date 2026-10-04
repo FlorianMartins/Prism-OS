@@ -17,7 +17,9 @@ breaks one of these rules is rejected.
    policies, and configuration.
 6. **Windows Update stays functional**: anti-cheats require up-to-date versions.
 7. **Report, don't hide**: a problematic tool (debugger, third-party kernel driver) is
-   reported to the user, never hidden from the anti-cheat.
+   reported to the user, never hidden from the anti-cheat. The kernel anti-cheat plan
+   may *close* such a tool or *stop* its driver before the game (user setting, on by
+   default, per-tool opt-out) — it never hides, renames or masks anything.
 8. **Never touch the services session (session 0).** Prism only acts on processes of
    the interactive user session, even if Prism itself runs elsewhere (over SSH, or as a
    service): WMI providers and licensing services must stay untouched.
@@ -29,3 +31,9 @@ breaks one of these rules is rejected.
     the code refuse any other program and every protected service (Windows Update,
     Defender, licensing, time, the services anti-cheats depend on). Games and
     anti-cheats are never blocked.
+11. **The kernel anti-cheat plan only gives back.** During a protected game it restores
+    Windows services to their original settings, closes the user's own tools and stops
+    their drivers; it never stops, delays or reconfigures the anti-cheat, its service or
+    the game, and every service an anti-cheat needs stays on the protected list. The
+    Extreme level sets services to *on demand*, so Windows starts any of them again
+    whenever a program — anti-cheat included — asks for it.

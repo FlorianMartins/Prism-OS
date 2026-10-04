@@ -45,6 +45,7 @@ pub fn install_commands(t: &Tool) -> Vec<Vec<String>> {
             "--accept-source-agreements",
         ])],
         ToolSource::WslDistro => vec![s(&["wsl", "--install", "-d", &t.package])],
+        ToolSource::External => Vec::new(),
         ToolSource::KaliApt => {
             let mut install = s(&["wsl", "-d", KALI_DISTRO, "-u", "root", "--", "apt-get", "install", "-y"]);
             install.extend(t.package.split_whitespace().map(String::from));

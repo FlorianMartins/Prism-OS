@@ -34,7 +34,8 @@ Utilisation : prism <commande>
   demarrage recommande    désactive les applis conseillées (réversible)
   demarrage off|on <nom>  désactive / réactive une entrée ; demarrage restore annule
   allege                  catalogue d'allègement (services, stratégies) et état
-  allege apply [niveaux]  applique : sur (défaut), avance, jeu (admin)
+  allege apply [niveaux]  applique : sur (défaut), avance, jeu, extreme (admin)
+  jeu-noyau [on|off]      plan automatique pour les jeux à anti-cheat noyau
   allege restore          remet toutes les valeurs d'origine (admin)
   vie-privee              tableau de bord : protections en place, télémétrie qui parle en ce moment
   vie-privee apply [niveau]  applique : recommande (défaut) ou strict (admin)
@@ -110,6 +111,7 @@ fn run(args: &[&str]) -> Result<(), String> {
         }
         ["tools", "install", pack] => tools_install(&cfg, pack),
         ["allege"] => allege_list(),
+        ["jeu-noyau", rest @ ..] => jeu_noyau(rest),
         ["tools", pack] => {
             for t in resolve_pack(&cfg, pack)? {
                 println!("{}", t.name);
@@ -148,6 +150,56 @@ fn run(args: &[&str]) -> Result<(), String> {
     }
 }
 
+/// `prism jeu-noyau [on|off]` : réglages du plan automatique (fichier de l'utilisateur,
+/// lu par le moteur à chaque partie protégée).
+fn jeu_noyau(args: &[&str]) -> Result<(), String> {
+    use prism_core::noyau::{Reglages, ANTICHEATS};
+    let dir = prism_core::paths::user_dir();
+    let mut r = Reglages::charger(&dir);
+    match args {
+        [] => {}
+        ["on"] => r.actif = true,
+        ["off"] => r.actif = false,
+        _ => return Err("usage : prism jeu-noyau [on|off]".into()),
+    }
+    if !args.is_empty() {
+        r.enregistrer(&dir)?;
+    }
+    let oui = |b: bool| if b { "oui" } else { "non" };
+    println!(
+        "Plan « jeu noyau » : {}",
+        if r.actif { "ACTIF (automatique)" } else { "désactivé" }
+    );
+    println!(
+        "  remettre les services du niveau Extrême     {}",
+        oui(r.services_extreme)
+    );
+    println!(
+        "  fermer les outils qui gênent les anti-cheats {}",
+        oui(r.fermer_outils_genants)
+    );
+    println!(
+        "  fermer tous les outils (VM comprises)       {}",
+        oui(r.fermer_tous_les_outils)
+    );
+    println!(
+        "  arrêter services et pilotes des outils      {}",
+        oui(r.arreter_services_outils)
+    );
+    println!("  éteindre WSL                                {}", oui(r.eteindre_wsl));
+    if !r.exclus.is_empty() {
+        println!("  outils jamais touchés : {}", r.exclus.join(", "));
+    }
+    let mut noms: Vec<&str> = ANTICHEATS.iter().map(|(_, l)| *l).collect();
+    noms.dedup();
+    println!("Anti-cheats reconnus : {}", noms.join(", "));
+    println!(
+        "Réglages détaillés : appli Prism, page Allègement ({}).",
+        dir.join(Reglages::FICHIER).display()
+    );
+    Ok(())
+}
+
 #[cfg_attr(not(windows), allow(dead_code))]
 fn allege_tiers(words: &[&str]) -> Result<Vec<prism_core::allege::Tier>, String> {
     use prism_core::allege::Tier;
@@ -156,7 +208,7 @@ fn allege_tiers(words: &[&str]) -> Result<Vec<prism_core::allege::Tier>, String>
     }
     words
         .iter()
-        .map(|w| Tier::parse(w).ok_or_else(|| format!("niveau inconnu « {w} » (sur, avance, jeu)")))
+        .map(|w| Tier::parse(w).ok_or_else(|| format!("niveau inconnu « {w} » (sur, avance, jeu, extreme)")))
         .collect()
 }
 
@@ -245,6 +297,16 @@ fn allege_list() -> Result<(), String> {
             None => "-".into(),
         };
         println!("  [{:<9}] {:<11} {}", t.tier.label(), state, t.label);
+    }
+    println!("Applis préinstallées (retirées pour l'utilisateur, réinstallables depuis le Store)");
+    for a in &c.apps {
+        let state = match sys.as_mut().map(|x| x.app_installed(&a.package)) {
+            Some(Ok(true)) => "installée".to_string(),
+            Some(Ok(false)) => "absente".to_string(),
+            Some(Err(e)) => e,
+            None => "-".into(),
+        };
+        println!("  [{:<9}] {:<11} {}", a.tier.label(), state, a.label);
     }
     let protected: usize = c.protected.iter().map(|p| p.services.len()).sum();
     println!("\n{protected} services protégés (anti-cheats, mises à jour, sécurité) ne sont jamais touchés.");
@@ -1060,11 +1122,12 @@ fn update_apply(msi: &str, bar: bool, engine: bool) -> Result<(), String> {
     }
 }
 
-/// Tâche à la demande qui ouvre l'appli avec les droits administrateur, sans invite.
-#[cfg(windows)]
 /// Hors partie, intervalle du relevé complet des processus (secondes).
+#[cfg(windows)]
 const FULL_SCAN_SECS: u64 = 10;
 
+/// Tâche à la demande qui ouvre l'appli avec les droits administrateur, sans invite.
+#[cfg(windows)]
 const ADMIN_TASK: &str = "Prism (admin)";
 
 #[cfg(windows)]
@@ -1163,6 +1226,9 @@ fn uninstall(args: &[&str]) -> Result<(), String> {
         j.save(&path)?;
         failed += r.failed.len();
         println!("✓ vie privée : {} remis, {} échec(s)", r.done.len(), r.failed.len());
+    }
+    if let Some(e) = prism_core::noyau::Etat::charger(&sys::data_dir()) {
+        noyau_sortir(&e);
     }
     {
         use prism_core::allege::{restore, AllegeJournal};
@@ -1270,6 +1336,62 @@ fn schtasks(args: &[&str]) -> Result<(), String> {
     }
 }
 
+/// Plan « jeu noyau » (prism_core::noyau) : entrée et sortie, journal d'allègement
+/// relu et réécrit à chaque fois (l'appli peut l'avoir changé entre-temps).
+#[cfg(windows)]
+fn noyau_entrer(
+    cfg: &Config,
+    snap: &prism_core::model::Snapshot,
+    anticheat: &str,
+) -> (prism_core::noyau::Etat, Vec<String>) {
+    use prism_core::allege::{AllegeJournal, Catalog};
+    use prism_core::noyau;
+    let path = sys::data_dir().join("allegement.json");
+    let mut log = Vec::new();
+    let mut journal = AllegeJournal::load(&path).unwrap_or_default();
+    let reglages = noyau::Reglages::charger(&prism_core::paths::user_dir());
+    let etat = noyau::entrer(
+        &mut prism_win::WindowsSystemConfig,
+        &mut prism_win::veille::WindowsVeille,
+        &Catalog::builtin(),
+        &mut journal,
+        cfg,
+        snap,
+        &reglages,
+        anticheat,
+        &mut log,
+    );
+    if let Err(e) = journal.save(&path) {
+        log.push(format!("ÉCHEC : journal d'allègement non écrit ({e})"));
+    }
+    if let Err(e) = etat.enregistrer(&sys::data_dir()) {
+        log.push(format!("ÉCHEC : état du plan non écrit ({e})"));
+    }
+    (etat, log)
+}
+
+#[cfg(windows)]
+fn noyau_sortir(etat: &prism_core::noyau::Etat) -> Vec<String> {
+    use prism_core::allege::{AllegeJournal, Catalog};
+    let path = sys::data_dir().join("allegement.json");
+    let mut log = Vec::new();
+    let mut journal = AllegeJournal::load(&path).unwrap_or_default();
+    prism_core::noyau::sortir(
+        &mut prism_win::WindowsSystemConfig,
+        &mut prism_win::veille::WindowsVeille,
+        &Catalog::builtin(),
+        &mut journal,
+        etat,
+        &mut |j| j.save(&path),
+        &mut log,
+    );
+    if let Err(e) = journal.save(&path) {
+        log.push(format!("ÉCHEC : journal d'allègement non écrit ({e})"));
+    }
+    prism_core::noyau::Etat::effacer(&sys::data_dir());
+    log
+}
+
 #[cfg(windows)]
 fn watch(cfg: &Config, quiet: bool) -> Result<(), String> {
     use prism_core::daily::Daily;
@@ -1313,6 +1435,14 @@ fn watch(cfg: &Config, quiet: bool) -> Result<(), String> {
         "Bibliothèque : {} jeu(x) installé(s) détecté(s).",
         library.len()
     ));
+    // Arrêt brutal pendant une partie protégée : on rejoue la sortie.
+    if let Some(e) = prism_core::noyau::Etat::charger(&sys::data_dir()) {
+        out.line("Reprise : fin du plan « jeu noyau » interrompu.");
+        for l in noyau_sortir(&e) {
+            out.line(&format!("  {l}"));
+        }
+    }
+    let mut noyau_etat: Option<prism_core::noyau::Etat> = None;
     let mut watcher = Watcher::default();
     let mut daily = Daily::default();
     let mut etat = prism_core::etat::Etat {
@@ -1362,6 +1492,29 @@ fn watch(cfg: &Config, quiet: bool) -> Result<(), String> {
                     }
                 }
                 let mut lines: Vec<String> = r.done.iter().map(|d| format!("Quotidien : {d}")).collect();
+                // Anti-cheat noyau pendant une partie : plan automatique ; fin de partie : sortie.
+                match (&noyau_etat, watcher.engaged()) {
+                    (None, true) => {
+                        if let Some(ac) = prism_core::noyau::anticheat(&snap) {
+                            let (e, log) = noyau_entrer(cfg, &snap, ac);
+                            out.line(&format!("Anti-cheat noyau détecté ({ac}) :"));
+                            for l in &log {
+                                out.line(&format!("  {l}"));
+                            }
+                            lines.push(format!("{ac} : {} action(s) pour la partie", log.len()));
+                            noyau_etat = Some(e);
+                        }
+                    }
+                    (Some(e), false) => {
+                        out.line("Fin de la partie protégée :");
+                        for l in noyau_sortir(e) {
+                            out.line(&format!("  {l}"));
+                        }
+                        lines.push("Fin de partie protégée : services et outils repris".into());
+                        noyau_etat = None;
+                    }
+                    _ => {}
+                }
                 match &event {
                     Event::Engaged { games, .. } => lines.push(format!("Mode Jeu : {}", games.join(", "))),
                     Event::Released { .. } => lines.push("Fin du Mode Jeu, réglages restaurés".into()),
@@ -1413,6 +1566,12 @@ fn watch(cfg: &Config, quiet: bool) -> Result<(), String> {
     if let Event::Released { report } = watcher.release(&mut w, &mut store) {
         out.line("Arrêt : réglages du Mode Jeu restaurés.");
         log_report(&out, &report);
+    }
+    if let Some(e) = noyau_etat.take() {
+        out.line("Arrêt : fin du plan « jeu noyau ».");
+        for l in noyau_sortir(&e) {
+            out.line(&format!("  {l}"));
+        }
     }
     let r = daily.release(&mut w, &mut daily_store);
     if !r.done.is_empty() {

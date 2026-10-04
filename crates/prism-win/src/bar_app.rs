@@ -952,7 +952,12 @@ impl Bar {
         use std::hash::{Hash, Hasher};
         let mut h = std::collections::hash_map::DefaultHasher::new();
         let s = &self.sample;
-        (s.cpu.round() as i32, s.ram.round() as i32, s.gpu.map(|g| g.round() as i32)).hash(&mut h);
+        (
+            s.cpu.round() as i32,
+            s.ram.round() as i32,
+            s.gpu.map(|g| g.round() as i32),
+        )
+            .hash(&mut h);
         (human_rate(s.net_down), human_rate(s.net_up), s.ram_used >> 24).hash(&mut h);
         for w in &self.windows {
             (w.hwnd as usize, &w.title, w.pid).hash(&mut h);
@@ -963,7 +968,15 @@ impl Bar {
             GetLocalTime(&mut t);
             (GetForegroundWindow() as usize, (t.wHour, t.wMinute))
         };
-        (fg, minute, self.game, self.desk_hidden, self.panels.len(), self.cfg_stamp).hash(&mut h);
+        (
+            fg,
+            minute,
+            self.game,
+            self.desk_hidden,
+            self.panels.len(),
+            self.cfg_stamp,
+        )
+            .hash(&mut h);
         h.finish()
     }
 

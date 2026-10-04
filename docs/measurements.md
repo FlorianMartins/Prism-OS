@@ -321,6 +321,30 @@ tiling on.
   delay, and otherwise every 10 s. Already light at idle, so no measurable change here;
   the saving shows with many processes.
 
+## 11. Extreme level and kernel anti-cheat plan — 2026-10-04
+
+Same VM (Windows 11 evaluation, clean, 12 GB, ~145 processes), in the user's session.
+
+- `prism allege apply extreme`: 22 changes (services set to on demand and stopped,
+  9 preinstalled apps removed), 30 already done or absent. Example: `DPS` and
+  `WSAIFabricSvc` *Auto / Running* → *Manual / Stopped*. Memory in use 3.93 → 3.98 GB
+  (5 samples each, 30 s after): **no measurable gain on this clean VM** — the removed
+  apps were not running and the stopped services are small. The gain on a real PC
+  depends on what ran in the background (Teams, new Outlook, Phone Link, Widgets: from
+  tens to hundreds of MB each); not measurable here.
+- The Widgets policy (`Dsh\AllowNewsAndInterests`) is refused even to an administrator
+  on this build; the Extreme level removes the Widgets package instead.
+- Kernel anti-cheat plan, fake game under `C:\XboxGames` + a process named `vgc.exe`
+  (Vanguard's service) + a process named `x64dbg.exe`: detected as *Vanguard (Riot)*,
+  5 Extreme services put back to their original settings (`DPS` back to *Auto /
+  Running* during the game), `x64dbg.exe` closed; at the end of the game the 5 services
+  went back to *Manual / Stopped*.
+- `prism allege restore`: the first attempt reinstalled removed apps with `winget
+  --source msstore` and failed on this image (winget 1.6: *the server certificate did
+  not match*). Removed apps are now re-registered from the copy Windows keeps on disk
+  (the packages stay provisioned): **15 original values restored, 0 failures, 19 s,
+  offline**; Widgets, Teams, Phone Link, To Do, News and Outlook back.
+
 ## What cannot be measured in a VM
 
 - **FPS and micro-stutters**: this requires a real gaming PC, with a protocol published

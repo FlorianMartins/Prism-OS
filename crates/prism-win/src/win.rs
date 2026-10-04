@@ -262,6 +262,21 @@ fn last_error_outcome(what: &str) -> Outcome {
     }
 }
 
+/// Ferme un processus, seulement s'il a toujours cette identité (PID + création).
+pub fn terminate_verified(id: &ProcId) -> Result<(), String> {
+    use windows_sys::Win32::System::Threading::{TerminateProcess, PROCESS_TERMINATE};
+    let h = Owned::open(id.pid, PROCESS_TERMINATE | PROCESS_QUERY_LIMITED_INFORMATION)
+        .map_err(|c| format!("ouverture impossible (erreur Windows {c})"))?;
+    if creation_time(h.0) != Some(id.created) {
+        return Err("processus disparu (PID réutilisé)".into());
+    }
+    // SAFETY: handle vérifié, ouvert avec le droit de terminer.
+    if unsafe { TerminateProcess(h.0, 1) } == 0 {
+        return Err(format!("erreur Windows {}", unsafe { GetLastError() }));
+    }
+    Ok(())
+}
+
 /// Ouvre le processus visé et vérifie qu'il s'agit bien du même (PID + création).
 fn open_target(target: &Target, access: PROCESS_ACCESS_RIGHTS) -> Result<Owned, Outcome> {
     let h = Owned::open(target.id.pid, access | PROCESS_QUERY_LIMITED_INFORMATION).map_err(|code| match code {

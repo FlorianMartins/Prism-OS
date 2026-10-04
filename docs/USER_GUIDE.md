@@ -174,12 +174,49 @@ prism allege                 # catalogue with the current state of every entry
 prism allege apply           # "sur" (safe): telemetry, useless services, Edge background, telemetry tasks
 prism allege apply avance    # "advanced": SysMain, Search indexing, Print Spooler… each with its trade-off
 prism allege apply jeu       # gaming settings: Windows Game Mode, GPU scheduling, windowed games, mouse acceleration off
+prism allege apply extreme   # "extreme": background services on demand, Copilot, preinstalled apps removed
 prism allege restore         # put back every original value
 ```
 
 72 services that anti-cheats, updates and security need are protected and can never be
 changed, even by editing the catalogue. Be realistic: disabling services saves about
 100 MB; startup apps and Daily Mode are where the big gains are.
+
+**Extreme level** (*Extrême* in the app, *Allègement* page):
+
+- ~28 background services (diagnostics, Windows AI fabric, network discovery,
+  telephony, payments/NFC, Edge updaters, biometrics…) are set to **start on demand**
+  and stopped. *On demand* is not *disabled*: Windows starts the service again by itself
+  the moment a program asks for it, so nothing breaks.
+- Copilot, Teams chat button and Cortana are turned off by policy.
+- 22 preinstalled apps are **removed for your account**: Widgets (its WebView host keeps
+  150–400 MB in memory), Teams, new Outlook, Phone Link, Copilot, Clipchamp, To Do,
+  News, Weather, Solitaire… The Store, Xbox/Game Pass, runtimes, security, the shell,
+  Photos, Notepad, Calculator, Terminal and Paint are protected and can never be removed.
+- **Undo**: `prism allege restore` (or *Tout restaurer*). Removed apps are re-registered
+  from the copy Windows keeps on disk — offline, no Microsoft account, ~20 s for all
+  of them (measured in the VM); the Microsoft Store is only a fallback.
+- What you gain depends on what was running: on a clean Windows nothing measurable;
+  on a PC where Teams, Outlook, Phone Link and Widgets run in the background, several
+  hundred MB.
+
+**Kernel anti-cheat games** (*Jeux à anti-cheat noyau*, top of the *Allègement* page;
+`prism jeu-noyau [on|off]`): automatic, every item can be switched off. When Game Mode
+starts and a kernel anti-cheat is running (Vanguard, EasyAntiCheat, BattlEye, FACEIT,
+EA AntiCheat, Call of Duty's Ricochet), Prism:
+
+1. puts the Extreme-level services back to their original settings for the game;
+2. closes the tools anti-cheats refuse (debuggers, Cheat Engine, System Informer) —
+   optionally every cybersecurity tool, virtual machines included (off by default:
+   a closed VM loses its unsaved work);
+3. stops the tools' services and drivers (Npcap, VMware, Sysinternals drivers) and
+   shuts WSL down (gives back its virtual machine's memory);
+4. at the end of the game, sets the Extreme services back to on-demand and restarts the
+   stopped services. Closed programs are not reopened.
+
+A tool can be marked *never touched*. After a crash, the end-of-game step is replayed
+when Prism starts again. Prism never uninstalls a tool for a game (reinstalling would take
+minutes every time); uninstalling is a separate action.
 
 ## 8b. Privacy (`prism vie-privee`, administrator)
 
@@ -360,7 +397,10 @@ prism tools install kali     # Kali Linux under WSL + essential tools (nmap, sql
 
 Nothing is installed by default and nothing runs while you play (the gaming profile
 stops WSL when a game starts). Tools that can upset anti-cheats (debuggers, kernel-driver
-tools) are flagged, and `prism status` warns if one is open.
+tools) are flagged, and `prism status` warns if one is open. With a kernel anti-cheat
+game, they are put on standby automatically — see *Kernel anti-cheat games* in §8.
+Cheat Engine, System Informer / Process Hacker, VMware and VirtualBox are recognised
+for standby even though Prism does not install them.
 
 ## 14. Configuration
 

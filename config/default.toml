@@ -142,7 +142,10 @@ game_helpers = [
 # ---------------------------------------------------------------------------
 # Catalogue d'outils cyber (identifiants winget vérifiés dans microsoft/winget-pkgs)
 # source = winget | wsl-distro | kali-apt
-# gaming_conflict = none | warn  (warn : signalé si ouvert pendant un jeu)
+# source = external : non installé par Prism, reconnu pour la mise en veille
+# gaming_conflict = none | warn  (warn : signalé si ouvert pendant un jeu, fermé
+#   pendant une partie protégée par un anti-cheat noyau)
+# services : services/pilotes arrêtés pendant une telle partie, relancés après
 # ---------------------------------------------------------------------------
 [packs.reseau]
 label = "Réseau"
@@ -166,7 +169,8 @@ name = "Wireshark"
 source = "winget"
 package = "WiresharkFoundation.Wireshark"
 gaming_conflict = "none"
-processes = ["wireshark.exe"]
+processes = ["wireshark.exe", "dumpcap.exe"]
+services = ["npcap"]
 
 [[tools]]
 id = "putty"
@@ -216,6 +220,7 @@ package = "Microsoft.Sysinternals.Suite"
 gaming_conflict = "warn"
 reason = "Process Explorer et Process Monitor chargent un pilote noyau que certains anti-cheats refusent."
 processes = ["procexp*.exe", "procmon*.exe"]
+services = ["PROCMON24", "PROCEXP152"]
 
 [[tools]]
 id = "x64dbg"
@@ -259,3 +264,42 @@ package = "nmap sqlmap hashcat john gobuster"
 gaming_conflict = "none"
 processes = []
 requires = ["kali"]
+
+# Outils reconnus mais non installés par Prism : mis en veille pendant une partie
+# protégée par un anti-cheat noyau (voir docs/anticheat-rules.md).
+[[tools]]
+id = "cheatengine"
+name = "Cheat Engine"
+source = "external"
+package = "CheatEngine"
+gaming_conflict = "warn"
+reason = "Éditeur de mémoire : tous les anti-cheats le refusent."
+processes = ["cheatengine*.exe"]
+
+[[tools]]
+id = "systeminformer"
+name = "System Informer / Process Hacker"
+source = "external"
+package = "SystemInformer"
+gaming_conflict = "warn"
+reason = "Son pilote noyau donne accès à la mémoire des processus : refusé par les anti-cheats."
+processes = ["systeminformer.exe", "processhacker.exe"]
+services = ["KSystemInformer", "KProcessHacker3", "KProcessHacker2"]
+
+[[tools]]
+id = "vmware"
+name = "VMware Workstation"
+source = "external"
+package = "VMware"
+gaming_conflict = "none"
+processes = ["vmware.exe", "vmware-vmx.exe"]
+services = ["VMAuthdService", "VMnetDHCP", "VMware NAT Service", "VMUSBArbService"]
+
+[[tools]]
+id = "virtualbox"
+name = "VirtualBox"
+source = "external"
+package = "VirtualBox"
+gaming_conflict = "none"
+processes = ["virtualbox.exe", "vboxsvc.exe", "vboxheadless.exe"]
+services = ["VBoxSDS"]
