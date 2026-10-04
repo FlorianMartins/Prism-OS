@@ -147,6 +147,25 @@ prism top               # what is using CPU and RAM right now
 `ram clean` frees the memory of apps you left open but are not using (measured: 2.9 GB
 returned in a test VM) and keeps the cache that holds your game's files.
 
+**Memory report** (`prism rapport`, or *Rapport mémoire* on the dashboard): where this
+PC's memory goes, as a plain-text file saved on the Desktop (and in
+`%LOCALAPPDATA%\Prism`) and opened in Notepad. It contains no personal data — no user
+name, no computer name, no file paths: only program and service names and figures — so
+it can be sent as is when asking for help. Sections:
+
+- machine (Windows edition and build, processor, uptime) and memory: installed,
+  usable, reserved by hardware (integrated graphics, BIOS), in use, available, cache,
+  modified, free, compressed, kernel pools, commit;
+- advice computed from the figures: hardware-reserved memory, a kernel pool far above
+  normal (the classic sign of a leaking driver), memory compression, commit near its
+  limit, WebViews, the heaviest apps, many startup apps, and the cache — which Windows
+  hands back instantly and is not lost memory;
+- apps (processes added up) ranked by memory in RAM, with their private memory —
+  private memory paged out to disk does not occupy RAM (measured: a Notepad with 612 MB
+  private and 5 MB in RAM);
+- service hosts (`svchost`) with the services each one runs, WebViews per app, startup
+  apps, and Prism's own state.
+
 ## 7. Startup apps (`prism demarrage`)
 
 Disabling an app at startup does not uninstall it: it simply starts when you open it.

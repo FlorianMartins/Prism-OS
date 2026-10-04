@@ -305,6 +305,7 @@ impl PrismApp {
         let eased = self.live.etat.as_ref().map(|e| e.eased.clone()).unwrap_or_default();
         let game = self.live.etat.as_ref().map(|e| e.game.clone()).unwrap_or_default();
         let mut clean = false;
+        let mut rapport = false;
         let cores = self.live.cores.clone();
         row(ui, 3, |i, col| match i {
             0 => {
@@ -329,6 +330,13 @@ impl PrismApp {
                     );
                     if ui.button("Libérer la RAM des applis inactives").clicked() {
                         clean = true;
+                    }
+                    if ui
+                        .button("Rapport mémoire")
+                        .on_hover_text("Où part la RAM de ce PC, avec des conseils. Fichier texte sans données personnelles, à envoyer tel quel.")
+                        .clicked()
+                    {
+                        rapport = true;
                     }
                 });
             }
@@ -374,6 +382,10 @@ impl PrismApp {
         });
         if clean {
             let r = self.backend.ram_clean();
+            self.result(r);
+        }
+        if rapport {
+            let r = self.backend.rapport();
             self.result(r);
         }
 

@@ -223,6 +223,9 @@ impl Backend for MockBackend {
         Ok("Prism démarré".into())
     }
 
+    fn rapport(&mut self) -> Result<String, String> {
+        Ok("Rapport enregistré sur le Bureau".into())
+    }
     fn ram_clean(&mut self) -> Result<String, String> {
         Ok("2.9 Go libérés".into())
     }

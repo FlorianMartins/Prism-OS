@@ -157,6 +157,24 @@ impl Backend for WinBackend {
         Ok("Prism démarré".into())
     }
 
+    fn rapport(&mut self) -> Result<String, String> {
+        let out = hidden(&prism_exe().display().to_string())
+            .arg("rapport")
+            .output()
+            .map_err(|e| e.to_string())?;
+        let text = String::from_utf8_lossy(&out.stdout);
+        let path = text
+            .lines()
+            .find_map(|l| l.strip_prefix("Rapport enregistré : "))
+            .map(str::trim)
+            .ok_or_else(|| format!("rapport impossible : {}", String::from_utf8_lossy(&out.stderr).trim()))?
+            .to_string();
+        let _ = Command::new("notepad.exe").arg(&path).spawn();
+        Ok(format!(
+            "Rapport enregistré : {path} (aucune donnée personnelle, à envoyer tel quel)"
+        ))
+    }
+
     fn ram_clean(&mut self) -> Result<String, String> {
         let r = prism_core::engine::clean(&mut self.platform, &self.cfg, false)?;
         let freed = match (r.mem_before, r.mem_after) {

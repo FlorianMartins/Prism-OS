@@ -37,6 +37,7 @@ Utilisation : prism <commande>
   allege apply [niveaux]  applique : sur (défaut), avance, jeu, extreme (admin)
   jeu-noyau [on|off]      plan automatique pour les jeux à anti-cheat noyau
   webview [on|off]        WebView des applis sans fenêtre : liste, ou fermeture auto
+  rapport                 où part la mémoire (fichier texte à envoyer, sans données personnelles)
   allege restore          remet toutes les valeurs d'origine (admin)
   vie-privee              tableau de bord : protections en place, télémétrie qui parle en ce moment
   vie-privee apply [niveau]  applique : recommande (défaut) ou strict (admin)
@@ -370,7 +371,7 @@ fn platform_command(_cfg: &Config, args: &[&str]) -> Result<(), String> {
     match args.first() {
         Some(
             &("status" | "watch" | "ram" | "autostart" | "allege" | "top" | "demarrage" | "jeux" | "apparence" | "bar"
-            | "vie-privee" | "config" | "maj" | "desinstaller" | "webview"),
+            | "vie-privee" | "config" | "maj" | "desinstaller" | "webview" | "rapport"),
         ) => Err("cette commande agit sur Windows ; ici, essayez `prism demo`".into()),
         _ => Err(format!("commande inconnue : {}\n\n{HELP}", args.join(" "))),
     }
@@ -526,6 +527,13 @@ fn platform_command(cfg: &Config, args: &[&str]) -> Result<(), String> {
             } else {
                 Err("certains changements ont échoué".into())
             }
+        }
+        ["rapport"] => {
+            let (path, text) = rapport()?;
+            println!("{text}");
+            println!("Rapport enregistré : {}", path.display());
+            println!("Envoyez ce fichier tel quel : il ne contient aucune donnée personnelle.");
+            Ok(())
         }
         ["webview"] => {
             use prism_core::platform::Platform;
@@ -1375,6 +1383,103 @@ fn schtasks(args: &[&str]) -> Result<(), String> {
     } else {
         Err("schtasks a échoué (lancez la console en administrateur)".into())
     }
+}
+
+/// `prism rapport` : collecte, mise en forme, fichier sur le Bureau (et dans le dossier
+/// de l'utilisateur). Rend le chemin et le texte.
+#[cfg(windows)]
+pub fn rapport() -> Result<(std::path::PathBuf, String), String> {
+    use prism_core::demarrage::StartupConfig;
+    use prism_core::platform::Platform;
+    use prism_core::rapport::Donnees;
+    use prism_win::rapport as r;
+    let (processus, by_pid, compressee) = r::processus();
+    let mut d = Donnees {
+        date: sys::now_utc()[..16].replace('T', " ") + " UTC",
+        prism: env!("CARGO_PKG_VERSION").into(),
+        windows: r::windows(),
+        processeur: r::processeur(),
+        allume_depuis_secs: r::allume_depuis_secs(),
+        memoire: r::memoire(compressee),
+        hotes: r::hotes(&by_pid),
+        processus,
+        ..Default::default()
+    };
+    if let Ok(snap) = prism_win::WindowsPlatform::new().snapshot() {
+        d.webviews = prism_core::webview::groupes(&snap)
+            .into_iter()
+            .map(|g| (g.owner_name, g.bytes, g.windowed))
+            .collect();
+    }
+    if let Ok(entries) = prism_win::WindowsStartup.entries() {
+        let mut names: Vec<String> = entries.iter().filter(|e| e.enabled()).map(|e| e.name.clone()).collect();
+        names.sort_by_key(|n| n.to_lowercase());
+        names.dedup_by(|a, b| a.eq_ignore_ascii_case(b));
+        d.demarrage = names;
+    }
+    let tiers = prism_core::backup::allege_applied(
+        &mut prism_win::WindowsSystemConfig,
+        &prism_core::allege::Catalog::builtin(),
+    );
+    let user = prism_core::paths::user_dir();
+    let noyau = prism_core::noyau::Reglages::charger(&user);
+    let wv = prism_core::webview::Reglages::charger(&user);
+    let moteur = d
+        .processus
+        .iter()
+        .any(|p| p.nom.eq_ignore_ascii_case("prism.exe") && p.session != 0);
+    let prism_mem: u64 = d
+        .processus
+        .iter()
+        .filter(|p| p.nom.to_lowercase().starts_with("prism"))
+        .map(|p| p.ws)
+        .sum();
+    d.etat_prism = vec![
+        format!(
+            "moteur {}",
+            if moteur {
+                "en marche"
+            } else {
+                "ARRÊTÉ (Mode Quotidien et Mode Jeu inactifs)"
+            }
+        ),
+        format!(
+            "allègement appliqué : {}",
+            if tiers.is_empty() {
+                "aucun".to_string()
+            } else {
+                tiers.iter().map(|t| t.label()).collect::<Vec<_>>().join(", ")
+            }
+        ),
+        format!(
+            "jeux à anti-cheat noyau : {}",
+            if noyau.actif { "automatique" } else { "désactivé" }
+        ),
+        format!(
+            "WebView en arrière-plan : {}{}",
+            if wv.actif {
+                format!("fermées après {} min", wv.minutes)
+            } else {
+                "désactivé".into()
+            },
+            if wv.exclus.is_empty() {
+                String::new()
+            } else {
+                format!(" (sauf {})", wv.exclus.join(", "))
+            }
+        ),
+        format!("mémoire de Prism lui-même : {} Mo", prism_mem >> 20),
+    ];
+    let text = prism_core::rapport::texte(&d);
+    let name = format!("Prism-rapport-{}.txt", &d.date[..10]);
+    std::fs::create_dir_all(&user).map_err(|e| e.to_string())?;
+    std::fs::write(user.join(&name), &text).map_err(|e| e.to_string())?;
+    let desktop = std::env::var("USERPROFILE").map(|h| std::path::PathBuf::from(h).join("Desktop"));
+    let path = match desktop {
+        Ok(dir) if dir.is_dir() && std::fs::write(dir.join(&name), &text).is_ok() => dir.join(&name),
+        _ => user.join(&name),
+    };
+    Ok((path, text))
 }
 
 /// Plan « jeu noyau » (prism_core::noyau) : entrée et sortie, journal d'allègement

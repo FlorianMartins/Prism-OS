@@ -90,6 +90,8 @@ pub trait Backend {
     fn set_profile(&mut self, name: &str) -> Result<String, String>;
     fn start_watch(&mut self) -> Result<String, String>;
     fn ram_clean(&mut self) -> Result<String, String>;
+    /// `prism rapport` : où part la mémoire ; le fichier est ouvert à l'écran.
+    fn rapport(&mut self) -> Result<String, String>;
 
     fn startup(&mut self) -> Result<Vec<StartupRow>, String>;
     fn startup_toggle(&mut self, source: Source, name: &str, on: bool) -> Result<String, String>;
