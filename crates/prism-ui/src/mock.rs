@@ -35,7 +35,13 @@ impl Default for MockBackend {
             protected,
         };
         MockBackend {
-            bar: prism_core::bar::BarConfig::default(),
+            bar: prism_core::bar::BarConfig {
+                opacity_rules: vec![prism_core::bar::OpacityRule {
+                    process: "windowsterminal.exe".into(),
+                    opacity: 90,
+                }],
+                ..Default::default()
+            },
             bar_on: true,
             appearance: prism_core::apparence::MockAppearance::factory(&prism_core::apparence::Catalog::builtin()),
             appearance_journal: Default::default(),

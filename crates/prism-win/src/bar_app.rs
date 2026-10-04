@@ -5,7 +5,7 @@ use std::cell::RefCell;
 use std::ffi::c_void;
 use std::ptr::{null, null_mut};
 
-use prism_core::bar::{bar_rect, layout, BarConfig, Edge, History, Placed, Rect, Widget};
+use prism_core::bar::{bar_rect, layout, BarConfig, DeskKind, Edge, History, Placed, Rect, Widget};
 use prism_core::etat::Etat;
 use windows_sys::Win32::Foundation::{COLORREF, HWND, LPARAM, LRESULT, POINT, RECT, WPARAM};
 use windows_sys::Win32::Graphics::Dwm::{DwmGetWindowAttribute, DwmSetWindowAttribute, DWMWA_CLOAKED};
@@ -28,6 +28,7 @@ use windows_sys::Win32::UI::WindowsAndMessaging::*;
 use crate::metrics::{human_rate, Metrics, Sample};
 
 const CLASS: &str = "PrismBar";
+const DESK_CLASS: &str = "PrismWidget";
 const WM_APPBAR: u32 = WM_APP + 1;
 const TIMER_ID: usize = 1;
 
@@ -48,9 +49,15 @@ fn wide(s: &str) -> Vec<u16> {
     s.encode_utf16().chain(Some(0)).collect()
 }
 
+struct DeskWin {
+    hwnd: HWND,
+    kind: DeskKind,
+}
+
 struct TaskWin {
     hwnd: HWND,
     title: String,
+    pid: u32,
 }
 
 struct Bar {
@@ -69,6 +76,11 @@ struct Bar {
     /// État de la barre Windows avant que Prism la masque (pour le remettre).
     taskbar_prev: Option<u32>,
     scale: f32,
+    desk: Vec<DeskWin>,
+    /// Règles du Mode Jeu, pour ne jamais rendre un jeu transparent.
+    game_cfg: prism_core::config::Config,
+    /// Fenêtres rendues transparentes : style étendu d'origine et opacité posée.
+    translucent: std::collections::HashMap<isize, (isize, u8)>,
 }
 
 thread_local! {
@@ -177,6 +189,276 @@ impl Bar {
             DwmSetWindowAttribute(self.hwnd, 33, &pref as *const _ as *const c_void, 4);
         }
         self.relayout();
+        self.sync_desktop();
+    }
+
+    /// Crée, place ou supprime les widgets du bureau selon la configuration.
+    fn sync_desktop(&mut self) {
+        let wanted = self.cfg.desktop_widgets.clone();
+        // SAFETY: fenêtres créées et détruites par ce processus.
+        unsafe {
+            self.desk.retain(|d| {
+                let keep = wanted.iter().any(|w| w.kind == d.kind);
+                if !keep {
+                    DestroyWindow(d.hwnd);
+                }
+                keep
+            });
+            let alpha = (self.cfg.desktop_opacity as u32 * 255 / 100) as u8;
+            for w in &wanted {
+                let (lw, lh) = w.kind.size();
+                let (x, y, cw, ch) = (self.scaled_i(w.x), self.scaled_i(w.y), self.scaled(lw), self.scaled(lh));
+                let hwnd = match self.desk.iter().find(|d| d.kind == w.kind) {
+                    Some(d) => d.hwnd,
+                    None => {
+                        let class = wide(DESK_CLASS);
+                        let title = wide("Prism Widget");
+                        let h = CreateWindowExW(
+                            WS_EX_TOOLWINDOW | WS_EX_LAYERED | WS_EX_NOACTIVATE,
+                            class.as_ptr(),
+                            title.as_ptr(),
+                            WS_POPUP,
+                            x,
+                            y,
+                            cw,
+                            ch,
+                            null_mut(),
+                            null_mut(),
+                            GetModuleHandleW(null()),
+                            null(),
+                        );
+                        if h.is_null() {
+                            continue;
+                        }
+                        let pref: u32 = 2;
+                        DwmSetWindowAttribute(h, 33, &pref as *const _ as *const c_void, 4);
+                        if !self.hidden_for_fullscreen {
+                            ShowWindow(h, SW_SHOWNOACTIVATE);
+                        }
+                        self.desk.push(DeskWin { hwnd: h, kind: w.kind });
+                        h
+                    }
+                };
+                SetLayeredWindowAttributes(hwnd, 0, alpha, LWA_ALPHA);
+                SetWindowPos(hwnd, HWND_BOTTOM, x, y, cw, ch, SWP_NOACTIVATE);
+            }
+        }
+    }
+
+    fn scaled_i(&self, v: i32) -> i32 {
+        (v as f32 * self.scale).round() as i32
+    }
+
+    /// Le widget déplacé à la souris : sa nouvelle position est enregistrée.
+    fn desk_moved(&mut self, hwnd: HWND) {
+        let Some(kind) = self.desk.iter().find(|d| d.hwnd == hwnd).map(|d| d.kind) else {
+            return;
+        };
+        let mut r = RECT {
+            left: 0,
+            top: 0,
+            right: 0,
+            bottom: 0,
+        };
+        // SAFETY: sortie locale.
+        unsafe { GetWindowRect(hwnd, &mut r) };
+        if let Some(w) = self.cfg.desktop_widgets.iter_mut().find(|w| w.kind == kind) {
+            w.x = (r.left as f32 / self.scale).round() as i32;
+            w.y = (r.top as f32 / self.scale).round() as i32;
+        }
+        if self.cfg.save().is_ok() {
+            self.cfg_stamp = std::fs::metadata(BarConfig::path()).and_then(|m| m.modified()).ok();
+        }
+    }
+
+    fn paint_desk(&self, hwnd: HWND, hdc: HDC) {
+        let Some(kind) = self.desk.iter().find(|d| d.hwnd == hwnd).map(|d| d.kind) else {
+            return;
+        };
+        let mut rc = RECT {
+            left: 0,
+            top: 0,
+            right: 0,
+            bottom: 0,
+        };
+        // SAFETY: double tampon GDI local, objets créés puis détruits ici.
+        unsafe {
+            GetClientRect(hwnd, &mut rc);
+            let (w, h) = (rc.right, rc.bottom);
+            let mem = CreateCompatibleDC(hdc);
+            let bmp = CreateCompatibleBitmap(hdc, w, h);
+            let old = SelectObject(mem, bmp as HGDIOBJ);
+            fill(mem, rc, BG);
+            fill(
+                mem,
+                RECT {
+                    left: 0,
+                    top: 0,
+                    right: w,
+                    bottom: self.scaled(3),
+                },
+                ACCENT,
+            );
+            SetBkMode(mem, TRANSPARENT as i32);
+            let huge = make_font(self.scaled(52), 300);
+            let big = make_font(self.scaled(26), 500);
+            let font = make_font(self.scaled(14), 400);
+            let small = make_font(self.scaled(12), 400);
+            let pad = self.scaled(14);
+            let inner = RECT {
+                left: pad,
+                top: pad,
+                right: w - pad,
+                bottom: h - pad,
+            };
+            match kind {
+                DeskKind::Clock => {
+                    let mut t = std::mem::zeroed();
+                    GetLocalTime(&mut t);
+                    let top = RECT {
+                        bottom: inner.top + (inner.bottom - inner.top) * 2 / 3,
+                        ..inner
+                    };
+                    let bottom = RECT {
+                        top: top.bottom,
+                        ..inner
+                    };
+                    text(
+                        mem,
+                        huge,
+                        TEXT,
+                        top,
+                        &format!("{:02}:{:02}", t.wHour, t.wMinute),
+                        DT_LEFT,
+                    );
+                    text(
+                        mem,
+                        font,
+                        MUTED,
+                        bottom,
+                        &date_fr(t.wDayOfWeek, t.wDay, t.wMonth, t.wYear),
+                        DT_LEFT,
+                    );
+                }
+                DeskKind::System => {
+                    let rows: [(&str, Option<f32>, String); 4] = [
+                        ("Processeur", Some(self.sample.cpu), format!("{:.0} %", self.sample.cpu)),
+                        (
+                            "Mémoire",
+                            Some(self.sample.ram),
+                            format!("{} / {}", gib(self.sample.ram_used), gib(self.sample.ram_total)),
+                        ),
+                        (
+                            "GPU",
+                            self.sample.gpu,
+                            self.sample
+                                .gpu
+                                .map(|g| format!("{g:.0} %"))
+                                .unwrap_or_else(|| "—".into()),
+                        ),
+                        (
+                            "Réseau",
+                            None,
+                            format!(
+                                "↓ {}  ↑ {}",
+                                human_rate(self.sample.net_down),
+                                human_rate(self.sample.net_up)
+                            ),
+                        ),
+                    ];
+                    let row_h = (inner.bottom - inner.top) / 4;
+                    for (i, (label, value, shown)) in rows.iter().enumerate() {
+                        let top = inner.top + row_h * i as i32;
+                        let line = RECT {
+                            top,
+                            bottom: top + row_h / 2 + 4,
+                            ..inner
+                        };
+                        text(mem, small, MUTED, line, label, DT_LEFT);
+                        text(mem, font, TEXT, line, shown, DT_RIGHT);
+                        if let Some(v) = value {
+                            let bar = RECT {
+                                left: inner.left,
+                                top: top + row_h / 2 + 6,
+                                right: inner.right,
+                                bottom: top + row_h / 2 + 10,
+                            };
+                            fill(mem, bar, ITEM);
+                            let filled = RECT {
+                                right: bar.left + ((bar.right - bar.left) as f32 * v / 100.0) as i32,
+                                ..bar
+                            };
+                            fill(mem, filled, if *v > 85.0 { WARN } else { ACCENT });
+                        }
+                    }
+                }
+                DeskKind::Cpu | DeskKind::Ram | DeskKind::Gpu => {
+                    let (label, value, hist) = match kind {
+                        DeskKind::Cpu => ("Processeur", Some(self.sample.cpu), &self.cpu),
+                        DeskKind::Ram => ("Mémoire", Some(self.sample.ram), &self.ram),
+                        _ => ("GPU", self.sample.gpu, &self.gpu),
+                    };
+                    let head = RECT {
+                        bottom: inner.top + self.scaled(34),
+                        ..inner
+                    };
+                    text(mem, small, MUTED, head, label, DT_LEFT);
+                    let shown = value.map(|v| format!("{v:.0} %")).unwrap_or_else(|| "—".into());
+                    text(mem, big, TEXT, head, &shown, DT_RIGHT);
+                    let graph = RECT {
+                        top: head.bottom + self.scaled(6),
+                        ..inner
+                    };
+                    graph_line(mem, graph, hist.values(), ACCENT);
+                }
+                DeskKind::Network => {
+                    let half = (inner.bottom - inner.top) / 2;
+                    text(
+                        mem,
+                        small,
+                        MUTED,
+                        RECT {
+                            bottom: inner.top + half / 2,
+                            ..inner
+                        },
+                        "Réseau",
+                        DT_LEFT,
+                    );
+                    let down = RECT {
+                        top: inner.top + half / 2,
+                        bottom: inner.top + half + half / 3,
+                        ..inner
+                    };
+                    let up = RECT {
+                        top: down.bottom,
+                        ..inner
+                    };
+                    text(
+                        mem,
+                        big,
+                        OK,
+                        down,
+                        &format!("↓ {}", human_rate(self.sample.net_down)),
+                        DT_LEFT,
+                    );
+                    text(
+                        mem,
+                        font,
+                        ACCENT,
+                        up,
+                        &format!("↑ {}", human_rate(self.sample.net_up)),
+                        DT_LEFT,
+                    );
+                }
+            }
+            BitBlt(hdc, 0, 0, w, h, mem, 0, 0, SRCCOPY);
+            SelectObject(mem, old);
+            for f in [huge, big, font, small] {
+                DeleteObject(f as HGDIOBJ);
+            }
+            DeleteObject(bmp as HGDIOBJ);
+            DeleteDC(mem);
+        }
     }
 
     fn client_size(&self) -> (i32, i32) {
@@ -219,9 +501,68 @@ impl Bar {
         }
         self.game = Etat::load().is_some_and(|e| !e.game.is_empty());
         self.windows = list_windows(self.hwnd);
+        self.apply_opacity_rules();
         self.relayout();
-        // SAFETY: invalidation de notre propre fenêtre.
-        unsafe { InvalidateRect(self.hwnd, null(), 0) };
+        // SAFETY: invalidation de nos propres fenêtres.
+        unsafe {
+            InvalidateRect(self.hwnd, null(), 0);
+            for d in &self.desk {
+                InvalidateRect(d.hwnd, null(), 0);
+            }
+        }
+    }
+
+    /// Transparence par appli. Jamais sur un jeu, une fenêtre plein écran, ni une
+    /// fenêtre qui gère déjà sa propre transparence ; tout est remis sinon.
+    fn apply_opacity_rules(&mut self) {
+        let mut seen = std::collections::HashSet::new();
+        for w in &self.windows {
+            let key = w.hwnd as isize;
+            seen.insert(key);
+            let path = crate::win::process_path(w.pid);
+            let exe = path
+                .as_deref()
+                .and_then(|p| p.rsplit('\\').next())
+                .unwrap_or_default()
+                .to_string();
+            let wanted = self.cfg.rule_for(&exe).filter(|_| {
+                !prism_core::classify::is_game_process(&exe, path.as_deref(), &self.game_cfg) && !is_fullscreen(w.hwnd)
+            });
+            // SAFETY: fenêtres d'autres processus ; seuls le style étendu et l'opacité
+            // de calque sont modifiés, avec retour à l'état d'origine.
+            unsafe {
+                match (wanted, self.translucent.get(&key).copied()) {
+                    (Some(op), None) => {
+                        let ex = GetWindowLongPtrW(w.hwnd, GWL_EXSTYLE);
+                        if ex as u32 & WS_EX_LAYERED != 0 {
+                            continue; // l'appli gère déjà sa transparence
+                        }
+                        SetWindowLongPtrW(w.hwnd, GWL_EXSTYLE, ex | WS_EX_LAYERED as isize);
+                        SetLayeredWindowAttributes(w.hwnd, 0, (op as u32 * 255 / 100) as u8, LWA_ALPHA);
+                        self.translucent.insert(key, (ex, op));
+                    }
+                    (Some(op), Some((ex, applied))) if op != applied => {
+                        SetLayeredWindowAttributes(w.hwnd, 0, (op as u32 * 255 / 100) as u8, LWA_ALPHA);
+                        self.translucent.insert(key, (ex, op));
+                    }
+                    (None, Some((ex, _))) => {
+                        SetWindowLongPtrW(w.hwnd, GWL_EXSTYLE, ex);
+                        self.translucent.remove(&key);
+                    }
+                    _ => {}
+                }
+            }
+        }
+        // Fenêtres fermées : rien à remettre.
+        self.translucent.retain(|k, _| seen.contains(k));
+    }
+
+    /// Remet toutes les fenêtres rendues transparentes (arrêt de la barre).
+    fn restore_opacity(&mut self) {
+        for (k, (ex, _)) in self.translucent.drain() {
+            // SAFETY: remise du style étendu d'origine ; sans effet si la fenêtre n'existe plus.
+            unsafe { SetWindowLongPtrW(k as HWND, GWL_EXSTYLE, ex) };
+        }
     }
 
     fn click(&mut self, x: i32, y: i32) {
@@ -393,6 +734,53 @@ impl Bar {
     }
 }
 
+fn gib(b: u64) -> String {
+    format!("{:.1} Go", b as f64 / 1024.0 / 1024.0 / 1024.0)
+}
+
+fn date_fr(dow: u16, day: u16, month: u16, year: u16) -> String {
+    const JOURS: [&str; 7] = ["dimanche", "lundi", "mardi", "mercredi", "jeudi", "vendredi", "samedi"];
+    const MOIS: [&str; 12] = [
+        "janvier",
+        "février",
+        "mars",
+        "avril",
+        "mai",
+        "juin",
+        "juillet",
+        "août",
+        "septembre",
+        "octobre",
+        "novembre",
+        "décembre",
+    ];
+    let j = JOURS.get(dow as usize).unwrap_or(&"");
+    let m = MOIS.get((month as usize).wrapping_sub(1)).unwrap_or(&"");
+    format!("{j} {day} {m} {year}")
+}
+
+/// Courbe d'historique dans un rectangle (valeurs 0..=100).
+unsafe fn graph_line(hdc: HDC, g: RECT, vals: &[f32], color: COLORREF) {
+    fill(hdc, g, ITEM);
+    if vals.len() < 2 || g.right <= g.left {
+        return;
+    }
+    let n = vals.len() as i32;
+    let pts: Vec<POINT> = vals
+        .iter()
+        .enumerate()
+        .map(|(i, v)| POINT {
+            x: g.left + (g.right - g.left) * i as i32 / (n - 1),
+            y: g.bottom - ((g.bottom - g.top) as f32 * v / 100.0) as i32,
+        })
+        .collect();
+    let pen = CreatePen(PS_SOLID, 2, color);
+    let old = SelectObject(hdc, pen as HGDIOBJ);
+    Polyline(hdc, pts.as_ptr(), pts.len() as i32);
+    SelectObject(hdc, old);
+    DeleteObject(pen as HGDIOBJ);
+}
+
 fn inset(r: Rect, d: i32) -> RECT {
     RECT {
         left: r.left + d,
@@ -556,9 +944,12 @@ fn list_windows(own: HWND) -> Vec<TaskWin> {
         let mut buf = [0u16; 256];
         let n = GetWindowTextW(hwnd, buf.as_mut_ptr(), buf.len() as i32);
         if n > 0 {
+            let mut pid = 0u32;
+            GetWindowThreadProcessId(hwnd, &mut pid);
             out.push(TaskWin {
                 hwnd,
                 title: String::from_utf16_lossy(&buf[..n as usize]),
+                pid,
             });
         }
         1
@@ -568,6 +959,28 @@ fn list_windows(own: HWND) -> Vec<TaskWin> {
     unsafe { EnumWindows(Some(cb), &mut out as *mut _ as LPARAM) };
     out.retain(|w| w.hwnd != own && w.title != "Program Manager");
     out
+}
+
+/// La fenêtre couvre-t-elle tout son écran (jeu ou vidéo plein écran) ?
+fn is_fullscreen(hwnd: HWND) -> bool {
+    // SAFETY: sorties locales ; MonitorFromWindow renvoie toujours un écran.
+    unsafe {
+        let mut r = RECT {
+            left: 0,
+            top: 0,
+            right: 0,
+            bottom: 0,
+        };
+        GetWindowRect(hwnd, &mut r);
+        let mon = MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST);
+        let mut mi: MONITORINFO = std::mem::zeroed();
+        mi.cbSize = size_of::<MONITORINFO>() as u32;
+        if GetMonitorInfoW(mon, &mut mi) == 0 {
+            return false;
+        }
+        let m = mi.rcMonitor;
+        r.left <= m.left && r.top <= m.top && r.right >= m.right && r.bottom >= m.bottom
+    }
 }
 
 fn activate(hwnd: HWND) {
@@ -608,6 +1021,32 @@ fn open_prism_ui() {
     }
 }
 
+unsafe extern "system" fn desk_wndproc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) -> LRESULT {
+    match msg {
+        WM_PAINT => {
+            let mut ps: PAINTSTRUCT = std::mem::zeroed();
+            let hdc = BeginPaint(hwnd, &mut ps);
+            with_bar(|b| b.paint_desk(hwnd, hdc));
+            EndPaint(hwnd, &ps);
+            0
+        }
+        WM_ERASEBKGND => 1,
+        // Attraper le widget n'importe où le déplace.
+        WM_NCHITTEST => HTCAPTION as LRESULT,
+        // Toujours au fond, derrière les fenêtres.
+        WM_WINDOWPOSCHANGING => {
+            let pos = &mut *(lp as *mut WINDOWPOS);
+            pos.hwndInsertAfter = HWND_BOTTOM;
+            0
+        }
+        WM_EXITSIZEMOVE => {
+            with_bar(|b| b.desk_moved(hwnd));
+            0
+        }
+        _ => DefWindowProcW(hwnd, msg, wp, lp),
+    }
+}
+
 unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) -> LRESULT {
     match msg {
         WM_TIMER => {
@@ -638,7 +1077,11 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) 
                     with_bar(|b| {
                         if b.cfg.hide_in_fullscreen {
                             b.hidden_for_fullscreen = lp != 0;
-                            ShowWindow(hwnd, if lp != 0 { SW_HIDE } else { SW_SHOWNOACTIVATE });
+                            let show = if lp != 0 { SW_HIDE } else { SW_SHOWNOACTIVATE };
+                            ShowWindow(hwnd, show);
+                            for d in &b.desk {
+                                ShowWindow(d.hwnd, show);
+                            }
                         }
                     });
                 }
@@ -663,6 +1106,10 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) 
         }
         WM_DESTROY => {
             with_bar(|b| {
+                b.restore_opacity();
+                for d in b.desk.drain(..) {
+                    DestroyWindow(d.hwnd);
+                }
                 let mut d = appbar_data(b.hwnd);
                 SHAppBarMessage(ABM_REMOVE, &mut d);
                 if b.cfg.hide_windows_taskbar {
@@ -707,6 +1154,16 @@ pub fn run() -> Result<(), String> {
         if RegisterClassExW(&wc) == 0 {
             return Err("RegisterClassExW a échoué".into());
         }
+        let desk_class = wide(DESK_CLASS);
+        let wc_desk = WNDCLASSEXW {
+            lpfnWndProc: Some(desk_wndproc),
+            lpszClassName: desk_class.as_ptr(),
+            hCursor: LoadCursorW(null_mut(), IDC_SIZEALL),
+            ..wc
+        };
+        if RegisterClassExW(&wc_desk) == 0 {
+            return Err("RegisterClassExW (widgets) a échoué".into());
+        }
         let title = wide("Prism Bar");
         let hwnd = CreateWindowExW(
             WS_EX_TOOLWINDOW | WS_EX_TOPMOST | WS_EX_LAYERED | WS_EX_NOACTIVATE,
@@ -750,6 +1207,16 @@ pub fn run() -> Result<(), String> {
                 hidden_for_fullscreen: false,
                 taskbar_prev,
                 scale,
+                desk: Vec::new(),
+                game_cfg: {
+                    let mut c =
+                        prism_core::paths::load_config().unwrap_or_else(|_| prism_core::config::Config::builtin());
+                    c.lists
+                        .game_roots
+                        .extend(prism_core::library::game_roots(&crate::installed_games()));
+                    c
+                },
+                translucent: std::collections::HashMap::new(),
             })
         });
         with_bar(|b| {

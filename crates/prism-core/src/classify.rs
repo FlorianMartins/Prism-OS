@@ -65,6 +65,20 @@ fn conflict_tool(p: &ProcInfo, cfg: &Config) -> Option<String> {
         .map(|t| t.id.clone())
 }
 
+/// Ce processus est-il un jeu (mêmes règles que le Mode Jeu) ? Pour la barre, qui ne
+/// doit jamais toucher aux fenêtres d'un jeu.
+pub fn is_game_process(name: &str, path: Option<&str>, cfg: &Config) -> bool {
+    let p = ProcInfo {
+        id: crate::model::ProcId { pid: 0, created: 0 },
+        name: name.to_lowercase(),
+        path: path.map(str::to_lowercase),
+        session: 0,
+        working_set: 0,
+        cpu_time: 0,
+    };
+    any_matches(&cfg.lists.protected, &p.name) || is_game(&p, cfg)
+}
+
 fn is_game(p: &ProcInfo, cfg: &Config) -> bool {
     let lists = &cfg.lists;
     if any_matches(&lists.games, &p.name) {

@@ -27,6 +27,17 @@ fn shot_with(name: &str, page: Page, console: bool, backend: MockBackend) -> ima
     img
 }
 
+/// Rien ne déborde dans la marge droite de la page (régression vue sur capture :
+/// une colonne trop large poussait toute la page hors de la fenêtre).
+fn right_margin_is_clear(img: &image::RgbaImage) -> bool {
+    let bg = [0x0d, 0x11, 0x17];
+    let x = img.width() - 18;
+    (120..img.height() - 20)
+        .filter(|y| img.get_pixel(x, *y).0[..3] != bg)
+        .count()
+        < 20
+}
+
 /// Une capture n'est pas un écran vide : elle contient l'accent cyan de Prism.
 fn has_accent(img: &image::RgbaImage) -> bool {
     img.pixels().filter(|p| p[0] < 120 && p[1] > 170 && p[2] > 190).count() > 50
@@ -46,6 +57,9 @@ fn every_page_renders() {
         let img = shot(name, page, console);
         assert_eq!((img.width(), img.height()), (1280, 820), "{name}");
         assert!(has_accent(&img), "{name} : page vide ou thème absent");
+        if !console {
+            assert!(right_margin_is_clear(&img), "{name} : du contenu déborde à droite");
+        }
     }
 }
 
@@ -59,4 +73,5 @@ fn bar_preview_on_the_left_floating_and_rounded() {
     b.bar.opacity = 70;
     let img = shot_with("apparence-barre-gauche", Page::Appearance, false, b);
     assert!(has_accent(&img));
+    assert!(right_margin_is_clear(&img));
 }

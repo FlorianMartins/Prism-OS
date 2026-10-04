@@ -163,6 +163,12 @@ fn creation_time(h: HANDLE) -> Option<u64> {
     }
 }
 
+/// Chemin complet (minuscules) de l'exécutable d'un processus, si lisible.
+pub(crate) fn process_path(pid: u32) -> Option<String> {
+    let h = Owned::open(pid, PROCESS_QUERY_LIMITED_INFORMATION).ok()?;
+    image_path(h.0)
+}
+
 fn image_path(h: HANDLE) -> Option<String> {
     let mut buf = [0u16; 1024];
     let mut len = buf.len() as u32;

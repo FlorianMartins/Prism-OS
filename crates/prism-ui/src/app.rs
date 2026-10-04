@@ -62,6 +62,8 @@ pub struct PrismApp {
     /// Mode console : lanceur plein écran, navigable au clavier ou à la manette.
     pub console: bool,
     console_sel: usize,
+    /// Saisie d'une nouvelle règle de transparence.
+    new_rule: String,
     last_refresh: f64,
 }
 
@@ -81,6 +83,7 @@ impl PrismApp {
             toast: None,
             console: false,
             console_sel: 0,
+            new_rule: String::new(),
             last_refresh: 0.0,
         }
     }
@@ -650,7 +653,10 @@ impl PrismApp {
     }
 
     fn bar_section(&mut self, ui: &mut egui::Ui, action: &mut Option<Result<String, String>>) {
-        use prism_core::bar::{Edge, Widget, MARGIN_MAX, OPACITY_MIN, THICKNESS_MAX, THICKNESS_MIN};
+        use prism_core::bar::{
+            DeskKind, Edge, OpacityRule, Widget, MARGIN_MAX, OPACITY_MIN, RULE_OPACITY_MIN, THICKNESS_MAX,
+            THICKNESS_MIN,
+        };
         let running = self.backend.bar_running();
         let mut cfg = self.backend.bar_config();
         let before = cfg.clone();
@@ -677,64 +683,116 @@ impl PrismApp {
                 }
             });
         });
+        let new_rule = &mut self.new_rule;
         card(ui, false, |ui| {
-            row(ui, 2, |i, col| {
-                if i == 0 {
-                    bar_preview(col, &cfg);
-                    return;
-                }
-                egui::Grid::new("bar-cfg")
-                    .num_columns(2)
-                    .spacing([16.0, 10.0])
-                    .show(col, |ui| {
-                        ui.label("Position");
-                        ui.horizontal(|ui| {
-                            for e in Edge::ALL {
-                                let sel = cfg.edge == e;
-                                let b = egui::Button::new(RichText::new(e.label()).color(if sel { BG } else { TEXT }))
-                                    .fill(if sel { ACCENT } else { CARD_HI });
-                                if ui.add(b).clicked() {
-                                    cfg.edge = e;
-                                }
+            ui.horizontal_top(|ui| {
+                let preview_w = (ui.available_width() * 0.42).min(460.0);
+                ui.allocate_ui_with_layout(Vec2::new(preview_w, 0.0), Layout::top_down(Align::Min), |ui| {
+                    ui.set_width(preview_w);
+                    bar_preview(ui, &cfg);
+                });
+                ui.add_space(16.0);
+                // L'espacement automatique entre éléments s'ajoute aux 16 px : sans le
+                // retirer, la colonne déborde de la carte (vu sur capture).
+                let rest = ui.available_width() - ui.spacing().item_spacing.x * 2.0;
+                ui.allocate_ui_with_layout(Vec2::new(rest, 0.0), Layout::top_down(Align::Min), |ui| {
+                    ui.set_width(rest);
+                    let field = |ui: &mut egui::Ui, name: &str| {
+                        ui.add_space(4.0);
+                        ui.label(RichText::new(name).small().color(MUTED));
+                    };
+                    field(ui, "Position");
+                    ui.horizontal(|ui| {
+                        for e in Edge::ALL {
+                            let sel = cfg.edge == e;
+                            let b = egui::Button::new(RichText::new(e.label()).color(if sel { BG } else { TEXT }))
+                                .fill(if sel { ACCENT } else { CARD_HI });
+                            if ui.add(b).clicked() {
+                                cfg.edge = e;
                             }
-                        });
-                        ui.end_row();
-                        ui.label("Épaisseur");
-                        ui.add(egui::Slider::new(&mut cfg.thickness, THICKNESS_MIN..=THICKNESS_MAX).suffix(" px"));
-                        ui.end_row();
-                        ui.label("Marge (barre flottante)");
-                        ui.add(egui::Slider::new(&mut cfg.margin, 0..=MARGIN_MAX).suffix(" px"));
-                        ui.end_row();
-                        ui.label("Opacité");
-                        ui.add(egui::Slider::new(&mut cfg.opacity, OPACITY_MIN..=100).suffix(" %"));
-                        ui.end_row();
-                        ui.label("Options");
-                        ui.vertical(|ui| {
-                            ui.checkbox(&mut cfg.rounded, "Coins arrondis");
-                            ui.checkbox(&mut cfg.hide_windows_taskbar, "Masquer la barre des tâches de Windows");
-                            ui.checkbox(
-                                &mut cfg.hide_in_fullscreen,
-                                "Se cacher pendant les jeux et vidéos plein écran",
-                            );
-                        });
-                        ui.end_row();
-                        ui.label("Widgets");
-                        ui.horizontal_wrapped(|ui| {
-                            for w in Widget::ALL {
-                                let mut on = cfg.widgets.contains(&w);
-                                if ui.checkbox(&mut on, w.label()).changed() {
-                                    if on {
-                                        cfg.widgets.push(w);
-                                    } else {
-                                        cfg.widgets.retain(|x| *x != w);
-                                    }
-                                    // Ordre stable : celui de la liste de référence.
-                                    cfg.widgets.sort_by_key(|x| Widget::ALL.iter().position(|y| y == x));
-                                }
-                            }
-                        });
-                        ui.end_row();
+                        }
                     });
+                    field(ui, "Taille et transparence");
+                    ui.spacing_mut().slider_width = (rest * 0.45).clamp(120.0, 260.0);
+                    ui.add(
+                        egui::Slider::new(&mut cfg.thickness, THICKNESS_MIN..=THICKNESS_MAX)
+                            .text("épaisseur")
+                            .suffix(" px"),
+                    );
+                    ui.add(
+                        egui::Slider::new(&mut cfg.margin, 0..=MARGIN_MAX)
+                            .text("marge (barre flottante)")
+                            .suffix(" px"),
+                    );
+                    ui.add(
+                        egui::Slider::new(&mut cfg.opacity, OPACITY_MIN..=100)
+                            .text("opacité")
+                            .suffix(" %"),
+                    );
+                    field(ui, "Options");
+                    ui.horizontal_wrapped(|ui| {
+                        ui.checkbox(&mut cfg.rounded, "Coins arrondis");
+                        ui.checkbox(&mut cfg.hide_windows_taskbar, "Masquer la barre Windows");
+                        ui.checkbox(&mut cfg.hide_in_fullscreen, "Se cacher en plein écran");
+                    });
+                    field(ui, "Widgets de la barre");
+                    ui.horizontal_wrapped(|ui| {
+                        for w in Widget::ALL {
+                            let mut on = cfg.widgets.contains(&w);
+                            if ui.checkbox(&mut on, w.label()).changed() {
+                                if on {
+                                    cfg.widgets.push(w);
+                                } else {
+                                    cfg.widgets.retain(|x| *x != w);
+                                }
+                                // Ordre stable : celui de la liste de référence.
+                                cfg.widgets.sort_by_key(|x| Widget::ALL.iter().position(|y| y == x));
+                            }
+                        }
+                    });
+                    field(ui, "Widgets du bureau (à déplacer à la souris, place retenue)");
+                    ui.horizontal_wrapped(|ui| {
+                        for k in DeskKind::ALL {
+                            let mut on = cfg.desktop_widgets.iter().any(|w| w.kind == k);
+                            if ui.checkbox(&mut on, k.label()).changed() {
+                                cfg.toggle_desktop(k, on);
+                            }
+                        }
+                    });
+                    ui.add(
+                        egui::Slider::new(&mut cfg.desktop_opacity, OPACITY_MIN..=100)
+                            .text("opacité des widgets")
+                            .suffix(" %"),
+                    );
+                    field(ui, "Transparence des applis (jamais sur un jeu ni en plein écran)");
+                    let mut remove = None;
+                    for (i, r) in cfg.opacity_rules.iter_mut().enumerate() {
+                        ui.horizontal(|ui| {
+                            ui.label(RichText::new(&r.process).monospace());
+                            ui.add(egui::Slider::new(&mut r.opacity, RULE_OPACITY_MIN..=100).suffix(" %"));
+                            if ui.small_button("✖").on_hover_text("Retirer la règle").clicked() {
+                                remove = Some(i);
+                            }
+                        });
+                    }
+                    if let Some(i) = remove {
+                        cfg.opacity_rules.remove(i);
+                    }
+                    ui.horizontal(|ui| {
+                        ui.add(
+                            egui::TextEdit::singleline(new_rule)
+                                .hint_text("windowsterminal.exe")
+                                .desired_width(200.0),
+                        );
+                        if ui.button("Ajouter").clicked() && !new_rule.trim().is_empty() {
+                            cfg.opacity_rules.push(OpacityRule {
+                                process: new_rule.trim().to_lowercase(),
+                                opacity: 90,
+                            });
+                            new_rule.clear();
+                        }
+                    });
+                });
             });
         });
         if cfg != before {

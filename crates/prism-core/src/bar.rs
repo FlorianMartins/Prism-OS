@@ -74,6 +74,69 @@ impl Widget {
     }
 }
 
+/// Widget posé sur le bureau (façon Conky / Rainmeter).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum DeskKind {
+    Clock,
+    System,
+    Cpu,
+    Ram,
+    Gpu,
+    Network,
+}
+
+impl DeskKind {
+    pub const ALL: [DeskKind; 6] = [
+        DeskKind::Clock,
+        DeskKind::System,
+        DeskKind::Cpu,
+        DeskKind::Ram,
+        DeskKind::Gpu,
+        DeskKind::Network,
+    ];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            DeskKind::Clock => "Horloge",
+            DeskKind::System => "Panneau système",
+            DeskKind::Cpu => "Graphe processeur",
+            DeskKind::Ram => "Graphe mémoire",
+            DeskKind::Gpu => "Graphe GPU",
+            DeskKind::Network => "Débit réseau",
+        }
+    }
+
+    /// Taille logique (avant mise à l'échelle DPI).
+    pub fn size(self) -> (u32, u32) {
+        match self {
+            DeskKind::Clock => (280, 120),
+            DeskKind::System => (300, 196),
+            _ => (260, 110),
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct DesktopWidget {
+    pub kind: DeskKind,
+    pub x: i32,
+    pub y: i32,
+}
+
+/// Règle de transparence d'une appli (`windowsterminal.exe` -> 90 %).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct OpacityRule {
+    /// Nom de l'exécutable, motif en minuscules (`*` permis).
+    pub process: String,
+    pub opacity: u8,
+}
+
+/// En dessous, une fenêtre devient illisible.
+pub const RULE_OPACITY_MIN: u8 = 30;
+
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct BarConfig {
@@ -91,6 +154,12 @@ pub struct BarConfig {
     pub hide_in_fullscreen: bool,
     /// Éléments affichés, dans l'ordre.
     pub widgets: Vec<Widget>,
+    /// Widgets posés sur le bureau.
+    pub desktop_widgets: Vec<DesktopWidget>,
+    /// Opacité des widgets du bureau, en pourcentage.
+    pub desktop_opacity: u8,
+    /// Transparence par appli (jamais appliquée à un jeu ni à une fenêtre plein écran).
+    pub opacity_rules: Vec<OpacityRule>,
 }
 
 impl Default for BarConfig {
@@ -111,6 +180,9 @@ impl Default for BarConfig {
                 Widget::GameMode,
                 Widget::Clock,
             ],
+            desktop_widgets: Vec::new(),
+            desktop_opacity: 85,
+            opacity_rules: Vec::new(),
         }
     }
 }
@@ -133,7 +205,54 @@ impl BarConfig {
             seen.push(*w);
             fresh
         });
+        self.desktop_opacity = self.desktop_opacity.clamp(OPACITY_MIN, 100);
+        let mut kinds = Vec::new();
+        self.desktop_widgets.retain(|w| {
+            let fresh = !kinds.contains(&w.kind);
+            kinds.push(w.kind);
+            fresh
+        });
+        for w in &mut self.desktop_widgets {
+            w.x = w.x.clamp(-16_000, 16_000);
+            w.y = w.y.clamp(-16_000, 16_000);
+        }
+        for r in &mut self.opacity_rules {
+            r.process = r.process.trim().to_lowercase();
+            r.opacity = r.opacity.clamp(RULE_OPACITY_MIN, 100);
+        }
+        let mut names: Vec<String> = Vec::new();
+        self.opacity_rules.retain(|r| {
+            let fresh = !r.process.is_empty() && !names.contains(&r.process);
+            names.push(r.process.clone());
+            fresh
+        });
         self
+    }
+
+    /// Ajoute un widget du bureau en cascade (sous les précédents), ou le retire.
+    pub fn toggle_desktop(&mut self, kind: DeskKind, on: bool) {
+        if on {
+            if !self.desktop_widgets.iter().any(|w| w.kind == kind) {
+                let y = 60
+                    + self
+                        .desktop_widgets
+                        .iter()
+                        .map(|w| w.kind.size().1 as i32 + 16)
+                        .sum::<i32>();
+                self.desktop_widgets.push(DesktopWidget { kind, x: 60, y });
+            }
+        } else {
+            self.desktop_widgets.retain(|w| w.kind != kind);
+        }
+    }
+
+    /// Opacité voulue pour un exécutable, s'il a une règle (première qui correspond).
+    pub fn rule_for(&self, exe: &str) -> Option<u8> {
+        let exe = exe.to_lowercase();
+        self.opacity_rules
+            .iter()
+            .find(|r| crate::glob::matches(&r.process, &exe))
+            .map(|r| r.opacity)
     }
 
     pub fn path() -> PathBuf {
@@ -484,6 +603,65 @@ mod tests {
         for w in items.iter().filter(|p| p.widget == Widget::Windows) {
             assert!(w.rect.right <= cpu.rect.left);
         }
+    }
+
+    #[test]
+    fn old_config_files_without_desktop_widgets_still_load() {
+        let old = r#"{"edge":"top","thickness":36,"margin":0,"opacity":90,"rounded":false,
+            "hide_windows_taskbar":true,"hide_in_fullscreen":true,"widgets":["start","clock"]}"#;
+        let cfg: BarConfig = serde_json::from_str(old).unwrap();
+        assert_eq!(cfg.edge, Edge::Top);
+        assert!(cfg.desktop_widgets.is_empty());
+        assert_eq!(cfg.desktop_opacity, 85);
+    }
+
+    #[test]
+    fn desktop_widgets_cascade_and_are_unique() {
+        let mut cfg = BarConfig::default();
+        cfg.toggle_desktop(DeskKind::Clock, true);
+        cfg.toggle_desktop(DeskKind::System, true);
+        cfg.toggle_desktop(DeskKind::Clock, true);
+        assert_eq!(cfg.desktop_widgets.len(), 2);
+        assert!(cfg.desktop_widgets[1].y > cfg.desktop_widgets[0].y + DeskKind::Clock.size().1 as i32);
+        cfg.toggle_desktop(DeskKind::Clock, false);
+        assert_eq!(
+            cfg.desktop_widgets.iter().map(|w| w.kind).collect::<Vec<_>>(),
+            vec![DeskKind::System]
+        );
+    }
+
+    #[test]
+    fn opacity_rules_are_normalised_and_matched() {
+        let cfg = BarConfig {
+            opacity_rules: vec![
+                OpacityRule {
+                    process: " WindowsTerminal.exe ".into(),
+                    opacity: 90,
+                },
+                OpacityRule {
+                    process: "windowsterminal.exe".into(),
+                    opacity: 50,
+                },
+                OpacityRule {
+                    process: "code*.exe".into(),
+                    opacity: 5,
+                },
+                OpacityRule {
+                    process: "".into(),
+                    opacity: 80,
+                },
+            ],
+            ..Default::default()
+        }
+        .sanitized();
+        assert_eq!(cfg.opacity_rules.len(), 2, "doublon et règle vide retirés");
+        assert_eq!(cfg.rule_for("WindowsTerminal.exe"), Some(90));
+        assert_eq!(
+            cfg.rule_for("code - insiders.exe"),
+            Some(RULE_OPACITY_MIN),
+            "jamais illisible"
+        );
+        assert_eq!(cfg.rule_for("notepad.exe"), None);
     }
 
     #[test]
