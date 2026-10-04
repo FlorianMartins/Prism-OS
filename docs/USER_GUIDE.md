@@ -150,8 +150,11 @@ panel and one line per protection.
   no "tailored experiences", no suggested content, app suggestions, tips or
   recommendations in Settings and Start, Start search stays on your PC (no Bing), app
   launches not tracked, typing and handwriting not collected, Edge diagnostic data and
-  personalization off, and **Windows Firewall rules** that cut the telemetry service,
-  CompatTelRunner and DeviceCensus off from the internet.
+  personalization off, and **Windows Firewall rules** that cut CompatTelRunner and
+  DeviceCensus off from the internet.
+- **The telemetry service itself (DiagTrack) can only be stopped by disabling it**:
+  run `prism allege apply` (debloat, safe level) — the dashboard shows whether it is
+  done. A firewall rule does not stop it (measured, see measurements §7).
 - **Strict** adds: error reports not sent, no online speech recognition / input
   personalization, Windows Copilot off, location off, no cloud clipboard, apps can't
   read other apps' diagnostic info. The app shows "On renonce à…" (what you give up)

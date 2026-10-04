@@ -29,7 +29,7 @@ tools. Every change is journaled and reversible.
   72 services that anti-cheats and updates need are protected.
 - **Privacy** (`prism vie-privee`) — Windows telemetry, ads and suggestions, Bing in
   Start, typing collection, Edge reporting turned off through official policies, plus
-  Windows Firewall rules that cut the telemetry components off; *recommended* or
+  Windows Firewall rules that cut telemetry programs off; *recommended* or
   *strict* levels, a dashboard with a live "telemetry talking right now" panel.
 - **Appearance** (`prism apparence`) — official Windows animations, effects and theme
   settings with presets (Performance max, Fluide, original settings).

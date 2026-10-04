@@ -76,13 +76,10 @@ level = "strict"
 why = "Une appli ne peut plus savoir quelles autres applis tournent ni ce qu'elles consomment."
 lose = "Les outils de diagnostic du Store ne voient plus les autres applis."
 
-[[firewall]]
-id = "diagtrack"
-service = "DiagTrack"
-label = "Pare-feu : service de télémétrie coupé d'Internet"
-category = "telemetrie"
-level = "recommande"
-why = "Même s'il est relancé (mise à jour, autre outil), le service de télémétrie ne peut plus rien envoyer."
+# Pas de règle de pare-feu pour le service de télémétrie (DiagTrack) : mesuré en VM le
+# 2026-10-04, une règle « service = DiagTrack » ne correspond pas à ses connexions
+# (elles passent par le filtre sortant par défaut de Windows). Seul l'arrêt du service
+# la coupe : c'est ce que fait « prism allege » (contrôle en lecture seule plus bas).
 
 [[firewall]]
 id = "compattelrunner"
@@ -276,7 +273,7 @@ why = "Edge ne transmet plus l'historique de navigation pour personnaliser publi
 
 [[check]]
 service = "DiagTrack"
-label = "Service de télémétrie désactivé"
+label = "Service de télémétrie désactivé (seul moyen de le couper : prism allege apply)"
 category = "telemetrie"
 source = "prism allege (niveau sûr)"
 

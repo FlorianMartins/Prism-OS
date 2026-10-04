@@ -222,8 +222,8 @@ service runs as on a stock Windows.
 
 | Check | Result |
 |---|---|
-| `prism vie-privee apply` (recommended) | 18 applied (15 settings + 3 firewall rules), 0 failures |
-| Rules created as intended (`netsh … verbose`) | `Prism OS - diagtrack`: outbound, block, all profiles, `Service: DiagTrack`; programs expanded to `C:\WINDOWS\System32\…` |
+| `prism vie-privee apply` (recommended, first version with 3 rules) | 18 applied (15 settings + 3 firewall rules), 0 failures |
+| Rules created as intended (`netsh … verbose`) | outbound, block, all profiles; programs expanded to `C:\WINDOWS\System32\…` |
 | Dashboard | 0 → 18 protections in place out of 31 |
 | `prism vie-privee restore` | 18 items put back, 0 failures; dashboard back to 0/31; no `Prism OS` rule left |
 
@@ -237,7 +237,18 @@ Compatibility Appraiser task started at the beginning of each 40-minute window.
 | Window (40 min) | Outbound connections of the telemetry components |
 |---|---|
 | Without protection | 2, both **allowed**: DiagTrack → `20.184.175.6:443`, `51.132.193.108:443` |
-| With the recommended level | measurement running — added in the next commit |
+| With the recommended level (first version, including a `service=DiagTrack` rule) | 2, both **allowed**: DiagTrack → `48.209.138.189:443`, `20.42.65.85:443` |
+
+**The service rule did not work.** The audit records which filter decided: *Default
+Outbound* (permit). Prism's block filter for DiagTrack was present in the Windows
+Filtering Platform, at a higher weight, on both connect layers — its service condition
+simply never matched DiagTrack's connections. The rule was removed from the catalogue
+(no false promise); stopping the telemetry service requires disabling it
+(`prism allege`, safe level), which the dashboard shows. Program rules do work:
+`curl.exe` → HTTP 200 without a rule, connection refused with a program rule (exit code
+7), HTTP 200 again after removing it. No traffic from CompatTelRunner or DeviceCensus
+was observed in either window, so their rules could not be shown blocking real
+telemetry; the mechanism is the one verified with `curl.exe`.
 
 ## What cannot be measured in a VM
 
