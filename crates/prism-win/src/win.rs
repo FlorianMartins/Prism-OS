@@ -15,7 +15,7 @@ use prism_core::platform::{Outcome, Platform};
 use windows_sys::core::GUID;
 use windows_sys::Win32::Foundation::{
     CloseHandle, GetLastError, LocalFree, ERROR_ACCESS_DENIED, ERROR_INVALID_PARAMETER, FILETIME, HANDLE,
-    INVALID_HANDLE_VALUE, LUID,
+    INVALID_HANDLE_VALUE, LUID, STILL_ACTIVE,
 };
 use windows_sys::Win32::Security::{
     AdjustTokenPrivileges, LookupPrivilegeValueW, LUID_AND_ATTRIBUTES, SE_PRIVILEGE_ENABLED, TOKEN_ADJUST_PRIVILEGES,
@@ -29,11 +29,11 @@ use windows_sys::Win32::System::ProcessStatus::{K32EmptyWorkingSet, K32GetProces
 use windows_sys::Win32::System::RemoteDesktop::ProcessIdToSessionId;
 use windows_sys::Win32::System::SystemInformation::{GlobalMemoryStatusEx, MEMORYSTATUSEX};
 use windows_sys::Win32::System::Threading::{
-    GetCurrentProcess, GetCurrentProcessId, GetPriorityClass, GetProcessDefaultCpuSets, GetProcessInformation,
-    GetProcessTimes, OpenProcess, OpenProcessToken, ProcessMemoryPriority, ProcessPowerThrottling,
-    QueryFullProcessImageNameW, SetPriorityClass, SetProcessDefaultCpuSets, SetProcessInformation,
-    ABOVE_NORMAL_PRIORITY_CLASS, BELOW_NORMAL_PRIORITY_CLASS, HIGH_PRIORITY_CLASS, IDLE_PRIORITY_CLASS,
-    MEMORY_PRIORITY_INFORMATION, NORMAL_PRIORITY_CLASS, PROCESS_ACCESS_RIGHTS, PROCESS_NAME_WIN32,
+    GetCurrentProcess, GetCurrentProcessId, GetExitCodeProcess, GetPriorityClass, GetProcessDefaultCpuSets,
+    GetProcessInformation, GetProcessTimes, OpenProcess, OpenProcessToken, ProcessMemoryPriority,
+    ProcessPowerThrottling, QueryFullProcessImageNameW, SetPriorityClass, SetProcessDefaultCpuSets,
+    SetProcessInformation, ABOVE_NORMAL_PRIORITY_CLASS, BELOW_NORMAL_PRIORITY_CLASS, HIGH_PRIORITY_CLASS,
+    IDLE_PRIORITY_CLASS, MEMORY_PRIORITY_INFORMATION, NORMAL_PRIORITY_CLASS, PROCESS_ACCESS_RIGHTS, PROCESS_NAME_WIN32,
     PROCESS_POWER_THROTTLING_CURRENT_VERSION, PROCESS_POWER_THROTTLING_EXECUTION_SPEED, PROCESS_POWER_THROTTLING_STATE,
     PROCESS_QUERY_LIMITED_INFORMATION, PROCESS_SET_INFORMATION, PROCESS_SET_LIMITED_INFORMATION, PROCESS_SET_QUOTA,
     REALTIME_PRIORITY_CLASS,
@@ -263,6 +263,13 @@ fn open_target(target: &Target, access: PROCESS_ACCESS_RIGHTS) -> Result<Owned, 
         ERROR_ACCESS_DENIED => Outcome::Skipped("accès refusé".into()),
         c => Outcome::Failed(format!("ouverture impossible (erreur Windows {c})")),
     })?;
+    // Un processus terminé reste ouvrable tant qu'un autre programme garde un handle
+    // dessus (antivirus, outil de surveillance) : vu en CI. On n'agit que sur un vivant.
+    let mut code = 0u32;
+    // SAFETY: handle vérifié, sortie locale.
+    if unsafe { GetExitCodeProcess(h.0, &mut code) } == 0 || code != STILL_ACTIVE as u32 {
+        return Err(Outcome::Skipped("processus terminé".into()));
+    }
     match creation_time(h.0) {
         Some(c) if c == target.id.created => Ok(h),
         Some(_) => Err(Outcome::Skipped("processus disparu (PID réutilisé)".into())),
