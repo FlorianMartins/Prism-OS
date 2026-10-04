@@ -40,6 +40,7 @@ Utilisation : prism <commande>
   apparence <préréglage>  performance | fluide ; apparence set <id> <option> ; restore
   config init|check|path  copie modifiable de la configuration
   autostart on|off        lance le Mode Jeu à l'ouverture de session (admin)
+  bar on|off              lance / arrête la Prism Bar ; bar autostart on|off
   demo                    partie simulée de bout en bout (tout système)
   version
 ";
@@ -232,9 +233,9 @@ fn tools_install(cfg: &Config, pack: &str) -> Result<(), String> {
 #[cfg(not(windows))]
 fn platform_command(_cfg: &Config, args: &[&str]) -> Result<(), String> {
     match args.first() {
-        Some(&("status" | "watch" | "ram" | "autostart" | "allege" | "top" | "demarrage" | "jeux" | "apparence")) => {
-            Err("cette commande agit sur Windows ; ici, essayez `prism demo`".into())
-        }
+        Some(
+            &("status" | "watch" | "ram" | "autostart" | "allege" | "top" | "demarrage" | "jeux" | "apparence" | "bar"),
+        ) => Err("cette commande agit sur Windows ; ici, essayez `prism demo`".into()),
         _ => Err(format!("commande inconnue : {}\n\n{HELP}", args.join(" "))),
     }
 }
@@ -544,6 +545,32 @@ fn platform_command(cfg: &Config, args: &[&str]) -> Result<(), String> {
                 Err("restauration incomplète, relancez en administrateur".into())
             }
         }
+        ["bar", "on"] => {
+            let exe = std::env::current_exe()
+                .map_err(|e| e.to_string())?
+                .with_file_name("prism-bar.exe");
+            Command::new(&exe)
+                .spawn()
+                .map_err(|e| format!("{} : {e}", exe.display()))?;
+            println!("Prism Bar lancée (réglages : prism-ui, page Apparence)");
+            Ok(())
+        }
+        ["bar", "off"] => {
+            if prism_win::bar_app::stop() {
+                println!("Prism Bar arrêtée, barre des tâches Windows remise");
+            } else {
+                println!("Prism Bar ne tournait pas");
+            }
+            Ok(())
+        }
+        ["bar", "autostart", "on"] => {
+            let exe = std::env::current_exe()
+                .map_err(|e| e.to_string())?
+                .with_file_name("prism-bar.exe");
+            let task = format!("\"{}\"", exe.display());
+            schtasks(&["/Create", "/TN", "Prism Bar", "/TR", &task, "/SC", "ONLOGON", "/F"])
+        }
+        ["bar", "autostart", "off"] => schtasks(&["/Delete", "/TN", "Prism Bar", "/F"]),
         ["autostart", "on"] => {
             let exe = std::env::current_exe().map_err(|e| e.to_string())?;
             let task = format!("\"{}\" watch --quiet", exe.display());

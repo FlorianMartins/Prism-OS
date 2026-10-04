@@ -1,112 +1,110 @@
 # Prism OS
 
-**La couche gaming et cybersécurité pour un vrai Windows.**
+**The gaming and cybersecurity layer for a genuine Windows.**
 
-Prism s'installe sur *votre* Windows, avec votre licence, et laisse son noyau intact. Les
-anti-cheats (Vanguard, FACEIT, EAC, BattlEye) voient un Windows authentique. Prism
-reprend la main sur tout ce qui est au-dessus : les ressources, les profils d'usage, les
-outils de sécurité et, bientôt, l'interface et la vie privée.
+Prism installs on top of *your* Windows, with your licence, and leaves its kernel
+untouched: anti-cheats (Vanguard, FACEIT, Easy Anti-Cheat, BattlEye) still see a genuine
+Windows. Prism takes over everything above it: resources, startup apps, debloat,
+appearance, a taskbar you can put on any edge, desktop widgets and on-demand security
+tools. Every change is journaled and reversible.
 
-> Le projet de noyau multiple from-scratch qui portait ce nom s'appelle désormais
+> The from-scratch multikernel project that used to carry this name is now
 > [MultiKernel](https://github.com/FlorianMartins/MultiKernel).
 
-## Ce que fait Prism
+**Start here: [User Guide](docs/USER_GUIDE.md).**
 
-- **Mode Quotidien, tout le temps** : une appli d'arrière-plan inactive passe sur les
-  cœurs économes en basse consommation, puis rend sa RAM. Dès que vous y revenez, elle
-  retrouve tout. Windows devient plus léger même sans jouer.
-- **Applis au démarrage** (`prism demarrage`) : conseils et désactivation réversible,
-  comme le Gestionnaire des tâches. Mesuré : −1,2 Go et −26 processus sur un PC avec
-  Discord, Steam, OneDrive et Edge ([mesures](docs/mesures.md)).
-- **Mode Jeu automatique** : dès qu'un jeu démarre (Steam, Epic, GOG, Xbox, Riot, EA,
-  Ubisoft, Battle.net), l'arrière-plan passe en retrait (priorité, EcoQoS, cœurs
-  économes) et rend sa RAM. À la fermeture, tout revient à l'identique.
-- **RAM libérée intelligemment** : la mémoire de Word ou de Chrome, ouverts mais
-  inactifs, est réellement rendue au jeu, **sans** vider le cache où vivent les données
-  du jeu. Explication complète : [spec §4](docs/specs/v0.1-mode-jeu.md#4-politique-ram--pourquoi-cet-ordre-précis).
-- **Gestion fine en jeu** : arrière-plan sur les cœurs E (Intel hybride) ou sur la
-  puce sans cache 3D (Ryzen X3D) sans toucher au jeu, indexation en pause, gel des applis
-  choisies, surveillance de la RAM en pleine partie.
-- **Réglages jeu** (`prism allege apply jeu`) : Mode Jeu de Windows, planification GPU
-  matérielle, jeux en fenêtre, accélération souris.
-- **Profils** : Gaming, Équilibré, Cyber.
-- **Allègement de Windows réversible** (`prism allege`) : télémétrie, services
-  inutiles, Edge en arrière-plan… avec 72 services protégés que les anti-cheats
-  exigent. Gains mesurés et honnêtes : [docs/mesures.md](docs/mesures.md).
-- **Outils cyber à la demande** : Wireshark, Burp, ZAP, Sysinternals, x64dbg, Kali sous
-  WSL (nmap, sqlmap, hashcat…). Rien n'est installé par défaut, rien ne tourne pendant
-  le jeu, et les outils qui gênent les anti-cheats (débogueurs) sont signalés.
-- **Compatible anti-cheat par construction** : aucun pilote, aucune injection, aucun
-  fichier système modifié. Voir les [règles](docs/anticheat-rules.md).
-- **Sûr** : chaque changement est journalisé avant le suivant, et un arrêt brutal est
-  réparé au démarrage suivant.
+## Features
 
-## Essayer
+- **Daily Mode, always on** — idle background apps move to efficiency cores with low
+  power and low memory priority, then give their RAM back; the moment you return to an
+  app, it gets everything back.
+- **Game Mode, automatic** — when a game starts, the background steps back, idle apps'
+  RAM is freed without touching the game's file cache, Search indexing pauses, and on
+  Intel hybrid / Ryzen X3D CPUs the background leaves the cores the game benefits from.
+  The game process itself is never touched.
+- **Startup apps** (`prism demarrage`) — advice and reversible disabling, the same
+  mechanism as Task Manager, including Microsoft Store apps.
+- **Debloat** (`prism allege`) — telemetry services and scheduled tasks, Edge
+  background processes, Recall, delivery-optimisation upload, plus gaming settings;
+  72 services that anti-cheats and updates need are protected.
+- **Appearance** (`prism apparence`) — official Windows animations, effects and theme
+  settings with presets (Performance max, Fluide, original settings).
+- **Prism Bar** — a native taskbar on any edge (top, bottom, left, right), adjustable
+  thickness, floating margin, opacity and widgets (CPU, RAM, GPU, network, Game Mode,
+  clock); hides during fullscreen games.
+- **Desktop widgets and per-app transparency** — Conky-style widgets; translucent app
+  windows (never games).
+- **App** (`prism-ui`) — dashboard, game launcher with a console mode, and every
+  setting above.
+- **Cyber tools on demand** — Wireshark, Burp, ZAP, Sysinternals, x64dbg, Kali under WSL
+  (nmap, sqlmap, hashcat…); nothing runs while you play, anti-cheat-hostile tools are
+  flagged.
+- **Anti-cheat compatible by construction** — no driver, no injection, no system file
+  modified. See the [rules](docs/anticheat-rules.md).
+
+## Measured results
+
+From a Windows 11 test VM ([details and protocol](docs/measurements.md)):
+
+| Action | Result |
+|---|---|
+| `prism ram clean` with an idle 3 GB app | 2.9 GB returned (44 % → 68 % free), game file cache intact |
+| Startup: Edge preload disabled | −9 processes, −314 MB |
+| Startup: + Discord, Steam, OneDrive disabled | −26 processes, −1.23 GB (−38 %) |
+| Daily Mode with every app kept at startup | −300 MB |
+| Debloat "advanced" services | −10 processes, ≈ −95 MB |
+| `prism watch` memory footprint | ≈ 3 MB |
+
+FPS and anti-cheat compatibility cannot be measured in a VM; they will be measured on
+real gaming hardware.
+
+## Quick start
 
 ```powershell
-prism demo                 # une partie simulée, de bout en bout
-prism status               # ce que Prism voit : profil, RAM, jeux, conflits
-prism profile gaming       # ou balanced, cyber
-prism watch                # Mode Quotidien + Mode Jeu automatique (Ctrl-C restaure tout)
-prism top                  # qui consomme le processeur et la RAM
-prism demarrage            # applis au démarrage ; demarrage recommande / off <nom> / restore
-prism ram clean            # libère la RAM de l'arrière-plan maintenant
-prism allege apply         # allègement sûr (avance : plus poussé) ; allege restore annule
-prism tools                # packs d'outils cyber
-prism autostart on         # au démarrage de la session (console administrateur)
+prism status               # what Prism sees: profile, memory, CPU layout, games, conflicts
+prism autostart on         # start the engine at logon (administrator terminal)
+prism bar on               # start the Prism Bar
+prism-ui                   # the app
+prism demo                 # a simulated gaming session (any OS)
 ```
 
-Exemple (`prism demo`) :
+All commands: [User Guide](docs/USER_GUIDE.md).
 
-```
-> Lancement de VALORANT
-RAM : 1.4 Go libre sur 16.0 Go (8 %) · cache 4.0 Go dont 0 Mo en priorité basse
-
-Mode Jeu activé pour valorant-win64-shipping.exe :
-  3 processus passés en retrait
-  3 processus en EcoQoS (cœurs économes)
-  3 priorités mémoire changées
-  3 mémoires de travail rognées
-  purge du cache en attente (Low)
-  plan d'alimentation -> performances élevées
-  arrêt de WSL (libère vmmem)
-  RAM libérée : 6.0 Go
-```
-
-## Construire
+## Build
 
 ```bash
-cargo test --workspace                                        # partout
-cargo build --release -p prism --target x86_64-pc-windows-gnu # prism.exe depuis Linux (mingw-w64)
+cargo test --workspace                                                    # anywhere
+cargo build --release -p prism -p prism-ui --target x86_64-pc-windows-gnu # Windows binaries from Linux (mingw-w64)
 ```
 
-Sous Windows : `cargo build --release -p prism`.
+On Windows: `cargo build --release -p prism -p prism-ui`. UI screenshots are rendered
+off-screen by the tests into `target/ui-shots/` (needs a Vulkan driver; on Linux,
+`mesa-vulkan-drivers`).
 
-## Structure
+## Layout
 
-| Dossier | Rôle |
+| Path | Role |
 |---|---|
-| `crates/prism-core` | décisions : classement, plan, politique RAM, journal, outils — testé sans Windows |
-| `crates/prism-win` | exécution sur Windows (API documentées, `windows-sys`) |
-| `crates/prism` | `prism.exe` : ligne de commande et surveillance |
-| `config/default.toml` | profils, listes, catalogue d'outils |
-| `docs/` | [architecture](docs/ARCHITECTURE.md), [spec v0.1](docs/specs/v0.1-mode-jeu.md), [spec v0.2](docs/specs/v0.2-processus.md), [règles anti-cheat](docs/anticheat-rules.md), [mesures](docs/mesures.md) |
+| `crates/prism-core` | decisions, tested without Windows: classification, plans, RAM policy, journals, Daily Mode, cores, debloat, startup, appearance, bar layout, library |
+| `crates/prism-win` | Windows execution (documented APIs, `windows-sys`), Prism Bar, metrics |
+| `crates/prism` | `prism.exe` (CLI + engine) and `prism-bar.exe` |
+| `crates/prism-ui` | `prism-ui.exe` (egui/wgpu) |
+| `config/` | profiles, catalogues (debloat, startup, appearance) |
+| `docs/` | [user guide](docs/USER_GUIDE.md), [architecture](docs/ARCHITECTURE.md), [specs](docs/specs/), [anti-cheat rules](docs/anticheat-rules.md), [measurements](docs/measurements.md) |
 
-## Feuille de route
+## Roadmap
 
-Mesures publiées : [docs/mesures.md](docs/mesures.md).
-
-v0.2 moteur ✓ (Mode Quotidien, cœurs P/E et X3D, démarrage, réglages jeu) · v0.3
-interface (tableau de bord, lanceur, mode console) et service Windows · v0.4 vie
-privée (télémétrie, debloat réversible) · v0.5 personnalisation · v0.6 installateur et
-mesures FPS publiées. Détails : [ARCHITECTURE.md](docs/ARCHITECTURE.md).
+v0.1 engine ✓ · v0.2 process management ✓ · v0.3 interface and customisation ✓ ·
+next: Prism as a Windows service, tiling window manager, multi-monitor bar, privacy
+dashboard, installer and signed updates, FPS measurements on real hardware. Details:
+[ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
 ## Licence
 
-Prism OS est un logiciel libre, au choix sous l'une de ces deux licences :
+Prism OS is free software, available under either of:
 
 - [MIT](LICENSE-MIT)
 - [Apache 2.0](LICENSE-APACHE)
 
-Sauf mention contraire, toute contribution envoyée au projet est publiée sous ces
-deux mêmes licences, sans condition supplémentaire.
+Unless stated otherwise, any contribution submitted to the project is licensed under
+both, without additional terms.

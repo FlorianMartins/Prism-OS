@@ -1,58 +1,71 @@
-# Architecture de Prism OS
+# Prism OS Architecture
 
-## Ce qu'est Prism OS
+## What Prism OS is
 
-Une **couche gaming et cybersécurité posée sur un vrai Windows**, celui de l'utilisateur,
-avec sa licence. Le noyau Windows reste intact : les anti-cheats voient un Windows
-authentique (Secure Boot, TPM, VBS). Prism change tout ce qui est au-dessus :
+A **gaming and cybersecurity layer on top of a real Windows**: the user's own, with
+their own license. The Windows kernel stays untouched, so anti-cheats see a genuine
+Windows (Secure Boot, TPM, VBS). Prism changes everything above it:
 
-- la gestion des ressources (Mode Jeu, RAM, priorités, alimentation) ;
-- l'interface (lanceur, mode console, bureau modulable) — v0.2 ;
-- la vie privée (télémétrie coupée par les mécanismes officiels + pare-feu) — v0.3 ;
-- les profils d'usage et les outils de cybersécurité à la demande.
+- resource management (Game Mode, RAM, priorities, power) — v0.1/v0.2;
+- the interface (dashboard, game launcher, console mode, Prism Bar, widgets, appearance) — v0.3;
+- privacy (telemetry turned off through the official mechanisms + firewall) — v0.4;
+- usage profiles and on-demand cybersecurity tools.
 
-Prism **n'est pas** une ISO Windows modifiée, que la licence interdit de redistribuer :
-c'est un logiciel qui s'applique au Windows déjà installé, et chaque réglage est réversible.
+Prism **is not** a modified Windows ISO, which the license forbids redistributing:
+it is software applied to the Windows that is already installed, and every setting is
+reversible.
 
-Le projet de noyau multiple from-scratch est devenu **MultiKernel**
-(`FlorianMartins/MultiKernel`), un projet séparé.
+The from-scratch multiple-kernel project has become **MultiKernel**
+(`FlorianMartins/MultiKernel`), a separate project.
 
-## Découpage
+## Layout
 
 ```
 crates/
-  prism-core/   logique pure, sans dépendance Windows — testée sous Linux
-                 config (TOML) · classement · plan · moteur · journal · RAM · outils
-                 daily (Mode Quotidien) · cores (P/E, X3D) · allege · demarrage
-  prism-win/    exécution sur Windows (windows-sys) : snapshot des processus,
-                 application et restauration de chaque levier
-  prism/        binaire prism.exe : CLI + boucle de surveillance (Mode Jeu auto)
+  prism-core/   pure logic, no Windows dependency — tested on Linux
+                 config (TOML) · classification · plan · engine · journal · RAM · tools
+                 daily (Daily Mode) · cores (P/E, X3D) · allege · demarrage
+                 library (installed games) · apparence (Appearance) · bar (Prism Bar)
+                 etat (live state shared with the interface)
+  prism-win/    execution on Windows (windows-sys): process snapshot, applying and
+                 restoring each lever, startup entries, services/policies/scheduled
+                 tasks, appearance settings, game library, metrics, Prism Bar window
+  prism/        binary prism.exe: CLI + watch loop (automatic Game Mode)
+                 binary prism-bar.exe: Prism Bar (native Win32 taskbar)
+  prism-ui/     binary prism-ui.exe: graphical interface (egui)
 config/
-  default.toml  profils, listes protégées/compagnons/jeux, catalogue d'outils
+  default.toml     profiles, protected/companion/game lists, tool catalog
+  allegement.toml  debloat catalog (services, policies, scheduled tasks)
+  apparence.toml   appearance settings and presets
+  demarrage.toml   startup-app recommendations
 ```
 
-La frontière clé est le trait `Platform` (`prism-core/src/platform.rs`) :
-- le cœur **décide** (quoi faire, à qui, dans quel ordre, comment annuler) ;
-- la plateforme **exécute** et rend la valeur d'origine pour le journal.
+The key boundary is the `Platform` trait (`prism-core/src/platform.rs`):
+- the core **decides** (what to do, to whom, in which order, how to undo it);
+- the platform **executes** and returns the original value for the journal.
 
-Toute la logique de décision est ainsi testable sans Windows, et la partie Windows est
-mince, ce qui la rend auditable.
+All the decision logic is therefore testable without Windows, and the Windows part is
+thin, which makes it auditable. The interface follows the same pattern: `prism-ui` only
+talks to its `Backend` trait (real Windows, or a mock for tests and screenshots), and the
+Windows backend uses the same functions and journals as `prism.exe`, so a setting changed
+in the interface can be undone by `prism … restore`, and vice versa.
 
-## Feuille de route
+## Roadmap
 
-| Version | Contenu |
+| Version | Content |
 |---|---|
-| **v0.1** ✓ | moteur Mode Jeu + politique RAM + profils + catalogue cyber, CLI, CI Windows |
-| **v0.2** ✓ | Mode Quotidien permanent, cœurs P/E et X3D, services en pause, gel, surveillance RAM, applis au démarrage, réglages jeu, allègement réversible |
-| v0.3 | interface : tableau de bord ressources, lanceur de jeux, mode console au démarrage ; Prism en service Windows ; tâches de démarrage des applis du Store |
-| v0.4 | vie privée : télémétrie (stratégies + services + tâches + pare-feu) avec tableau de bord de ce qui est bloqué |
-| v0.5 | personnalisation : thèmes, gestionnaire de fenêtres en mosaïque, barres, profils exportables |
-| v0.6 | installateur, mises à jour signées, mesures FPS publiées |
+| **v0.1** ✓ | Game Mode engine + RAM policy + profiles + cyber catalog, CLI, Windows CI — [spec](specs/v0.1-game-mode.md) |
+| **v0.2** ✓ | permanent Daily Mode, P/E and X3D cores, paused services, freezing, RAM monitoring, startup apps, game settings, reversible debloat — [spec](specs/v0.2-process-management.md) |
+| **v0.3** ✓ (partial) | interface: `prism-ui` dashboard, game launcher + console mode, Store app startup tasks, Appearance (official Windows animation/effects/theme settings with presets), Prism Bar (native Win32 taskbar on any screen edge), desktop widgets, per-app transparency rules, scheduled-task debloat — [spec](specs/v0.3-interface.md). Still planned: Prism as a Windows service, tiling window manager |
+| v0.4 | privacy: telemetry (policies + services + tasks + firewall) with a dashboard of what is blocked |
+| v0.5 | customization: themes, tiling window manager (if not delivered in v0.3), exportable profiles |
+| v0.6 | installer, signed updates, published FPS measurements |
 
-## Principes
+## Principles
 
-- **Léger** : Rust, pas de runtime, pas de service lourd ; le moteur dort entre deux
-  passages et l'interface se ferme pendant le jeu.
-- **Mesurer avant d'affirmer** : aucun « +X % de FPS » sans mesure publiée.
-- **Réversible** : tout changement passe par le journal.
-- **Anti-cheat d'abord** : voir `anticheat-rules.md`.
+- **Lightweight**: Rust, no runtime, no heavy service; the engine sleeps between two
+  passes and the interface closes during gameplay.
+- **Measure before claiming**: no "+X% FPS" without a published measurement
+  (see [`measurements.md`](measurements.md)).
+- **Reversible**: every change goes through the journal.
+- **Anti-cheat first**: see [`anticheat-rules.md`](anticheat-rules.md).

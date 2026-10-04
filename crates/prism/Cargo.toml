@@ -1,6 +1,7 @@
 [package]
 name = "prism"
 description = "Prism OS — Mode Jeu, RAM, profils et outils cyber pour Windows"
+default-run = "prism"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true

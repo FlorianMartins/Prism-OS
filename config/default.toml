@@ -75,7 +75,7 @@ daily_purge_below_percent = 10
 tool_packs = ["reseau", "web", "reverse", "kali"]
 
 # ---------------------------------------------------------------------------
-# Listes de classement (voir docs/specs/v0.1-mode-jeu.md §2)
+# Listes de classement (voir docs/specs/v0.1-game-mode.md §2)
 # ---------------------------------------------------------------------------
 [lists]
 # Jamais touchés : système, shell, sécurité, anti-cheats.
