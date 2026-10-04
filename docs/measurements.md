@@ -33,7 +33,9 @@ Details of the mechanisms (modified list, priority 0): spec v0.1 §4.1.
 | `sûr` + `avancé` levels (safe + advanced; 9 samples) | 103 | 71 | 1,970 MB |
 
 Reading:
-- **`sûr` changes nothing measurable at idle.** On stock Windows, only 2 of its
+- **`sûr` changes nothing measurable at idle** (79 vs 78 running services is
+  sample-to-sample variation — trigger-started services come and go — not a service
+  added by Prism). On stock Windows, only 2 of its
   services are running (DiagTrack, TrkWks); the others are already stopped and only
   start on demand. Its value is privacy (telemetry, advertising ID, activity history),
   not performance.
@@ -63,13 +65,30 @@ Spotify). At startup: Discord (two entries), Steam, OneDrive and Edge preloading
 (`MicrosoftEdgeAutoLaunch_…`). Samples taken under the same conditions (9 per
 configuration, median).
 
-| Configuration | Processes | Running services | RAM used | Difference from A |
+Two independent scenarios, both compared with **A** (lower is better):
+
+**Scenario 1 — disable apps at startup** (each line builds on the previous one)
+
+| Configuration | Processes | Running services | RAM used | vs A |
 |---|---|---|---|---|
-| Stock Windows, without these apps (§2 baseline) | 113 | 78 | 2,065 MB | |
-| **A** — apps installed, everything at startup | 142 | 86 | 3,257 MB | |
+| **A** — apps installed, everything at startup | 142 | 86 | 3,257 MB | reference |
 | **B** — `prism demarrage recommande` (Edge preloading off) | 133 | 84 | 2,943 MB | **−9 proc., −314 MB** |
 | **C** — B + Discord, Steam, OneDrive off (`demarrage off`) | 116 | 80 | 2,023 MB | **−26 proc., −1.23 GB (−38%)** |
-| **D** — A with `prism watch` (Daily Mode, everything kept at startup) | 144 | 88 | 2,957 MB | **−300 MB (−9%)** |
+
+**Scenario 2 — keep every app at startup, let Daily Mode ease them**
+
+| Configuration | Processes | Running services | RAM used | vs A |
+|---|---|---|---|---|
+| **A** — same reference as above | 142 | 86 | 3,257 MB | reference |
+| **D** — A with `prism watch` running (Daily Mode) | 144 | 88 | 2,957 MB | **−300 MB (−9%)** |
+
+For context, stock Windows without these apps (§2 baseline): 113 processes, 78 services,
+2,065 MB.
+
+How to read D: Daily Mode closes nothing, so the process count cannot go down. The +2
+processes are `prism watch` itself plus normal sample-to-sample variation, and the
+running-service count of an idle Windows moves by one or two between samples (§2 shows
+the same effect). RAM is the figure Daily Mode acts on, and it goes down by 300 MB.
 
 Reading:
 - **Startup is the main lever.** A single preload (Edge) weighs more than the whole

@@ -14,6 +14,7 @@ pub mod daily;
 pub mod demarrage;
 pub mod engine;
 pub mod etat;
+pub mod fx;
 pub mod glob;
 pub mod journal;
 pub mod library;
