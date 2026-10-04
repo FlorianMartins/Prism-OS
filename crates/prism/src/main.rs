@@ -24,6 +24,8 @@ Utilisation : prism <commande>
   profile [nom]           affiche ou change le profil (gaming, balanced, cyber)
   watch [--quiet]         Mode Quotidien permanent + Mode Jeu automatique ; Ctrl-C restaure tout
   top                     qui consomme le processeur et la RAM en ce moment
+  jeux                    jeux installés (Steam, Epic, GOG, Battle.net)
+  jeux lancer <nom>       lance un jeu par son magasin
   ram                     état détaillé de la mémoire
   ram clean [--deep]      libère la RAM des programmes en arrière-plan
   tools [pack]            packs d'outils cyber et leurs commandes d'installation
@@ -217,7 +219,7 @@ fn tools_install(cfg: &Config, pack: &str) -> Result<(), String> {
 #[cfg(not(windows))]
 fn platform_command(_cfg: &Config, args: &[&str]) -> Result<(), String> {
     match args.first() {
-        Some(&("status" | "watch" | "ram" | "autostart" | "allege" | "top" | "demarrage")) => {
+        Some(&("status" | "watch" | "ram" | "autostart" | "allege" | "top" | "demarrage" | "jeux")) => {
             Err("cette commande agit sur Windows ; ici, essayez `prism demo`".into())
         }
         _ => Err(format!("commande inconnue : {}\n\n{HELP}", args.join(" "))),
@@ -277,6 +279,32 @@ fn platform_command(cfg: &Config, args: &[&str]) -> Result<(), String> {
                 println!("  {:<32} {}", p.name, human_bytes(p.working_set));
             }
             render::conflicts(&prism_core::tools::conflicts(&snap, cfg));
+            Ok(())
+        }
+        ["jeux"] => {
+            let games = prism_win::installed_games();
+            for g in &games {
+                let how = match &g.launch {
+                    prism_core::library::Launch::None => " (détecté, lancement par son magasin)",
+                    _ => "",
+                };
+                println!("{:<11} {:<40} {}{how}", g.store.label(), g.name, g.install_dir);
+            }
+            println!("\n{} jeu(x). Lancer : prism jeux lancer <nom>", games.len());
+            Ok(())
+        }
+        ["jeux", "lancer", query @ ..] => {
+            use prism_core::library::{find, Launch};
+            let games = prism_win::installed_games();
+            let q = query.join(" ");
+            let g = find(&games, &q).ok_or_else(|| format!("aucun jeu « {q} » (voir prism jeux)"))?;
+            let status = match &g.launch {
+                Launch::Uri(u) => Command::new("explorer.exe").arg(u).status(),
+                Launch::Exe(e) => Command::new(e).status(),
+                Launch::None => return Err(format!("{} : lancez-le depuis {}", g.name, g.store.label())),
+            };
+            status.map_err(|e| e.to_string())?;
+            println!("Lancement de {} ({})", g.name, g.store.label());
             Ok(())
         }
         ["top"] => {
@@ -350,16 +378,12 @@ fn platform_command(cfg: &Config, args: &[&str]) -> Result<(), String> {
             }
         }
         ["demarrage"] => {
-            use prism_core::demarrage::{is_enabled, Catalog, StartupConfig};
+            use prism_core::demarrage::{Catalog, StartupConfig};
             let c = Catalog::builtin();
             let mut entries = prism_win::WindowsStartup.entries()?;
             entries.sort_by_key(|e| e.name.to_lowercase());
             for e in &entries {
-                let state = if is_enabled(&e.approval) {
-                    "activé   "
-                } else {
-                    "désactivé"
-                };
+                let state = if e.enabled() { "activé   " } else { "désactivé" };
                 let (advice, why) = match (c.protection(e), c.advice(e)) {
                     (Some(reason), _) => ("protégé".to_string(), reason.to_string()),
                     (None, Some(r)) => (r.advice.label().to_string(), r.why.clone()),
@@ -521,6 +545,18 @@ fn watch(cfg: &Config, quiet: bool) -> Result<(), String> {
             ));
         }
     }
+    // Les dossiers des jeux installés deviennent des racines de jeu : un jeu installé
+    // hors des dossiers habituels (Battle.net, GOG, disque secondaire) est reconnu.
+    let mut cfg = cfg.clone();
+    let library = prism_win::installed_games();
+    cfg.lists.game_roots.extend(prism_core::library::game_roots(&library));
+    cfg.lists.game_roots.sort();
+    cfg.lists.game_roots.dedup();
+    let cfg = &cfg;
+    out.line(&format!(
+        "Bibliothèque : {} jeu(x) installé(s) détecté(s).",
+        library.len()
+    ));
     let mut watcher = Watcher::default();
     let mut daily = Daily::default();
     out.line(&format!(

@@ -13,6 +13,7 @@ pub mod demarrage;
 pub mod engine;
 pub mod glob;
 pub mod journal;
+pub mod library;
 pub mod mock;
 pub mod model;
 pub mod plan;

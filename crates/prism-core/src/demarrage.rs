@@ -24,6 +24,9 @@ pub enum Source {
     UserFolder,
     /// Dossier Démarrage commun
     CommonFolder,
+    /// Tâche de démarrage d'une appli du Store (MSIX) : `Famille\\IdTâche`,
+    /// état = DWORD `State` (2 ou 4 activée, 1 désactivée par l'utilisateur, 0 désactivée).
+    StoreTask,
 }
 
 impl Source {
@@ -34,6 +37,7 @@ impl Source {
             Source::MachineRun32 => "machine 32 bits",
             Source::UserFolder => "dossier utilisateur",
             Source::CommonFolder => "dossier commun",
+            Source::StoreTask => "appli du Store",
         }
     }
 }
@@ -46,6 +50,31 @@ pub struct Entry {
     pub command: String,
     /// Valeur `StartupApproved` actuelle (`None` : absente, donc activée).
     pub approval: Option<Vec<u8>>,
+}
+
+impl Entry {
+    pub fn enabled(&self) -> bool {
+        match self.source {
+            Source::StoreTask => matches!(self.approval.as_deref(), Some([2]) | Some([4])),
+            _ => is_enabled(&self.approval),
+        }
+    }
+}
+
+/// Valeur « désactivé » selon la source.
+pub fn disabled_value_for(source: Source, filetime_now: u64) -> Vec<u8> {
+    match source {
+        Source::StoreTask => vec![1],
+        _ => disabled_value(filetime_now),
+    }
+}
+
+/// Valeur « activé » selon la source.
+pub fn enabled_value_for(source: Source) -> Vec<u8> {
+    match source {
+        Source::StoreTask => vec![2],
+        _ => enabled_value(),
+    }
 }
 
 /// Octet de tête de `StartupApproved` : pair = activé (02, 06), impair = désactivé (03, 07).
@@ -216,11 +245,11 @@ pub fn disable(
         r.failed.push(format!("{} — refusé, protégé : {reason}", e.name));
         return;
     }
-    if !is_enabled(&e.approval) {
+    if !e.enabled() {
         r.unchanged.push(format!("{} — déjà désactivé", e.name));
         return;
     }
-    let value = disabled_value(sys.now_filetime());
+    let value = disabled_value_for(e.source, sys.now_filetime());
     match sys.set_approval(e.source, &e.name, Some(&value)) {
         Ok(()) => {
             journal.remember(e);
@@ -232,11 +261,11 @@ pub fn disable(
 
 /// Réactive une entrée désactivée.
 pub fn enable(sys: &mut dyn StartupConfig, e: &Entry, journal: &mut StartupJournal, r: &mut StartupReport) {
-    if is_enabled(&e.approval) {
+    if e.enabled() {
         r.unchanged.push(format!("{} — déjà activé", e.name));
         return;
     }
-    match sys.set_approval(e.source, &e.name, Some(&enabled_value())) {
+    match sys.set_approval(e.source, &e.name, Some(&enabled_value_for(e.source))) {
         Ok(()) => {
             journal.remember(e);
             r.done.push(format!("{} activé", e.name));
@@ -374,7 +403,7 @@ mod tests {
     }
 
     fn state(m: &MockStartup, name: &str) -> bool {
-        is_enabled(&m.items.iter().find(|e| e.name == name).unwrap().approval)
+        m.items.iter().find(|e| e.name == name).unwrap().enabled()
     }
 
     #[test]
@@ -462,6 +491,30 @@ mod tests {
         assert!(state(&m, "Spotify"));
         restore(&mut m, &mut j);
         assert_eq!(m.items[2], before);
+    }
+
+    #[test]
+    fn store_startup_tasks_use_their_own_states() {
+        let c = Catalog::builtin();
+        let mut m = typical_pc();
+        let mut teams = entry(
+            Source::StoreTask,
+            r"MSTeams_8wekyb3d8bbwe\TeamsTfwStartupTask",
+            "MSTeams_8wekyb3d8bbwe",
+        );
+        teams.approval = Some(vec![2]);
+        let mut off_by_app = entry(Source::StoreTask, r"SomeApp_abc\Task", "SomeApp_abc");
+        off_by_app.approval = Some(vec![0]);
+        m.items = vec![teams, off_by_app];
+        assert!(m.items[0].enabled());
+        assert!(!m.items[1].enabled(), "0 = désactivée, malgré la parité");
+        let before = m.items.clone();
+        let mut j = StartupJournal::default();
+        let r = apply_recommended(&mut m, &c, &mut j).unwrap();
+        assert_eq!(r.done.len(), 1, "{r:?}");
+        assert_eq!(m.items[0].approval, Some(vec![1]), "comme le Gestionnaire des tâches");
+        restore(&mut m, &mut j);
+        assert_eq!(m.items, before);
     }
 
     #[test]

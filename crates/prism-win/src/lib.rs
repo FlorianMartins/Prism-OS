@@ -9,6 +9,8 @@
 //!   peut déjà ouvrir.
 
 #[cfg(windows)]
+mod library;
+#[cfg(windows)]
 mod startup;
 #[cfg(windows)]
 mod sysconfig;
@@ -17,6 +19,8 @@ mod topology;
 #[cfg(windows)]
 mod win;
 
+#[cfg(windows)]
+pub use library::installed_games;
 #[cfg(windows)]
 pub use startup::WindowsStartup;
 #[cfg(windows)]
