@@ -81,7 +81,7 @@ fn fade(px: u32, a: f32) -> u32 {
         return px;
     }
     let k = (a.clamp(0.0, 1.0) * 256.0) as u32;
-    let ch = |shift: u32| (((px >> shift) & 0xff) * k >> 8) << shift;
+    let ch = |shift: u32| ((((px >> shift) & 0xff) * k) >> 8) << shift;
     ch(24) | ch(16) | ch(8) | ch(0)
 }
 
