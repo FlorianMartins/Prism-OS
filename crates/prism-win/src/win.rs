@@ -504,6 +504,10 @@ pub struct WindowsPlatform {
     pub can_purge: bool,
     /// Topologie lue une fois au démarrage (elle ne change pas à chaud).
     pub cpus: Vec<prism_core::model::CpuInfo>,
+    /// Chemin et session de chaque processus déjà vu, par (PID, date de création) :
+    /// ils ne changent pas pendant la vie d'un processus, inutile de les redemander à
+    /// Windows à chaque relevé (le chemin était la requête la plus coûteuse).
+    known: std::collections::HashMap<(u32, u64), (Option<String>, u32)>,
 }
 
 impl WindowsPlatform {
@@ -516,6 +520,7 @@ impl WindowsPlatform {
             user_session: session_of(self_pid),
             can_purge,
             cpus: crate::topology::cpus(),
+            known: std::collections::HashMap::new(),
         }
     }
 }
@@ -542,6 +547,7 @@ impl Platform for WindowsPlatform {
             let mut entry: PROCESSENTRY32W = zeroed();
             entry.dwSize = size_of::<PROCESSENTRY32W>() as u32;
             let mut procs = Vec::new();
+            let mut seen = Vec::new();
             let mut more = Process32FirstW(snap.0, &mut entry) != 0;
             while more {
                 let pid = entry.th32ProcessID;
@@ -551,15 +557,18 @@ impl Platform for WindowsPlatform {
                     .position(|&c| c == 0)
                     .unwrap_or(entry.szExeFile.len());
                 let name = String::from_utf16_lossy(&entry.szExeFile[..len]).to_lowercase();
-                let session = session_of(pid);
-                let (created, path, ws, cpu) = match Owned::open(pid, PROCESS_QUERY_LIMITED_INFORMATION) {
-                    Ok(h) => (
-                        creation_time(h.0).unwrap_or(0),
-                        image_path(h.0),
-                        working_set(h.0),
-                        cpu_time(h.0),
-                    ),
-                    Err(_) => (0, None, 0, 0),
+                let (created, path, session, ws, cpu) = match Owned::open(pid, PROCESS_QUERY_LIMITED_INFORMATION) {
+                    Ok(h) => {
+                        let created = creation_time(h.0).unwrap_or(0);
+                        let (path, session) = self
+                            .known
+                            .entry((pid, created))
+                            .or_insert_with(|| (image_path(h.0), session_of(pid)))
+                            .clone();
+                        seen.push((pid, created));
+                        (created, path, session, working_set(h.0), cpu_time(h.0))
+                    }
+                    Err(_) => (0, None, session_of(pid), 0, 0),
                 };
                 procs.push(ProcInfo {
                     id: ProcId { pid, created },
@@ -571,6 +580,9 @@ impl Platform for WindowsPlatform {
                 });
                 more = Process32NextW(snap.0, &mut entry) != 0;
             }
+            // Processus terminés : oubliés.
+            let seen: std::collections::HashSet<(u32, u64)> = seen.into_iter().collect();
+            self.known.retain(|k, _| seen.contains(k));
             procs
         };
         Ok(Snapshot {

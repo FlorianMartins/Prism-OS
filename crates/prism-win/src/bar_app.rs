@@ -135,6 +135,10 @@ struct Bar {
     loc_hook: Option<(isize, u32)>,
     /// Fenêtres en tuiles.
     tiler: crate::tiler::Tiler,
+    /// Coûts cumulés des étapes de la mise à jour par seconde, et du dessin.
+    tick_costs: [Duration; 8],
+    paint_cost: Duration,
+    tick_count: u64,
 }
 
 /// Gélatine pendant un déplacement : la vraie fenêtre, rendue invisible, est
@@ -891,6 +895,13 @@ impl Bar {
     }
 
     fn tick(&mut self) {
+        // Mesure du coût de chaque étape (diagnostic, si `fx-debug.log` existe).
+        let mut t = Instant::now();
+        let mut lap = |i: usize, costs: &mut [Duration; 8]| {
+            costs[i] += t.elapsed();
+            t = Instant::now();
+        };
+        let mut costs = self.tick_costs;
         self.reload_config_if_changed();
         for l in self.tiler.log.drain(..) {
             fx_log(|| format!("tuiles : {l}"));
@@ -902,17 +913,24 @@ impl Bar {
             prism_core::paths::data_dir().join("fx-debug.log").exists(),
             std::sync::atomic::Ordering::Relaxed,
         );
+        lap(0, &mut costs);
         self.sample = self.metrics.sample();
         self.cpu.push(self.sample.cpu);
         self.ram.push(self.sample.ram);
         if let Some(g) = self.sample.gpu {
             self.gpu.push(g);
         }
+        lap(1, &mut costs);
         self.game = Etat::load().is_some_and(|e| !e.game.is_empty());
+        lap(2, &mut costs);
         self.windows = list_windows(self.hwnd);
+        lap(3, &mut costs);
         self.apply_opacity_rules();
+        lap(4, &mut costs);
         self.retile();
+        lap(5, &mut costs);
         self.relayout();
+        lap(6, &mut costs);
         // SAFETY: invalidation de nos propres fenêtres.
         unsafe {
             for p in &self.panels {
@@ -922,6 +940,34 @@ impl Bar {
                 InvalidateRect(d.hwnd, null(), 0);
             }
         }
+        lap(7, &mut costs);
+        self.tick_count += 1;
+        if self.tick_count % 30 == 0 {
+            let n = self.tick_count as f64;
+            fx_log(|| {
+                let names = [
+                    "config/écrans",
+                    "mesures",
+                    "état du moteur",
+                    "fenêtres",
+                    "transparence",
+                    "tuiles",
+                    "disposition",
+                    "invalidation",
+                ];
+                let parts: Vec<String> = names
+                    .iter()
+                    .zip(costs.iter())
+                    .map(|(name, d)| format!("{name} {:.3} ms", d.as_secs_f64() * 1e3 / n))
+                    .collect();
+                format!(
+                    "coût moyen d'une seconde : {} · dessin {:.3} ms",
+                    parts.join(" · "),
+                    self.paint_cost.as_secs_f64() * 1e3 / n
+                )
+            });
+        }
+        self.tick_costs = costs;
     }
 
     /// Transparence par appli. Jamais sur un jeu, une fenêtre plein écran, ni une
@@ -2408,7 +2454,11 @@ unsafe extern "system" fn desk_wndproc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPA
         WM_PAINT => {
             let mut ps: PAINTSTRUCT = std::mem::zeroed();
             let hdc = BeginPaint(hwnd, &mut ps);
-            with_bar(|b| b.paint_desk(hwnd, hdc));
+            with_bar(|b| {
+                let t = Instant::now();
+                b.paint_desk(hwnd, hdc);
+                b.paint_cost += t.elapsed();
+            });
             EndPaint(hwnd, &ps);
             0
         }
@@ -2454,7 +2504,11 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) 
         WM_PAINT => {
             let mut ps: PAINTSTRUCT = std::mem::zeroed();
             let hdc = BeginPaint(hwnd, &mut ps);
-            with_bar(|b| b.paint(hwnd, hdc));
+            with_bar(|b| {
+                let t = Instant::now();
+                b.paint(hwnd, hdc);
+                b.paint_cost += t.elapsed();
+            });
             EndPaint(hwnd, &ps);
             0
         }
@@ -2621,6 +2675,9 @@ pub fn run() -> Result<(), String> {
                 geo: HashMap::new(),
                 loc_hook: None,
                 tiler: crate::tiler::Tiler::with_saved_originals(),
+                tick_costs: [Duration::ZERO; 8],
+                paint_cost: Duration::ZERO,
+                tick_count: 0,
             })
         });
         with_bar(|b| {

@@ -250,6 +250,28 @@ simply never matched DiagTrack's connections. The rule was removed from the cata
 was observed in either window, so their rules could not be shown blocking real
 telemetry; the mechanism is the one verified with `curl.exe`.
 
+## 8. Footprint at idle and optimisations — 2026-10-04
+
+Same VM, 60 s at idle (`perf.ps1`: CPU time difference / wall time, Task Manager-style
+working set).
+
+| Process | Before | After |
+|---|---|---|
+| `prism watch` (engine) | 7.6 MB, **0.39 %** of one core | 7.8 MB, **0.21 %** of one core |
+| Prism Bar | 17.0 MB (7.2 MB private), 0.13–0.34 % | unchanged |
+
+- **Engine**: one pass reads ~140 processes every 2 s. A process's path and session
+  never change while it lives, so they are now cached per (PID, creation time) and only
+  memory and CPU are read again. One pass (`prism perf`, 50 passes): **5.2–6.8 ms →
+  2.1–2.3 ms**. Skipping services-session processes was also tried and removed: no
+  measurable gain once the cache exists (1.8–2.1 ms vs 2.1–2.2 ms).
+- **Prism Bar**, cost of one second (debug log, 30-second average): metrics (CPU, RAM,
+  GPU and network counters) 1.16 ms, drawing 1.46 ms, everything else under 0.2 ms each
+  — about 3 ms of work per second.
+- Fixed on the way: processes restarted by an update (bar, engine) inherited the
+  updater's input/output handles and kept its log file open; they now start detached
+  (`prism bar on` too).
+
 ## What cannot be measured in a VM
 
 - **FPS and micro-stutters**: this requires a real gaming PC, with a protocol published

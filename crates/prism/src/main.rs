@@ -828,7 +828,7 @@ fn platform_command(cfg: &Config, args: &[&str]) -> Result<(), String> {
             let exe = std::env::current_exe()
                 .map_err(|e| e.to_string())?
                 .with_file_name("prism-bar.exe");
-            Command::new(&exe)
+            detached(&mut Command::new(&exe))
                 .spawn()
                 .map_err(|e| format!("{} : {e}", exe.display()))?;
             println!("Prism Bar lancée (réglages : prism-ui, page Apparence)");
@@ -868,6 +868,25 @@ fn platform_command(cfg: &Config, args: &[&str]) -> Result<(), String> {
             Ok(())
         }
         ["desinstaller", rest @ ..] => uninstall(rest),
+        ["perf"] => {
+            // Coût d'un relevé du moteur (diagnostic, non documenté dans l'aide).
+            use prism_core::platform::Platform;
+            let mut w = prism_win::WindowsPlatform::new();
+            let first = std::time::Instant::now();
+            let n = w.snapshot()?.procs.len();
+            let cold = first.elapsed();
+            let t0 = std::time::Instant::now();
+            for _ in 0..50 {
+                w.snapshot()?;
+            }
+            let warm = t0.elapsed() / 50;
+            println!(
+                "relevé de {n} processus : premier {:.2} ms, suivants {:.2} ms en moyenne",
+                cold.as_secs_f64() * 1e3,
+                warm.as_secs_f64() * 1e3
+            );
+            Ok(())
+        }
         ["maj"] => match check_update()? {
             None => {
                 println!("Prism {} est à jour.", env!("CARGO_PKG_VERSION"));
@@ -887,6 +906,13 @@ fn platform_command(cfg: &Config, args: &[&str]) -> Result<(), String> {
         ["maj", "--appliquer", msi, bar, engine] => update_apply(msi, *bar == "1", *engine == "1"),
         _ => Err(format!("commande inconnue : {}\n\n{HELP}", args.join(" "))),
     }
+}
+
+/// Processus lancé sans hériter de nos entrées/sorties.
+#[cfg(windows)]
+fn detached(cmd: &mut Command) -> &mut Command {
+    use std::process::Stdio;
+    cmd.stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null())
 }
 
 /// Téléchargement par `curl.exe` (fourni avec Windows 10 et 11) : pas de pile HTTPS
@@ -945,8 +971,7 @@ fn update_install() -> Result<(), String> {
     std::fs::copy(std::env::current_exe().map_err(|e| e.to_string())?, &helper).map_err(|e| e.to_string())?;
     let bar = prism_win::bar_app::running();
     let engine = prism_win::install::other_instances("prism.exe") > 0;
-    Command::new(&helper)
-        .args(["maj", "--appliquer", &msi.display().to_string()])
+    detached(Command::new(&helper).args(["maj", "--appliquer", &msi.display().to_string()]))
         .arg(if bar { "1" } else { "0" })
         .arg(if engine { "1" } else { "0" })
         .spawn()
@@ -986,11 +1011,13 @@ fn update_apply(msi: &str, bar: bool, engine: bool) -> Result<(), String> {
     let code = status.code().unwrap_or(-1);
     let dir = std::path::PathBuf::from(std::env::var("ProgramFiles").unwrap_or_else(|_| "C:\\Program Files".into()))
         .join("Prism");
+    // Relancés sans hériter des entrées/sorties de la mise à jour : sinon ils gardent
+    // ouverts ses fichiers ou sa console (vu en VM : un journal resté verrouillé).
     if bar {
-        let _ = Command::new(dir.join("prism-bar.exe")).spawn();
+        let _ = detached(&mut Command::new(dir.join("prism-bar.exe"))).spawn();
     }
     if engine {
-        let _ = Command::new(dir.join("prism.exe")).args(["watch", "--quiet"]).spawn();
+        let _ = detached(Command::new(dir.join("prism.exe")).args(["watch", "--quiet"])).spawn();
     }
     // 3010 : réussi, redémarrage conseillé.
     if code == 0 || code == 3010 {
