@@ -81,7 +81,7 @@ real gaming hardware.
 
 ## Quick start
 
-**Download (permanent link, always the latest version):**
+**Download (permanent link, always the latest version):** <https://hivey.be/prism> —
 [Prism-Setup.exe](https://github.com/FlorianMartins/Prism-OS/releases/latest/download/Prism-Setup.exe)
 
 Install with `prism-<version>-x64.msi` (GitHub Releases, or CI artifact

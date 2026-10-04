@@ -25,7 +25,7 @@ widgets about **15 MB**, the app about 58 MB (close it while you play).
 ## 2. Install
 
 **Permanent download link** (always the latest version — this address never
-changes): <https://github.com/FlorianMartins/Prism-OS/releases/latest/download/Prism-Setup.exe>
+changes): <https://hivey.be/prism> (short), or <https://github.com/FlorianMartins/Prism-OS/releases/latest/download/Prism-Setup.exe>
 
 1. Download **`Prism-Setup.exe`** (link above, or `Prism-Setup-<version>.exe` from a
    given GitHub release) and run it: an
