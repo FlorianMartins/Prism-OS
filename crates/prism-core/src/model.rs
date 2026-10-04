@@ -29,7 +29,9 @@ pub struct MemStatus {
     pub total: u64,
     /// Pages libres + pages mises à zéro : utilisables sans rien reprendre.
     pub free: u64,
-    /// Cache en attente de priorité basse (0 à 2) : ce que Prism purge en premier.
+    /// Cache en attente de priorité 0 : la seule partie que Windows sait purger sans
+    /// toucher au reste du cache. Les pages privées rognées puis écrites dans le
+    /// fichier d'échange y arrivent (mesuré, voir spec §4).
     pub standby_low: u64,
     /// Tout le cache en attente.
     pub standby_total: u64,

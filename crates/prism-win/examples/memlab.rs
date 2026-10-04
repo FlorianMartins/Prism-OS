@@ -5,6 +5,7 @@
 //!   memlab memprio <pid> <1-5>   priorité mémoire d'un processus
 //!   memlab trim <pid>            rogne sa mémoire de travail
 //!   memlab purge low|all         purge du cache en attente
+//!   memlab flush                 écrit la liste modifiée (pages rognées -> cache)
 //!   memlab ws <pid>              mémoire de travail et état d'un processus
 //!   memlab cachefile <chemin> <Mo>  écrit puis relit un fichier (remplit le cache normal)
 
@@ -13,7 +14,7 @@ fn main() {
     use prism_core::model::{human_bytes, MemPriority, PurgeScope, Target};
     use prism_core::plan::Action;
     use prism_core::platform::{Outcome, Platform};
-    use prism_win::{memory_lists, proc_id, process_state, WindowsPlatform};
+    use prism_win::{flush_modified_list, memory_lists, proc_id, process_state, WindowsPlatform};
 
     let args: Vec<String> = std::env::args().skip(1).collect();
     let a: Vec<&str> = args.iter().map(String::as_str).collect();
@@ -60,6 +61,7 @@ fn main() {
             }));
         }
         ["trim", pid] => show(w.apply(&Action::TrimWorkingSet { target: target(pid) })),
+        ["flush"] => println!("NTSTATUS {:#x}", flush_modified_list() as u32),
         ["purge", "low"] => show(w.apply(&Action::PurgeStandby { scope: PurgeScope::Low })),
         ["purge", "all"] => show(w.apply(&Action::PurgeStandby { scope: PurgeScope::All })),
         ["cachefile", path, mb] => {

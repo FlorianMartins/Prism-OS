@@ -17,7 +17,9 @@ mod win;
 pub use sysconfig::WindowsSystemConfig;
 
 #[cfg(windows)]
-pub use win::{active_power_plan, memory_lists, proc_id, process_state, MemoryLists, WindowsPlatform};
+pub use win::{
+    active_power_plan, flush_modified_list, memory_lists, proc_id, process_state, MemoryLists, WindowsPlatform,
+};
 
 /// Format canonique d'un GUID (`8c5e7fda-e8bf-4a96-9a85-a6e23a8c635c`).
 pub fn format_guid(data1: u32, data2: u16, data3: u16, data4: [u8; 8]) -> String {

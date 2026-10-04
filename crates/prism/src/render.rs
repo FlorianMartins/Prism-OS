@@ -13,7 +13,7 @@ pub fn memory(m: &MemStatus) -> String {
     );
     if m.standby_total > 0 {
         s.push_str(&format!(
-            " · cache {} dont {} en priorité basse",
+            " · cache {} dont {} libérable (priorité 0)",
             human_bytes(m.standby_total),
             human_bytes(m.standby_low)
         ));

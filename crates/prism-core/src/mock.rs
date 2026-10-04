@@ -1,8 +1,8 @@
 //! Plateforme simulée : sert aux tests du moteur et à `prism demo` hors Windows.
 //!
-//! Elle modélise ce qui compte pour la politique RAM : une page rognée va dans le
-//! cache en attente **à la priorité mémoire de son processus**, et la purge « basse »
-//! ne libère que le cache de priorité basse.
+//! Elle modélise ce qui compte pour la politique RAM, tel que mesuré sur Windows 11
+//! (spec §4) : une page privée rognée finit dans le cache de priorité 0, et la purge
+//! « basse » ne libère que ce cache-là ; le reste (cache des fichiers du jeu) reste.
 
 use crate::journal::Undo;
 use crate::model::{EcoState, MemPriority, MemStatus, Priority, ProcId, ProcInfo, PurgeScope, Snapshot, Target};
@@ -123,7 +123,7 @@ impl MockPlatform {
         MemStatus {
             total: self.total,
             free: self.total.saturating_sub(self.used()),
-            standby_low: self.standby[..3].iter().sum(),
+            standby_low: self.standby[0],
             standby_total: self.standby.iter().sum(),
         }
     }
@@ -190,16 +190,18 @@ impl Platform for MockPlatform {
             Action::TrimWorkingSet { target } => match self.find(target) {
                 Err(o) => o,
                 Ok(p) => {
+                    // Mesuré sur Windows 11 : une page privée rognée, une fois écrite
+                    // dans le fichier d'échange, arrive en cache de priorité 0, quelle
+                    // que soit la priorité mémoire du processus (1, 2 ou 5).
                     let pages = std::mem::take(&mut p.info.working_set);
-                    let level = p.mem_priority.level() as usize;
-                    self.standby[level] += pages;
+                    self.standby[0] += pages;
                     Outcome::Done(None)
                 }
             },
             Action::PurgeStandby { scope } => {
                 match scope {
                     PurgeScope::Off => {}
-                    PurgeScope::Low => self.standby[..3].iter_mut().for_each(|s| *s = 0),
+                    PurgeScope::Low => self.standby[0] = 0,
                     PurgeScope::All => self.standby = [0; 8],
                 }
                 Outcome::Done(None)

@@ -46,6 +46,7 @@ const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 // Informations système non exposées par windows-sys : déclarations documentées par
 // les en-têtes du WDK / phnt (SYSTEM_INFORMATION_CLASS::SystemMemoryListInformation).
 const SYSTEM_MEMORY_LIST_INFORMATION: i32 = 80;
+const MEMORY_FLUSH_MODIFIED_LIST: u32 = 3;
 const MEMORY_PURGE_STANDBY_LIST: u32 = 4;
 const MEMORY_PURGE_LOW_PRIORITY_STANDBY_LIST: u32 = 5;
 const STATUS_PRIVILEGE_NOT_HELD: i32 = 0xC000_0061_u32 as i32;
@@ -360,7 +361,7 @@ fn memory_status() -> MemStatus {
             MemStatus {
                 total: ms.ullTotalPhys,
                 free: pages(info.free_page_count + info.zero_page_count),
-                standby_low: pages(info.page_count_by_priority[..3].iter().sum()),
+                standby_low: pages(info.page_count_by_priority[0]),
                 standby_total: pages(info.page_count_by_priority.iter().sum()),
             }
         } else {
@@ -376,7 +377,25 @@ fn memory_status() -> MemStatus {
     }
 }
 
+/// Écrit tout de suite la liste modifiée dans le fichier d'échange : les pages
+/// rognées passent alors dans le cache en attente, où la purge peut les libérer.
+/// Sans cela, la purge qui suit un rognage ne trouve presque rien (mesuré en VM).
+pub fn flush_modified_list() -> i32 {
+    let mut command = MEMORY_FLUSH_MODIFIED_LIST;
+    // SAFETY: commande u32 locale, taille exacte.
+    unsafe { NtSetSystemInformation(SYSTEM_MEMORY_LIST_INFORMATION, &mut command as *mut _ as *mut c_void, 4) }
+}
+
 fn purge_standby(scope: PurgeScope) -> Outcome {
+    if scope == PurgeScope::Off {
+        return Outcome::Done(None);
+    }
+    // Les pages rognées attendent dans la liste modifiée : on les écrit d'abord,
+    // sinon la purge ne les trouve pas (0 Mo libéré en CI avant ce correctif).
+    let flushed = flush_modified_list();
+    if flushed == STATUS_PRIVILEGE_NOT_HELD {
+        return Outcome::Skipped("droits administrateur requis".into());
+    }
     let mut command = match scope {
         PurgeScope::Off => return Outcome::Done(None),
         PurgeScope::Low => MEMORY_PURGE_LOW_PRIORITY_STANDBY_LIST,
