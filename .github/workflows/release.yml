@@ -48,6 +48,9 @@ jobs:
       - name: MSI et empreintes
         run: |
           version=$(grep -m1 '^version' Cargo.toml | cut -d'"' -f2)
+          for f in bin/*.exe; do
+            if objdump -p "$f" | grep -iE "DLL Name: (vcruntime|msvcp)"; then echo "$f dépend du runtime Visual C++"; exit 1; fi
+          done
           wixl -a x64 -D Version="$version" -D Bin=bin -o "prism-$version-x64.msi" installer/prism.wxs
           sha256sum "prism-$version-x64.msi" > SHA256SUMS
           cat SHA256SUMS

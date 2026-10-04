@@ -67,6 +67,8 @@ pub struct PrismApp {
     privacy_refresh: f64,
     /// Thème appliqué à l'interface au premier affichage.
     theme_ready: bool,
+    /// Accueil du premier lancement déjà vu.
+    welcome_done: bool,
     toast: Option<(String, bool)>,
     /// Mode console : lanceur plein écran, navigable au clavier ou à la manette.
     pub console: bool,
@@ -83,6 +85,7 @@ impl PrismApp {
         let allege = backend.allege();
         let games = backend.games();
         let (privacy, privacy_conns) = backend.privacy();
+        let welcome_done = backend.welcome_done();
         PrismApp {
             backend,
             page: Page::Dashboard,
@@ -94,6 +97,7 @@ impl PrismApp {
             privacy_conns,
             privacy_refresh: 0.0,
             theme_ready: false,
+            welcome_done,
             toast: None,
             console: false,
             console_sel: 0,
@@ -119,6 +123,9 @@ impl PrismApp {
         if !self.theme_ready {
             th::set_theme(&ctx, &self.backend.bar_config().theme);
             self.theme_ready = true;
+            // Au premier plan dès l'ouverture (lancée par l'installateur, elle pouvait
+            // rester derrière les autres fenêtres).
+            ctx.send_viewport_cmd(egui::ViewportCommand::Focus);
         }
         let now = ctx.input(|i| i.time);
         if now - self.last_refresh > 1.0 {
@@ -248,6 +255,10 @@ impl PrismApp {
     // --- Tableau de bord ------------------------------------------------------
 
     fn dashboard(&mut self, ui: &mut egui::Ui) {
+        if !self.welcome_done {
+            self.welcome(ui);
+            ui.add_space(12.0);
+        }
         section(ui, "Profil");
         let profiles = self.backend.profiles();
         let mut chosen = None;
@@ -387,6 +398,29 @@ impl PrismApp {
                     }
                 });
             }
+        });
+        ui.add_space(12.0);
+        ui.horizontal(|ui| {
+            ui.label(
+                RichText::new(format!(
+                    "Prism {} · mises à jour : prism maj installer",
+                    env!("CARGO_PKG_VERSION")
+                ))
+                .small()
+                .color(th::muted()),
+            );
+            ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                if ui
+                    .button("Désinstaller Prism")
+                    .on_hover_text(
+                        "Remet tout comme avant Prism, puis retire le programme (Windows demande confirmation)",
+                    )
+                    .clicked()
+                {
+                    let r = self.backend.uninstall();
+                    self.result(r);
+                }
+            });
         });
     }
 
@@ -685,6 +719,66 @@ impl PrismApp {
                     });
             });
         }
+        if let Some(r) = action {
+            self.result(r);
+        }
+    }
+
+    /// Premier lancement : ce que fait Prism, et de quoi le voir en un clic.
+    fn welcome(&mut self, ui: &mut egui::Ui) {
+        let mut action: Option<Result<String, String>> = None;
+        card(ui, true, |ui| {
+            ui.label(
+                RichText::new("Bienvenue dans Prism")
+                    .size(22.0)
+                    .strong()
+                    .color(th::accent()),
+            );
+            ui.label(
+                RichText::new(
+                    "Prism ne change rien tant que vous ne le demandez pas. Pour voir la différence tout de suite : \
+                     la Prism Bar remplace votre barre des tâches, et les fenêtres s'animent (lampe de génie, \
+                     gélatine au déplacement, glisse en agrandissant). Tout se règle dans Apparence et s'annule d'un clic.",
+                )
+                .color(th::text()),
+            );
+            ui.add_space(6.0);
+            ui.horizontal(|ui| {
+                let go = egui::Button::new(
+                    RichText::new("Lancer la Prism Bar et activer les effets")
+                        .color(th::on_accent())
+                        .strong(),
+                )
+                .fill(th::accent());
+                if ui.add(go).clicked() {
+                    let mut cfg = self.backend.bar_config();
+                    cfg.fx.enabled = true;
+                    let saved = self.backend.set_bar_config(&cfg);
+                    // Comme le fait la case « Activer les effets » : l'animation de
+                    // réduction de Windows est coupée pour ne pas se superposer.
+                    if let Some(row) = self.backend.appearance().into_iter().find(|r| r.id == "anim_minmax") {
+                        if let Some(i) = row.options.iter().position(|o| o == "Instantanée") {
+                            let _ = self.backend.appearance_set("anim_minmax", i);
+                        }
+                    }
+                    let started = if self.backend.bar_running() {
+                        Ok("Prism Bar déjà lancée".into())
+                    } else {
+                        self.backend.bar_start()
+                    };
+                    action = Some(saved.and(started).map(|_| {
+                        "Prism Bar lancée et effets activés — réduisez ou déplacez une fenêtre pour les voir".into()
+                    }));
+                    self.backend.set_welcome_done();
+                    self.welcome_done = true;
+                    self.page = Page::Appearance;
+                }
+                if ui.button("Plus tard").clicked() {
+                    self.backend.set_welcome_done();
+                    self.welcome_done = true;
+                }
+            });
+        });
         if let Some(r) = action {
             self.result(r);
         }

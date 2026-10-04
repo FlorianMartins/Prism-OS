@@ -28,7 +28,11 @@ widgets about **15 MB**, the app about 58 MB (close it while you play).
    and run it. It installs Prism in `C:\Program Files\Prism`, adds a **Prism** entry to
    the Start menu (the app), adds the folder to the system `PATH` (so `prism` works in
    any terminal) and registers *Prism OS* in **Settings › Apps › Installed apps**.
-   Installing a newer version upgrades in place.
+   Installing a newer version upgrades in place. When installation ends, the Prism app
+   opens by itself; on first launch it offers **Lancer la Prism Bar et activer les
+   effets** (start the bar and turn the effects on) so you see the difference at once.
+   Windows SmartScreen warns on first run because Prism is not code-signed yet: choose
+   *More info* › *Run anyway*.
 2. Open a terminal **as administrator**.
 3. Start the engine automatically when you log in:
    ```powershell
@@ -43,7 +47,9 @@ Prism must run **in your user session** (that is what `autostart` sets up). If i
 in the services session (for example over SSH), it refuses to touch any process and
 `prism status` tells you so.
 
-**Uninstall** from *Settings › Apps › Installed apps › Prism OS*. Before removing the
+**Uninstall** from *Settings › Apps › Installed apps › Prism OS*, the **Désinstaller
+Prism** entry of the Start menu, or the **Désinstaller Prism** button at the bottom of
+the app's dashboard. Before removing the
 files, the uninstaller puts back everything Prism changed: it stops the engine and
 applies its journals, stops the Prism Bar (the Windows taskbar comes back, translucent
 and tiled windows return to normal), restores privacy, debloat, appearance and startup

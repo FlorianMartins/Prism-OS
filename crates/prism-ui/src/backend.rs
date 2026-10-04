@@ -123,6 +123,11 @@ pub trait Backend {
     fn set_bar_config(&mut self, cfg: &prism_core::bar::BarConfig) -> Result<(), String>;
     fn bar_running(&mut self) -> bool;
     fn bar_start(&mut self) -> Result<String, String>;
+    /// L'accueil du premier lancement a-t-il déjà été vu ?
+    /// Lance la désinstallation de Windows (qui demande confirmation).
+    fn uninstall(&mut self) -> Result<String, String>;
+    fn welcome_done(&mut self) -> bool;
+    fn set_welcome_done(&mut self);
     fn bar_stop(&mut self) -> Result<String, String>;
 
     fn packs(&self) -> Vec<PackInfo>;

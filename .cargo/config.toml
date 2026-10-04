@@ -1,0 +1,5 @@
+# Bibliothèque C de Microsoft intégrée aux programmes : sans cela ils dépendent de
+# VCRUNTIME140.dll (« Visual C++ Redistributable »), absente d'un Windows neuf —
+# l'appli refusait de démarrer (signalé sur un vrai PC, v0.7.0).
+[target.x86_64-pc-windows-msvc]
+rustflags = ["-C", "target-feature=+crt-static"]

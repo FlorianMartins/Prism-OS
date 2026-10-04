@@ -24,6 +24,7 @@ pub struct MockBackend {
     pub log: Vec<String>,
     pub privacy: prism_core::privacy::MockPrivacy,
     pub privacy_journal: prism_core::privacy::Journal,
+    pub welcome_seen: bool,
 }
 
 impl Default for MockBackend {
@@ -124,6 +125,7 @@ impl Default for MockBackend {
                 p
             },
             privacy_journal: prism_core::privacy::Journal::default(),
+            welcome_seen: false,
             log: Vec::new(),
         }
     }
@@ -430,6 +432,18 @@ impl Backend for MockBackend {
 
     fn bar_running(&mut self) -> bool {
         self.bar_on
+    }
+
+    fn uninstall(&mut self) -> Result<String, String> {
+        Ok("Désinstallation lancée (simulation)".into())
+    }
+
+    fn welcome_done(&mut self) -> bool {
+        self.welcome_seen
+    }
+
+    fn set_welcome_done(&mut self) {
+        self.welcome_seen = true;
     }
 
     fn bar_start(&mut self) -> Result<String, String> {

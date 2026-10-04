@@ -858,12 +858,38 @@ fn platform_command(cfg: &Config, args: &[&str]) -> Result<(), String> {
             ])
         }
         ["autostart", "off"] => schtasks(&["/Delete", "/TN", "Prism OS", "/F"]),
-        ["apres-installation"] => {
+        ["apres-installation", rest @ ..] => {
             // Lancé par l'installateur MSI (compte SYSTEM) : `prism` dans tout terminal.
             let dir = install_dir()?;
             match prism_win::install::path_add(&dir)? {
                 true => println!("{dir} ajouté au PATH du système"),
                 false => println!("{dir} déjà dans le PATH"),
+            }
+            // Puis l'appli s'ouvre dans la session de l'utilisateur (sans droits
+            // administrateur) : installer sans rien voir changer laissait croire que rien
+            // ne s'était passé (retour d'un vrai utilisateur).
+            if let Some(user) = rest.first().filter(|u| !u.is_empty()) {
+                let ui = format!("\"{dir}\\prism-ui.exe\"");
+                let created = schtasks(&[
+                    "/Create",
+                    "/TN",
+                    "Prism ouverture",
+                    "/TR",
+                    &ui,
+                    "/SC",
+                    "ONCE",
+                    "/ST",
+                    "23:59",
+                    "/RU",
+                    user,
+                    "/IT",
+                    "/F",
+                ]);
+                if created.is_ok() {
+                    let _ = schtasks(&["/Run", "/TN", "Prism ouverture"]);
+                    std::thread::sleep(std::time::Duration::from_secs(3));
+                    let _ = schtasks(&["/Delete", "/TN", "Prism ouverture", "/F"]);
+                }
             }
             Ok(())
         }

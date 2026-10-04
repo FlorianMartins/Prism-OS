@@ -174,3 +174,11 @@ pub fn stop_other_instances(exe: &str) -> usize {
     }
     n
 }
+
+/// Boîte de message Windows (erreur visible même sans console).
+pub fn error_box(title: &str, text: &str) {
+    use windows_sys::Win32::UI::WindowsAndMessaging::{MessageBoxW, MB_ICONERROR, MB_OK};
+    let (t, m) = (wide(title), wide(text));
+    // SAFETY: chaînes larges terminées par zéro.
+    unsafe { MessageBoxW(std::ptr::null_mut(), m.as_ptr(), t.as_ptr(), MB_OK | MB_ICONERROR) };
+}

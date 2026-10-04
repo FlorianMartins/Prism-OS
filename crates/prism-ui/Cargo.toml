@@ -14,7 +14,7 @@ path = "src/main.rs"
 [dependencies]
 prism-core = { path = "../prism-core" }
 prism-win = { path = "../prism-win" }
-eframe = { version = "0.36", default-features = false, features = ["wgpu", "default_fonts", "x11"] }
+eframe = { version = "0.36", default-features = false, features = ["wgpu", "glow", "default_fonts", "x11"] }
 serde_json.workspace = true
 
 [dev-dependencies]

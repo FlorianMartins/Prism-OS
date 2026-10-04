@@ -35,6 +35,10 @@
         <Component Id="StartMenu" Guid="6f3c2a1e-9b7d-4c55-a1d2-3e8f0b7c9a41" Win64="yes">
           <Shortcut Id="PrismUiShortcut" Name="Prism" Description="Prism OS : tableau de bord et réglages"
                     Target="[INSTALLDIR]prism-ui.exe" WorkingDirectory="INSTALLDIR" />
+          <!-- Désinstallation visible dans le menu Démarrer (en plus d'« Applications installées »). -->
+          <Shortcut Id="PrismUninstallShortcut" Name="Désinstaller Prism"
+                    Description="Remet tout comme avant Prism et retire le programme"
+                    Target="[SystemFolder]msiexec.exe" Arguments="/x [ProductCode]" />
           <RegistryValue Root="HKLM" Key="Software\Prism OS" Name="StartMenu" Type="integer" Value="1"
                          KeyPath="yes" />
         </Component>
@@ -47,7 +51,7 @@
     </Feature>
 
     <!-- Installation : dossier ajouté au PATH du système (`prism` dans tout terminal). -->
-    <CustomAction Id="PrismAfterInstall" FileKey="PrismExe" ExeCommand="apres-installation"
+    <CustomAction Id="PrismAfterInstall" FileKey="PrismExe" ExeCommand="apres-installation [LogonUser]"
                   Execute="deferred" Impersonate="no" Return="ignore" />
     <!-- Désinstallation (pas une mise à jour) : tout remettre comme avant, sans fenêtre.
          Ancré après InstallInitialize : « Before=RemoveFiles » était placé par wixl avant

@@ -420,6 +420,30 @@ impl Backend for WinBackend {
         prism_win::bar_app::running()
     }
 
+    fn uninstall(&mut self) -> Result<String, String> {
+        // Le raccourci « Désinstaller Prism » posé par l'installateur (msiexec /x).
+        let lnk = std::path::PathBuf::from(std::env::var("ProgramData").unwrap_or_else(|_| "C:\\ProgramData".into()))
+            .join("Microsoft\\Windows\\Start Menu\\Programs\\Désinstaller Prism.lnk");
+        if !lnk.exists() {
+            return Err("Prism n'a pas été installé avec l'installateur : désinstallez-le depuis Paramètres > Applications, ou lancez « prism desinstaller ».".into());
+        }
+        Command::new("cmd.exe")
+            .args(["/c", "start", ""])
+            .arg(&lnk)
+            .spawn()
+            .map_err(|e| e.to_string())?;
+        Ok("Désinstallation lancée : confirmez dans la fenêtre de Windows".into())
+    }
+
+    fn welcome_done(&mut self) -> bool {
+        data_dir().join("accueil-vu").exists()
+    }
+
+    fn set_welcome_done(&mut self) {
+        let _ = std::fs::create_dir_all(data_dir());
+        let _ = std::fs::write(data_dir().join("accueil-vu"), b"1");
+    }
+
     fn bar_start(&mut self) -> Result<String, String> {
         let exe = prism_exe().with_file_name("prism-bar.exe");
         Command::new(&exe)
