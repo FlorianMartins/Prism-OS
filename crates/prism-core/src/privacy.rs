@@ -808,7 +808,7 @@ mod tests {
         run(&mut sys, Level::Strict, &mut j);
         let first = rows[0].key.clone().unwrap();
         let before = j.originals.len();
-        restore_keys(&mut sys, &mut j, &[first.clone()]);
+        restore_keys(&mut sys, &mut j, std::slice::from_ref(&first));
         assert_eq!(j.originals.len(), before - 1);
         assert!(!journaled(&j, &first));
         let after = status(&mut sys, &c);
