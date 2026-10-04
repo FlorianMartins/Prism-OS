@@ -391,10 +391,22 @@ Configure it live in **prism-ui → Apparence**:
   apps impose a minimum size) stays floating, and no tile gets smaller than 320 × 200:
   extra windows stay where they are. Turning tiling off puts every window back
   where it was;
-- **theme** (top of the page): Prism, Nord, Dracula, Catppuccin Mocha, Gruvbox, Tokyo
-  Night, Rouge gaming or Clair (light, Solarized), plus an optional custom accent
-  colour. The bar, the desktop widgets and the app change together; text on the accent
-  colour switches between dark and light to stay readable;
+- **theme** (top of the page): futuristic themes — Prism (deep navy and bright cyan,
+  the default), Néon, Cyberpunk, Holo, Synthwave, Aurora, Carbone — and Nord, Dracula,
+  Catppuccin Mocha, Gruvbox, Tokyo Night, Rouge gaming, Clair (light, Solarized); every
+  theme keeps text at a contrast of at least 7:1 (tested). **Couleurs personnalisées**:
+  pick every colour yourself — background, panels, cards, raised cards, borders, text,
+  secondary text, accent, success, warning, error — on top of any theme, and go back to
+  the theme's colours in one click. The bar, the desktop widgets and the app change
+  together; text on the accent colour switches between dark and light to stay readable;
+- **all of Windows in the theme's colours** (*Tout Windows aux couleurs du thème*):
+  Windows' own accent colour (title bars, borders, selections, Windows' Start menu),
+  a futuristic wallpaper generated in the theme's colours at your screen's size (glowing
+  horizon, perspective grid, faint diamond), dark mode and coloured title bars — each
+  optional, all official Windows settings. *Remettre Windows comme avant* puts back the
+  previous accent, wallpaper and appearance settings (originals saved in
+  `%LOCALAPPDATA%\Prism\design-windows.json`). Command line: `prism design
+  appliquer|restaurer` (accent and wallpaper);
 
 - position (top, bottom, left, right), thickness, margin (floating bar), opacity,
   rounded corners;

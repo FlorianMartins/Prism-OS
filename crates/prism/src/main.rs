@@ -40,6 +40,7 @@ Utilisation : prism <commande>
   tools uninstall <x>     désinstalle un outil ou un pack (Kali : efface la distribution)
   services [<nom> <mode>] tous les services ; mode auto|differe|manuel|desactive|origine
   jeux gpu|plein-ecran <exe> on|off   réglage Windows par jeu (page Jeux)
+  design appliquer|restaurer  accent de Windows + fond d'écran aux couleurs du thème
   rapport                 où part la mémoire (fichier texte à envoyer, sans données personnelles)
   allege restore          remet toutes les valeurs d'origine (admin)
   vie-privee on|off <clé> un seul réglage ou une seule règle (clés : prism vie-privee)
@@ -406,7 +407,7 @@ fn platform_command(_cfg: &Config, args: &[&str]) -> Result<(), String> {
     match args.first() {
         Some(
             &("status" | "watch" | "ram" | "autostart" | "allege" | "top" | "demarrage" | "jeux" | "apparence" | "bar"
-            | "vie-privee" | "config" | "maj" | "desinstaller" | "webview" | "rapport" | "services"),
+            | "vie-privee" | "config" | "maj" | "desinstaller" | "webview" | "rapport" | "services" | "design"),
         ) => Err("cette commande agit sur Windows ; ici, essayez `prism demo`".into()),
         _ => Err(format!("commande inconnue : {}\n\n{HELP}", args.join(" "))),
     }
@@ -676,6 +677,28 @@ fn platform_command(cfg: &Config, args: &[&str]) -> Result<(), String> {
                 &mut |j| j.save(&path),
             )?;
             println!("  {msg}");
+            Ok(())
+        }
+        ["design", "appliquer"] => {
+            let theme = prism_core::bar::BarConfig::load().theme;
+            let done = prism_win::windesign::apply(&theme.palette(), true, true, &prism_core::paths::user_dir())?;
+            println!(
+                "Windows aux couleurs du thème « {} » : {}",
+                theme.label(),
+                done.join(", ")
+            );
+            Ok(())
+        }
+        ["design", "restaurer"] => {
+            let done = prism_win::windesign::restore(&prism_core::paths::user_dir())?;
+            println!(
+                "Remis comme avant : {}",
+                if done.is_empty() {
+                    "rien à remettre".into()
+                } else {
+                    done.join(", ")
+                }
+            );
             Ok(())
         }
         ["rapport"] => {

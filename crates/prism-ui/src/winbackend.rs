@@ -437,6 +437,18 @@ impl Backend for WinBackend {
         prism_core::jeux::Partie::charger(&data_dir())
     }
 
+    fn windows_design_accent_fond(&mut self, accent: bool, fond: bool) -> Result<Vec<String>, String> {
+        let palette = self.bar_config().theme.palette();
+        prism_win::windesign::apply(&palette, accent, fond, &prism_core::paths::user_dir())
+    }
+
+    fn windows_design_restore(&mut self) -> Result<String, String> {
+        let mut done = prism_win::windesign::restore(&prism_core::paths::user_dir())?;
+        let r = self.appearance_restore()?;
+        done.push(r);
+        Ok(format!("Windows remis comme avant : {}", done.join(", ")))
+    }
+
     fn services(&mut self) -> Result<Vec<crate::backend::ServiceRow>, String> {
         let c = AllegeCatalog::builtin();
         let journal = allege::AllegeJournal::load(&data_dir().join("allegement.json")).unwrap_or_default();

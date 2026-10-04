@@ -44,6 +44,8 @@ mod topology;
 pub mod veille;
 #[cfg(windows)]
 mod win;
+#[cfg(windows)]
+pub mod windesign;
 
 #[cfg(windows)]
 pub use appearance::WindowsAppearance;

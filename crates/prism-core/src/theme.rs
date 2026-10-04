@@ -35,6 +35,61 @@ pub struct ThemeConfig {
     pub preset: String,
     /// Accent personnalisé (remplace celui du préréglage).
     pub accent: Option<Rgb>,
+    /// Couleurs choisies par l'utilisateur, par rôle (`ROLES`) : remplacent celles du
+    /// préréglage (fond, cartes, texte…).
+    pub colors: std::collections::BTreeMap<String, Rgb>,
+}
+
+/// Rôles de couleur personnalisables : identifiant, nom affiché.
+pub const ROLES: [(&str, &str); 11] = [
+    ("bg", "Fond"),
+    ("panel", "Panneaux"),
+    ("card", "Cartes"),
+    ("card_hi", "Cartes en relief"),
+    ("border", "Bordures"),
+    ("text", "Texte"),
+    ("muted", "Texte secondaire"),
+    ("accent", "Accent"),
+    ("ok", "Succès"),
+    ("warn", "Avertissement"),
+    ("bad", "Erreur"),
+];
+
+impl Palette {
+    /// Couleur d'un rôle (`ROLES`).
+    pub fn get(&self, role: &str) -> Option<Rgb> {
+        Some(match role {
+            "bg" => self.bg,
+            "panel" => self.panel,
+            "card" => self.card,
+            "card_hi" => self.card_hi,
+            "border" => self.border,
+            "text" => self.text,
+            "muted" => self.muted,
+            "accent" => self.accent,
+            "ok" => self.ok,
+            "warn" => self.warn,
+            "bad" => self.bad,
+            _ => return None,
+        })
+    }
+
+    fn set(&mut self, role: &str, c: Rgb) {
+        match role {
+            "bg" => self.bg = c,
+            "panel" => self.panel = c,
+            "card" => self.card = c,
+            "card_hi" => self.card_hi = c,
+            "border" => self.border = c,
+            "text" => self.text = c,
+            "muted" => self.muted = c,
+            "accent" => self.accent = c,
+            "ok" => self.ok = c,
+            "warn" => self.warn = c,
+            "bad" => self.bad = c,
+            _ => {}
+        }
+    }
 }
 
 impl Default for ThemeConfig {
@@ -42,6 +97,7 @@ impl Default for ThemeConfig {
         ThemeConfig {
             preset: "prism".into(),
             accent: None,
+            colors: Default::default(),
         }
     }
 }
@@ -117,13 +173,62 @@ const fn pal(
 
 /// Préréglages, palettes publiées de projets libres (Nord, Dracula, Catppuccin,
 /// Gruvbox, Tokyo Night, Solarized) adaptées aux rôles de Prism.
-pub const PRESETS: [Preset; 8] = [
+pub const PRESETS: [Preset; 14] = [
+    // Prism : bleu nuit profond et cyan lumineux (futuriste, sobre).
     Preset {
         id: "prism",
         label: "Prism",
         palette: pal(
-            0x0d1117, 0x151b23, 0x1b222c, 0x222b37, 0x2a3340, 0xe6edf3, 0x8b96a3, 0x5ccfe6, 0x57d9a3, 0xe8b34b,
-            0xf47067,
+            0x070b14, 0x0b1120, 0x101828, 0x16213a, 0x1f2d4a, 0xe6f1ff, 0x93a4c3, 0x22d3ee, 0x34d399, 0xfbbf24,
+            0xf87171,
+        ),
+    },
+    Preset {
+        id: "neon",
+        label: "Néon",
+        palette: pal(
+            0x05050a, 0x0a0a14, 0x10101e, 0x18182b, 0x26263f, 0xf5f3ff, 0xa3a0c2, 0xff2bd6, 0x2bffb1, 0xffe14d,
+            0xff4d6d,
+        ),
+    },
+    Preset {
+        id: "cyberpunk",
+        label: "Cyberpunk",
+        palette: pal(
+            0x0b0b10, 0x111118, 0x171722, 0x20202e, 0x2c2c3e, 0xfff9d6, 0xb9b39a, 0xfcee0a, 0x00f0ff, 0xff9f1c,
+            0xff3864,
+        ),
+    },
+    Preset {
+        id: "holo",
+        label: "Holo",
+        palette: pal(
+            0x0a0f1f, 0x0f1630, 0x141d3d, 0x1b2752, 0x29386b, 0xeef2ff, 0x9aa6d1, 0xa78bfa, 0x5eead4, 0xfde68a,
+            0xfda4af,
+        ),
+    },
+    Preset {
+        id: "synthwave",
+        label: "Synthwave",
+        palette: pal(
+            0x140a24, 0x1b0f30, 0x22143c, 0x2c1a4d, 0x3d2766, 0xfdf0ff, 0xc2a8d9, 0xff6ac1, 0x72f1b8, 0xfede5d,
+            0xfe4450,
+        ),
+    },
+    Preset {
+        id: "aurora",
+        label: "Aurora",
+        palette: pal(
+            0x061417, 0x0a1d21, 0x0e262b, 0x143339, 0x1e4750, 0xe8fffb, 0x8fbdb5, 0x2dd4bf, 0x86efac, 0xfcd34d,
+            0xfb7185,
+        ),
+    },
+    Preset {
+        id: "carbone",
+        label: "Carbone",
+        palette: pal(
+            0x0a0a0a, 0x111111, 0x171717, 0x1f1f1f, 0x2a2a2a, 0xfafafa, 0xa3a3a3, 0xe5e5e5, 0x4ade80, 0xfacc15,
+            0xf87171,
         ),
     },
     Preset {
@@ -197,6 +302,9 @@ impl ThemeConfig {
         if let Some(a) = self.accent {
             p.accent = a;
         }
+        for (role, c) in &self.colors {
+            p.set(role, *c);
+        }
         p.accent_dim = mix(p.bg, p.accent, 0.28);
         p
     }
@@ -229,6 +337,7 @@ mod tests {
         for p in &PRESETS {
             let t = ThemeConfig {
                 preset: p.id.into(),
+                colors: Default::default(),
                 accent: None,
             };
             let c = t.palette();
@@ -261,12 +370,14 @@ mod tests {
     fn custom_accent_overrides_and_unknown_preset_falls_back() {
         let t = ThemeConfig {
             preset: "nord".into(),
+            colors: Default::default(),
             accent: Some([255, 0, 128]),
         };
         assert_eq!(t.palette().accent, [255, 0, 128]);
         assert_ne!(t.palette().accent_dim, t.palette().bg);
         let unknown = ThemeConfig {
             preset: "inexistant".into(),
+            colors: Default::default(),
             accent: None,
         };
         assert_eq!(unknown.palette().bg, PRESETS[0].palette.bg);

@@ -254,6 +254,34 @@ pub trait Backend {
     fn appearance_set(&mut self, id: &str, option: usize) -> Result<String, String>;
     fn appearance_preset(&mut self, id: &str) -> Result<String, String>;
     fn appearance_restore(&mut self) -> Result<String, String>;
+    /// Thème de Prism appliqué à tout Windows : couleur d'accent, fond d'écran généré,
+    /// mode sombre, barres de titre colorées (chacun au choix). Réversible.
+    fn windows_design_apply(&mut self, accent: bool, fond: bool, sombre: bool, titres: bool) -> Result<String, String> {
+        let mut done = Vec::new();
+        if sombre {
+            self.appearance_set("apps_theme", 0)?;
+            self.appearance_set("system_theme", 0)?;
+            done.push("mode sombre".to_string());
+        }
+        if titres {
+            self.appearance_set("accent_titlebars", 0)?;
+            done.push("barres de titre colorées".to_string());
+        }
+        done.extend(self.windows_design_accent_fond(accent, fond)?);
+        Ok(if done.is_empty() {
+            "Rien à appliquer".into()
+        } else {
+            format!("Windows : {}", done.join(", "))
+        })
+    }
+    /// Accent et fond d'écran (propre à la plateforme).
+    fn windows_design_accent_fond(&mut self, _accent: bool, _fond: bool) -> Result<Vec<String>, String> {
+        Ok(Vec::new())
+    }
+    /// Remet le design de Windows d'avant Prism (accent, fond, réglages d'apparence).
+    fn windows_design_restore(&mut self) -> Result<String, String> {
+        self.appearance_restore()
+    }
 
     fn bar_config(&mut self) -> prism_core::bar::BarConfig;
     fn set_bar_config(&mut self, cfg: &prism_core::bar::BarConfig) -> Result<(), String>;

@@ -82,6 +82,8 @@ pub struct PrismApp {
     webview: prism_core::webview::Reglages,
     /// Nettoyage automatique de la RAM.
     ram_auto: prism_core::ram_auto::Reglages,
+    /// Ce que « Appliquer le thème à tout Windows » applique : accent, fond, sombre, titres.
+    design: (bool, bool, bool, bool),
     /// Saisie d'une appli à exclure.
     webview_new: String,
     /// Page Outils : état lu au premier affichage ; désinstallation qui efface des
@@ -144,6 +146,7 @@ impl PrismApp {
             noyau,
             webview,
             ram_auto,
+            design: (true, true, true, true),
             webview_new: String::new(),
             tools_scan_asked: false,
             services: None,
@@ -1915,6 +1918,7 @@ impl PrismApp {
                 for p in &PRESETS {
                     let pal = ThemeConfig {
                         preset: p.id.into(),
+                        colors: Default::default(),
                         accent: None,
                     }
                     .palette();
@@ -1967,7 +1971,71 @@ impl PrismApp {
                     );
                 }
             });
+            // Chaque couleur au choix, en plus des thèmes.
+            ui.add_space(6.0);
+            egui::CollapsingHeader::new(RichText::new("Couleurs personnalisées").strong())
+                .id_salt("couleurs-perso")
+                .show(ui, |ui| {
+                    let pal = theme.palette();
+                    egui::Grid::new("couleurs")
+                        .num_columns(6)
+                        .spacing([10.0, 8.0])
+                        .show(ui, |ui| {
+                            for (i, (role, label)) in prism_core::theme::ROLES.iter().enumerate() {
+                                let mut col = pal.get(role).unwrap_or([0, 0, 0]);
+                                if ui.color_edit_button_srgb(&mut col).changed() {
+                                    theme.colors.insert(role.to_string(), col);
+                                }
+                                let custom = theme.colors.contains_key(*role);
+                                ui.label(if custom {
+                                    RichText::new(*label).strong()
+                                } else {
+                                    RichText::new(*label)
+                                });
+                                if i % 3 == 2 {
+                                    ui.end_row();
+                                }
+                            }
+                        });
+                    if !theme.colors.is_empty() && ui.button("Revenir aux couleurs du thème").clicked() {
+                        theme.colors.clear();
+                    }
+                });
         });
+
+        // Tout Windows aux couleurs du thème.
+        ui.add_space(10.0);
+        section(ui, "Tout Windows aux couleurs du thème");
+        let mut apply = false;
+        let mut restore = false;
+        card(ui, false, |ui| {
+            ui.label(
+                RichText::new("Réglages officiels de Windows, tous réversibles : la couleur d'accent (barres de titre, bordures, sélections, menu Démarrer de Windows), un fond d'écran futuriste généré aux couleurs du thème, le mode sombre.")
+                    .small()
+                    .color(th::muted()),
+            );
+            ui.horizontal_wrapped(|ui| {
+                ui.checkbox(&mut self.design.0, "Couleur d'accent de Windows");
+                ui.checkbox(&mut self.design.1, "Fond d'écran du thème");
+                ui.checkbox(&mut self.design.2, "Mode sombre");
+                ui.checkbox(&mut self.design.3, "Barres de titre colorées");
+            });
+            ui.horizontal(|ui| {
+                if ui.button("Appliquer le thème à tout Windows").clicked() {
+                    apply = true;
+                }
+                if ui.button("Remettre Windows comme avant").clicked() {
+                    restore = true;
+                }
+            });
+        });
+        if apply {
+            let (a, f, d, t) = self.design;
+            self.bg("Design de Windows", move |b| b.windows_design_apply(a, f, d, t));
+        }
+        if restore {
+            self.bg("Design de Windows : restauration", |b| b.windows_design_restore());
+        }
     }
 
     // --- Outils -----------------------------------------------------------------

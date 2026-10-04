@@ -38,6 +38,8 @@ pub mod theme;
 pub mod tiling;
 pub mod tools;
 pub mod update;
+pub mod wallpaper;
 pub mod watch;
 pub mod webview;
+pub mod windesign;
 pub mod wobbly;
