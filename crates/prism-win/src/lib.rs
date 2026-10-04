@@ -13,6 +13,8 @@ mod appearance;
 #[cfg(windows)]
 pub mod bar_app;
 #[cfg(windows)]
+mod bar_tip;
+#[cfg(windows)]
 mod fx_overlay;
 #[cfg(windows)]
 pub mod install;

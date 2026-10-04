@@ -6,6 +6,7 @@
 
 pub mod allege;
 pub mod apparence;
+pub mod autostart;
 pub mod backup;
 pub mod bar;
 pub mod cadence;

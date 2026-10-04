@@ -33,6 +33,8 @@ const CLASS: &str = "PrismBar";
 const DESK_CLASS: &str = "PrismWidget";
 const WM_APPBAR: u32 = WM_APP + 1;
 const TIMER_ID: usize = 1;
+/// Minuterie de la bulle de survol.
+const TIP_TIMER: usize = 2;
 
 // Couleurs (BGR pour GDI) — mêmes teintes que l'interface.
 const fn rgb(r: u8, g: u8, b: u8) -> COLORREF {
@@ -124,6 +126,9 @@ struct Bar {
     desk_hidden: bool,
     /// Barre Windows montrée quelques secondes (zone système : icônes des applis).
     tray_peek: Option<Instant>,
+    /// Élément survolé : barre, position (pour la bulle de son nom).
+    hovered: Option<(HWND, i32, i32)>,
+    hover_key: Option<(Widget, Option<usize>, i32)>,
     scale: f32,
     desk: Vec<DeskWin>,
     /// Règles du Mode Jeu, pour ne jamais rendre un jeu transparent.
@@ -1023,6 +1028,103 @@ impl Bar {
         self.win_order = prism_core::tiling::keep_order(&self.win_order, &now);
         wins.sort_by_key(|w| self.win_order.iter().position(|h| *h == w.hwnd as isize));
         self.windows = wins;
+    }
+
+    /// La souris bouge sur la barre : vrai si elle est passée sur un autre élément.
+    fn hover(&mut self, panel: HWND, x: i32, y: i32) -> bool {
+        self.hovered = Some((panel, x, y));
+        let key = self.hit(panel, x, y).map(|(w, _)| {
+            let item = self
+                .panel(panel)
+                .and_then(|p| p.items.iter().find(|i| i.rect.contains(x, y)).cloned());
+            let part = match (w, item.as_ref()) {
+                (Widget::Tray, Some(i)) => {
+                    let horizontal = matches!(self.cfg.edge, Edge::Top | Edge::Bottom);
+                    if horizontal {
+                        (x - i.rect.left) * 3 / (i.rect.right - i.rect.left).max(1)
+                    } else {
+                        (y - i.rect.top) * 3 / (i.rect.bottom - i.rect.top).max(1)
+                    }
+                }
+                _ => 0,
+            };
+            (w, item.and_then(|i| i.index), part)
+        });
+        let changed = key != self.hover_key;
+        self.hover_key = key;
+        changed && key.is_some()
+    }
+
+    /// Bulle du nom (et du détail) de l'élément survolé.
+    fn show_tip(&mut self) {
+        let Some((panel, x, y)) = self.hovered else { return };
+        let Some((widget, win)) = self.hit(panel, x, y) else {
+            return;
+        };
+        let Some(p) = self.panel(panel) else { return };
+        let Some(item) = p.items.iter().find(|i| i.rect.contains(x, y)) else {
+            return;
+        };
+        let s = &self.sample;
+        let gb = |b: u64| format!("{:.1} Go", b as f64 / (1u64 << 30) as f64);
+        let text = match widget {
+            Widget::Start => "Menu Démarrer (Alt+F1) · clic droit : options".to_string(),
+            Widget::Windows => win
+                .and_then(|h| self.windows.iter().find(|w| w.hwnd == h))
+                .map(|w| w.title.clone())
+                .unwrap_or_default(),
+            Widget::Overflow => format!(
+                "{} autres fenêtres",
+                p.wins.len().saturating_sub(item.index.unwrap_or(0))
+            ),
+            Widget::Cpu => format!("Processeur : {:.0} %", s.cpu),
+            Widget::Ram => format!("Mémoire : {} / {} ({:.0} %)", gb(s.ram_used), gb(s.ram_total), s.ram),
+            Widget::Gpu => match s.gpu {
+                Some(g) => format!("Carte graphique : {g:.0} %"),
+                None => "Carte graphique : compteur indisponible".into(),
+            },
+            Widget::Network => format!("Réseau : ↓ {} · ↑ {}", human_rate(s.net_down), human_rate(s.net_up)),
+            Widget::GameMode => {
+                if self.game {
+                    "Mode Jeu : actif".into()
+                } else {
+                    "Mode Jeu : en attente (s'active au lancement d'un jeu)".into()
+                }
+            }
+            Widget::Tray => match self.hover_key.map(|k| k.2).unwrap_or(0) {
+                0 => "Volume, réseau, Bluetooth (Paramètres rapides)".into(),
+                1 => "Notifications et calendrier".into(),
+                _ => "Icônes des applis (barre Windows 10 s)".into(),
+            },
+            Widget::Clock => long_date(),
+        };
+        if text.is_empty() {
+            return;
+        }
+        let mut a = POINT {
+            x: item.rect.left,
+            y: item.rect.top,
+        };
+        let mut b = POINT {
+            x: item.rect.right,
+            y: item.rect.bottom,
+        };
+        // SAFETY: points locaux, fenêtre de la barre.
+        unsafe {
+            ClientToScreen(panel, &mut a);
+            ClientToScreen(panel, &mut b);
+        }
+        crate::bar_tip::show(
+            &text,
+            RECT {
+                left: a.x,
+                top: a.y,
+                right: b.x,
+                bottom: b.y,
+            },
+            self.cfg.edge,
+            p.scale,
+        );
     }
 
     fn invalidate_all(&self) {
@@ -2294,23 +2396,50 @@ impl Bar {
                             }
                         }
                     }
-                    Widget::Cpu => meter(mem, r, "CPU", self.sample.cpu, &self.cpu, horizontal, font, small),
-                    Widget::Ram => meter(mem, r, "RAM", self.sample.ram, &self.ram, horizontal, font, small),
+                    Widget::Cpu => meter(mem, r, ICON_CPU, self.sample.cpu, &self.cpu, horizontal, font, small),
+                    Widget::Ram => meter(mem, r, ICON_RAM, self.sample.ram, &self.ram, horizontal, font, small),
                     Widget::Gpu => match self.sample.gpu {
-                        Some(g) => meter(mem, r, "GPU", g, &self.gpu, horizontal, font, small),
+                        Some(g) => meter(mem, r, ICON_GPU, g, &self.gpu, horizontal, font, small),
                         None => text(mem, small, colors().muted, r, "GPU —", DT_CENTER),
                     },
                     Widget::Network => {
-                        let s = if horizontal {
-                            format!(
-                                "↓ {}  ↑ {}",
+                        // Icône réseau, puis les débits (le détail au survol).
+                        let icons = make_icon_font(scaled(15));
+                        let iw = scaled(26);
+                        if horizontal {
+                            text(
+                                mem,
+                                icons,
+                                colors().muted,
+                                RECT {
+                                    right: r.left + iw,
+                                    ..r
+                                },
+                                ICON_NET,
+                                DT_CENTER,
+                            );
+                            let s = format!(
+                                "↓ {}\n↑ {}",
                                 human_rate(self.sample.net_down),
                                 human_rate(self.sample.net_up)
-                            )
+                            );
+                            let top = RECT {
+                                left: r.left + iw,
+                                bottom: (r.top + r.bottom) / 2 + 1,
+                                ..r
+                            };
+                            let bottom = RECT {
+                                left: r.left + iw,
+                                top: (r.top + r.bottom) / 2 - 1,
+                                ..r
+                            };
+                            let mut lines = s.lines();
+                            text(mem, small, colors().text, top, lines.next().unwrap_or(""), DT_LEFT);
+                            text(mem, small, colors().text, bottom, lines.next().unwrap_or(""), DT_LEFT);
                         } else {
-                            "NET".to_string()
-                        };
-                        text(mem, small, colors().text, r, &s, DT_CENTER);
+                            text(mem, icons, colors().muted, r, ICON_NET, DT_CENTER);
+                        }
+                        DeleteObject(icons as HGDIOBJ);
                     }
                     Widget::Tray => {
                         let icons = make_icon_font(scaled(15));
@@ -2320,12 +2449,11 @@ impl Bar {
                         DeleteObject(icons as HGDIOBJ);
                     }
                     Widget::GameMode => {
-                        let (s, c) = if self.game {
-                            ("● Jeu", colors().accent)
-                        } else {
-                            ("○ Jeu", colors().muted)
-                        };
-                        text(mem, font, c, r, s, DT_CENTER);
+                        // Manette : allumée pendant le Mode Jeu.
+                        let icons = make_icon_font(scaled(18));
+                        let c = if self.game { colors().accent } else { colors().muted };
+                        text(mem, icons, c, r, ICON_GAME, DT_CENTER);
+                        DeleteObject(icons as HGDIOBJ);
                     }
                     Widget::Clock => {
                         let mut t = std::mem::zeroed();
@@ -2478,6 +2606,14 @@ pub(crate) unsafe fn text(hdc: HDC, font: HFONT, color: COLORREF, r: RECT, s: &s
 
 /// Jauge : libellé, pourcentage et mini-graphe de l'historique.
 #[allow(clippy::too_many_arguments)]
+/// Icônes de la barre (police d'icônes de Windows, Segoe MDL2 Assets).
+const ICON_CPU: &str = "\u{E950}";
+const ICON_RAM: &str = "\u{E964}";
+const ICON_GPU: &str = "\u{E7F4}";
+const ICON_NET: &str = "\u{E968}";
+const ICON_GAME: &str = "\u{E7FC}";
+
+#[allow(clippy::too_many_arguments)]
 unsafe fn meter(
     hdc: HDC,
     r: RECT,
@@ -2495,10 +2631,13 @@ unsafe fn meter(
     } else {
         colors().ok
     };
+    // Icône à la place du libellé (le nom s'affiche au survol).
+    let icon_px = (r.bottom - r.top).clamp(16, 40) * 2 / 5;
+    let icons = make_icon_font(icon_px);
     if !horizontal {
         text(
             hdc,
-            small,
+            icons,
             colors().muted,
             RECT {
                 bottom: r.top + (r.bottom - r.top) / 2,
@@ -2518,33 +2657,35 @@ unsafe fn meter(
             &format!("{value:.0}"),
             DT_CENTER,
         );
+        DeleteObject(icons as HGDIOBJ);
         return;
     }
     let split = r.left + (r.right - r.left) * 9 / 20;
+    let icon_w = icon_px + 8;
     text(
         hdc,
-        small,
-        colors().muted,
+        icons,
+        color,
         RECT {
-            right: split,
-            bottom: r.top + (r.bottom - r.top) / 2 + 2,
+            right: r.left + icon_w,
             ..r
         },
         label,
-        DT_LEFT,
+        DT_CENTER,
     );
     text(
         hdc,
         font,
-        color,
+        colors().text,
         RECT {
-            right: split,
-            top: r.top + (r.bottom - r.top) / 2 - 2,
+            left: r.left + icon_w,
+            right: split + 8,
             ..r
         },
-        &format!("{value:.0} %"),
+        &format!("{value:.0}%"),
         DT_LEFT,
     );
+    let _ = small;
     let g = RECT {
         left: split + 4,
         top: r.top + 6,
@@ -2568,6 +2709,7 @@ unsafe fn meter(
         SelectObject(hdc, old);
         DeleteObject(pen as HGDIOBJ);
     }
+    DeleteObject(icons as HGDIOBJ);
 }
 
 /// Fenêtres de premier niveau qu'une barre des tâches montrerait.
@@ -2626,6 +2768,38 @@ fn is_fullscreen(hwnd: HWND) -> bool {
         let m = mi.rcMonitor;
         r.left <= m.left && r.top <= m.top && r.right >= m.right && r.bottom >= m.bottom
     }
+}
+
+/// « dimanche 4 octobre 2026 ».
+fn long_date() -> String {
+    // SAFETY: sortie locale.
+    let t = unsafe {
+        let mut t = std::mem::zeroed();
+        GetLocalTime(&mut t);
+        t
+    };
+    let days = ["dimanche", "lundi", "mardi", "mercredi", "jeudi", "vendredi", "samedi"];
+    let months = [
+        "janvier",
+        "février",
+        "mars",
+        "avril",
+        "mai",
+        "juin",
+        "juillet",
+        "août",
+        "septembre",
+        "octobre",
+        "novembre",
+        "décembre",
+    ];
+    format!(
+        "{} {} {} {}",
+        days[t.wDayOfWeek as usize % 7],
+        t.wDay,
+        months[(t.wMonth as usize).saturating_sub(1) % 12],
+        t.wYear
+    )
 }
 
 /// Petite icône d'une fenêtre (celle de sa barre de titre), sans attendre une appli
@@ -2998,7 +3172,37 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) 
             0
         }
         WM_TIMER => {
-            with_bar(|b| b.tick());
+            if wp == TIP_TIMER {
+                // Survol prolongé : la bulle du nom de l'élément.
+                windows_sys::Win32::UI::WindowsAndMessaging::KillTimer(hwnd, TIP_TIMER);
+                with_bar(|b| b.show_tip());
+            } else {
+                with_bar(|b| b.tick());
+            }
+            0
+        }
+        WM_MOUSEMOVE => {
+            let x = (lp & 0xffff) as i16 as i32;
+            let y = ((lp >> 16) & 0xffff) as i16 as i32;
+            use windows_sys::Win32::UI::Input::KeyboardAndMouse::{TrackMouseEvent, TME_LEAVE, TRACKMOUSEEVENT};
+            let mut tme = TRACKMOUSEEVENT {
+                cbSize: size_of::<TRACKMOUSEEVENT>() as u32,
+                dwFlags: TME_LEAVE,
+                hwndTrack: hwnd,
+                dwHoverTime: 0,
+            };
+            TrackMouseEvent(&mut tme);
+            let changed = with_bar(|b| b.hover(hwnd, x, y));
+            if changed == Some(true) {
+                crate::bar_tip::hide();
+                windows_sys::Win32::UI::WindowsAndMessaging::SetTimer(hwnd, TIP_TIMER, 450, None);
+            }
+            0
+        }
+        0x02A3 /* WM_MOUSELEAVE */ => {
+            crate::bar_tip::hide();
+            windows_sys::Win32::UI::WindowsAndMessaging::KillTimer(hwnd, TIP_TIMER);
+            with_bar(|b| b.hovered = None);
             0
         }
         WM_PAINT => {
@@ -3014,6 +3218,7 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) 
         }
         WM_ERASEBKGND => 1,
         WM_LBUTTONDOWN => {
+            crate::bar_tip::hide();
             let x = (lp & 0xffff) as i16 as i32;
             let y = ((lp >> 16) & 0xffff) as i16 as i32;
             with_bar(|b| b.prepare_click(hwnd, x, y));
@@ -3186,6 +3391,8 @@ pub fn run() -> Result<(), String> {
                 game: false,
                 desk_hidden: false,
                 tray_peek: None,
+                hovered: None,
+                hover_key: None,
                 scale,
                 desk: Vec::new(),
                 game_cfg: {

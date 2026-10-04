@@ -23,7 +23,20 @@ pub fn data_dir() -> PathBuf {
 /// machine (allègement, vie privée, moteur) restent dans `data_dir`, en lecture seule pour
 /// les utilisateurs — sinon un compte standard pourrait y écrire ce qu'une restauration
 /// en administrateur appliquerait.
+/// Dossier de l'utilisateur imposé : le moteur, lancé sous le compte système au
+/// démarrage de Windows, y lit les réglages de la personne connectée.
+static USER_DIR_OVERRIDE: std::sync::Mutex<Option<PathBuf>> = std::sync::Mutex::new(None);
+
+pub fn set_user_dir_override(dir: Option<PathBuf>) {
+    if let Ok(mut o) = USER_DIR_OVERRIDE.lock() {
+        *o = dir;
+    }
+}
+
 pub fn user_dir() -> PathBuf {
+    if let Some(d) = USER_DIR_OVERRIDE.lock().ok().and_then(|o| o.clone()) {
+        return d;
+    }
     if !cfg!(windows) {
         return data_dir();
     }

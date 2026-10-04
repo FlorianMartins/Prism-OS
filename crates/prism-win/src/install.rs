@@ -182,3 +182,114 @@ pub fn error_box(title: &str, text: &str) {
     // SAFETY: chaînes larges terminées par zéro.
     unsafe { MessageBoxW(std::ptr::null_mut(), m.as_ptr(), t.as_ptr(), MB_OK | MB_ICONERROR) };
 }
+
+fn schtasks_hidden(args: &[&str]) -> Result<(), String> {
+    use std::os::windows::process::CommandExt;
+    let out = std::process::Command::new("schtasks.exe")
+        .args(args)
+        .creation_flags(0x0800_0000)
+        .output()
+        .map_err(|e| format!("schtasks.exe : {e}"))?;
+    if out.status.success() {
+        Ok(())
+    } else {
+        Err(format!(
+            "Planificateur de tâches : {}",
+            String::from_utf8_lossy(&out.stderr).trim()
+        ))
+    }
+}
+
+/// Crée (ou remplace) une tâche planifiée à partir de sa définition XML (UTF-16, comme
+/// l'exige le Planificateur).
+fn create_task_xml(name: &str, xml: &str) -> Result<(), String> {
+    let path = std::env::temp_dir().join(format!("prism-tache-{}.xml", name.replace(' ', "-")));
+    let mut bytes = vec![0xFF, 0xFE];
+    for u in xml.encode_utf16() {
+        bytes.extend_from_slice(&u.to_le_bytes());
+    }
+    std::fs::write(&path, bytes).map_err(|e| format!("{} : {e}", path.display()))?;
+    let r = schtasks_hidden(&["/Create", "/TN", name, "/XML", &path.display().to_string(), "/F"]);
+    let _ = std::fs::remove_file(&path);
+    r
+}
+
+/// Démarrage automatique : moteur au démarrage de Windows (compte système, avant la
+/// connexion), barre à chaque ouverture de session. Droits administrateur requis.
+pub fn autostart_install(dir: &str) -> Result<(), String> {
+    use prism_core::autostart::{bar_task_xml, engine_task_xml, BAR_TASK, ENGINE_TASK};
+    let dir = dir.trim_end_matches('\\');
+    create_task_xml(ENGINE_TASK, &engine_task_xml(dir))?;
+    create_task_xml(BAR_TASK, &bar_task_xml(dir))
+}
+
+pub fn autostart_remove() {
+    use prism_core::autostart::{BAR_TASK, ENGINE_TASK};
+    let _ = schtasks_hidden(&["/Delete", "/TN", ENGINE_TASK, "/F"]);
+    let _ = schtasks_hidden(&["/Delete", "/TN", BAR_TASK, "/F"]);
+}
+
+pub fn autostart_enabled() -> bool {
+    schtasks_hidden(&["/Query", "/TN", prism_core::autostart::ENGINE_TASK]).is_ok()
+}
+
+/// Lance tout de suite une tâche (le moteur sous le compte système, par exemple).
+pub fn run_task(name: &str) -> Result<(), String> {
+    schtasks_hidden(&["/Run", "/TN", name])
+}
+
+/// Session de la console où quelqu'un est connecté (`None` : écran de connexion, ou
+/// personne). Sert au moteur lancé sous le compte système avant la connexion.
+pub fn console_user_session() -> Option<u32> {
+    use windows_sys::Win32::System::RemoteDesktop::{
+        WTSFreeMemory, WTSGetActiveConsoleSessionId, WTSQuerySessionInformationW, WTSUserName,
+        WTS_CURRENT_SERVER_HANDLE,
+    };
+    // SAFETY: tampon alloué par Windows, libéré par WTSFreeMemory.
+    unsafe {
+        let id = WTSGetActiveConsoleSessionId();
+        if id == u32::MAX {
+            return None;
+        }
+        let mut buf: windows_sys::core::PWSTR = null_mut();
+        let mut len = 0u32;
+        if WTSQuerySessionInformationW(WTS_CURRENT_SERVER_HANDLE, id, WTSUserName, &mut buf, &mut len) == 0
+            || buf.is_null()
+        {
+            return None;
+        }
+        let has_user = *buf != 0;
+        WTSFreeMemory(buf as *mut _);
+        has_user.then_some(id)
+    }
+}
+
+/// Dossier des réglages (`%LOCALAPPDATA%\Prism`) de la personne connectée à la console,
+/// lu depuis le compte système (jeton de session + dossier de profil).
+pub fn console_user_dir() -> Option<std::path::PathBuf> {
+    use windows_sys::Win32::System::RemoteDesktop::WTSQueryUserToken;
+    use windows_sys::Win32::UI::Shell::GetUserProfileDirectoryW;
+    let session = console_user_session()?;
+    // SAFETY: jeton fermé après usage ; tampon local de taille annoncée.
+    unsafe {
+        let mut token = null_mut();
+        if WTSQueryUserToken(session, &mut token) == 0 {
+            return None;
+        }
+        let mut buf = [0u16; 260];
+        let mut len = buf.len() as u32;
+        let ok = GetUserProfileDirectoryW(token, buf.as_mut_ptr(), &mut len) != 0;
+        CloseHandle(token);
+        if !ok {
+            return None;
+        }
+        let n = buf.iter().position(|c| *c == 0).unwrap_or(buf.len());
+        let profile = String::from_utf16_lossy(&buf[..n]);
+        Some(
+            std::path::Path::new(&profile)
+                .join("AppData")
+                .join("Local")
+                .join("Prism"),
+        )
+    }
+}

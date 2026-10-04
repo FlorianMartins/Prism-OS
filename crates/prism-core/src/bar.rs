@@ -561,7 +561,7 @@ fn extent(w: Widget, thickness: i32, horizontal: bool) -> i32 {
         Widget::Start => thickness,
         Widget::Cpu | Widget::Ram | Widget::Gpu => 92,
         Widget::Network => 120,
-        Widget::GameMode => 110,
+        Widget::GameMode => 48,
         Widget::Tray => 108,
         Widget::Clock => 112,
         Widget::Windows | Widget::Overflow => 0, // remplit l'espace restant

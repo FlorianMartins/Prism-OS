@@ -1133,22 +1133,18 @@ fn platform_command(cfg: &Config, args: &[&str]) -> Result<(), String> {
             }
             Ok(())
         }
-        ["bar", "autostart", "on"] => {
-            let exe = std::env::current_exe()
-                .map_err(|e| e.to_string())?
-                .with_file_name("prism-bar.exe");
-            let task = format!("\"{}\"", exe.display());
-            schtasks(&["/Create", "/TN", "Prism Bar", "/TR", &task, "/SC", "ONLOGON", "/F"])
+        // Démarrage avec Windows : moteur au démarrage (compte système, avant la
+        // connexion) et barre à l'ouverture de session — les deux ensemble.
+        ["autostart" | "bar", ..] if args.last() == Some(&"on") && args.len() <= 3 => {
+            prism_win::install::autostart_install(&install_dir()?)?;
+            println!("Prism démarrera avec Windows (moteur avant la connexion, barre à l'ouverture de session).");
+            Ok(())
         }
-        ["bar", "autostart", "off"] => schtasks(&["/Delete", "/TN", "Prism Bar", "/F"]),
-        ["autostart", "on"] => {
-            let exe = std::env::current_exe().map_err(|e| e.to_string())?;
-            let task = format!("\"{}\" watch --quiet", exe.display());
-            schtasks(&[
-                "/Create", "/TN", "Prism OS", "/TR", &task, "/SC", "ONLOGON", "/RL", "HIGHEST", "/F",
-            ])
+        ["autostart" | "bar", ..] if args.last() == Some(&"off") && args.len() <= 3 => {
+            prism_win::install::autostart_remove();
+            println!("Démarrage automatique retiré.");
+            Ok(())
         }
-        ["autostart", "off"] => schtasks(&["/Delete", "/TN", "Prism OS", "/F"]),
         ["apres-installation", rest @ ..] => {
             // Lancé par l'installateur MSI (compte SYSTEM) : `prism` dans tout terminal.
             let dir = install_dir()?;
@@ -1162,6 +1158,16 @@ fn platform_command(cfg: &Config, args: &[&str]) -> Result<(), String> {
             // d'un vrai utilisateur). `--depuis-tache` empêche toute boucle de relance.
             let quiet =
                 rest.get(1).and_then(|l| l.parse::<u32>().ok()).map_or(true, |l| l < 5) && rest.get(2) != Some(&"1");
+            // Démarrage avec Windows activé d'office (on le coupe dans l'appli) : le moteur
+            // part tout de suite, et à chaque démarrage avant même l'écran de connexion.
+            match prism_win::install::autostart_install(&dir) {
+                Ok(()) => {
+                    let _ = prism_win::install::run_task(prism_core::autostart::ENGINE_TASK);
+                    let _ = prism_win::install::run_task(prism_core::autostart::BAR_TASK);
+                    println!("Démarrage avec Windows activé, moteur lancé");
+                }
+                Err(e) => println!("démarrage automatique non installé : {e}"),
+            }
             if let Some(user) = rest.first().filter(|u| !u.is_empty()) {
                 let ui = format!("\"{dir}\\prism-ui.exe\" --depuis-tache");
                 let created = schtasks(&[
@@ -1738,6 +1744,19 @@ fn watch(cfg: &Config, quiet: bool) -> Result<(), String> {
     if quiet {
         sys::detach_console();
     }
+    // Un seul moteur sur la machine (tâche de démarrage sous le compte système, ancienne
+    // tâche d'ouverture de session, lancement à la main : le premier gagne).
+    // SAFETY: nom local, le mutex vit jusqu'à la fin du processus.
+    let _single = unsafe {
+        use windows_sys::Win32::Foundation::{GetLastError, ERROR_ALREADY_EXISTS};
+        let name: Vec<u16> = "Global\\PrismEngine".encode_utf16().chain(Some(0)).collect();
+        let m = windows_sys::Win32::System::Threading::CreateMutexW(std::ptr::null(), 1, name.as_ptr());
+        if m.is_null() || GetLastError() == ERROR_ALREADY_EXISTS {
+            return Err("le moteur Prism tourne déjà".into());
+        }
+        m
+    };
+    let system = prism_win::install::in_service_session();
     sys::install_stop_handler();
     let out = sys::Out::new(quiet);
     let mut w = WindowsPlatform::new();
@@ -1801,6 +1820,13 @@ fn watch(cfg: &Config, quiet: bool) -> Result<(), String> {
     }
 
     while !sys::stop_requested() {
+        // Sous le compte système : réglages de la personne connectée (nettoyage RAM,
+        // WebView, jeux à anti-cheat noyau…) ; avant la connexion, les valeurs par défaut.
+        if system {
+            prism_core::paths::set_user_dir_override(Some(
+                prism_win::install::console_user_dir().unwrap_or_else(|| sys::data_dir().join("sans-session")),
+            ));
+        }
         // Le profil peut changer pendant la surveillance (`prism profile cyber`).
         let profile_name = sys::active_profile(cfg);
         let profile = cfg.profile(&profile_name)?.clone();

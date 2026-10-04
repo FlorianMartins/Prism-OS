@@ -195,8 +195,7 @@ impl Backend for WinBackend {
 
     fn start_watch(&mut self) -> Result<String, String> {
         // La tâche d'ouverture de session si elle existe, sinon un lancement direct.
-        let task = Command::new("schtasks.exe").args(["/Run", "/TN", "Prism OS"]).output();
-        if task.map(|o| o.status.success()).unwrap_or(false) {
+        if prism_win::install::run_task(prism_core::autostart::ENGINE_TASK).is_ok() {
             return Ok("Prism démarré (tâche planifiée)".into());
         }
         Command::new(prism_exe())
@@ -650,52 +649,25 @@ impl Backend for WinBackend {
     }
 
     fn autostart(&mut self) -> bool {
-        hidden("schtasks.exe")
-            .args(["/Query", "/TN", "Prism OS"])
-            .output()
-            .map(|o| o.status.success())
-            .unwrap_or(false)
+        prism_win::install::autostart_enabled()
     }
 
     fn set_autostart(&mut self, on: bool) -> Result<String, String> {
-        let run = |args: &[&str]| -> Result<(), String> {
-            let ok = hidden("schtasks.exe")
-                .args(args)
-                .output()
-                .map(|o| o.status.success())
-                .unwrap_or(false);
-            if ok {
-                Ok(())
-            } else {
-                Err("le Planificateur de tâches a refusé (droits administrateur ?)".into())
-            }
-        };
         if on {
-            // Moteur (allège la RAM et le processeur) et barre, à chaque ouverture de
-            // session, avec les droits dont ils ont besoin (la barre déplace et anime aussi
-            // les fenêtres des applis lancées en administrateur).
-            let engine = format!("\"{}\" watch --quiet", prism_exe().display());
-            let bar = format!("\"{}\"", prism_exe().with_file_name("prism-bar.exe").display());
-            run(&[
-                "/Create", "/TN", "Prism OS", "/TR", &engine, "/SC", "ONLOGON", "/RL", "HIGHEST", "/F",
-            ])?;
-            run(&[
-                "/Create",
-                "/TN",
-                "Prism Bar",
-                "/TR",
-                &bar,
-                "/SC",
-                "ONLOGON",
-                "/RL",
-                "HIGHEST",
-                "/F",
-            ])?;
-            Ok("Prism se lancera à chaque démarrage de Windows".into())
+            let dir = prism_exe()
+                .parent()
+                .map(|d| d.display().to_string())
+                .ok_or("dossier d'installation introuvable")?;
+            prism_win::install::autostart_install(&dir)?;
+            // Le moteur part tout de suite (sous le compte système, comme au démarrage).
+            let _ = prism_win::install::run_task(prism_core::autostart::ENGINE_TASK);
+            Ok(
+                "Prism démarrera avec Windows : moteur avant même l'écran de connexion, barre à l'ouverture de session"
+                    .into(),
+            )
         } else {
-            let _ = run(&["/Delete", "/TN", "Prism OS", "/F"]);
-            let _ = run(&["/Delete", "/TN", "Prism Bar", "/F"]);
-            Ok("Prism ne se lancera plus au démarrage".into())
+            prism_win::install::autostart_remove();
+            Ok("Démarrage avec Windows désactivé".into())
         }
     }
 

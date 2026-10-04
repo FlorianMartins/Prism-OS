@@ -654,10 +654,18 @@ impl Platform for WindowsPlatform {
             self.known.retain(|k, _| seen.contains(k));
             procs
         };
+        // Moteur lancé sous le compte système au démarrage de Windows (session 0) : il
+        // agit sur la session de la personne connectée à la console, et sur rien tant
+        // que personne ne l'est (écran de connexion).
+        let user_session = if self.user_session == 0 {
+            crate::install::console_user_session().unwrap_or(u32::MAX)
+        } else {
+            self.user_session
+        };
         Ok(Snapshot {
             procs,
             mem: memory_status(),
-            user_session: self.user_session,
+            user_session,
             self_pid: self.self_pid,
             cpus: self.cpus.clone(),
             foreground_pid: foreground_pid(),

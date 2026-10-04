@@ -42,21 +42,24 @@ changes): <https://hivey.be/prism> (short), or <https://github.com/FlorianMartin
    Windows SmartScreen warns on first run because Prism is not code-signed yet: choose
    *More info* › *Run anyway*.
 2. Open a terminal **as administrator**.
-3. Start the engine automatically when you log in:
+3. Start with Windows is **on by default** after installing. To switch it off or back on:
    ```powershell
+   prism autostart off
    prism autostart on
-   ```
-4. Optional — start the Prism Bar automatically too:
-   ```powershell
-   prism bar autostart on
    ```
 
 **Administrator rights without prompts**: the installer creates an on-demand task,
 *Prism (admin)*, for your account; opening the app without rights relaunches it through
-that task, with administrator rights and no confirmation window. **Start with Windows**:
-the *Prism au démarrage de Windows* switch on the dashboard (also turned on by the
-first-launch button) starts the engine — which frees the RAM of idle apps — and the
-Prism Bar at every sign-in.
+that task, with administrator rights and no confirmation window. **Start with Windows**
+(on by default; *Prism au démarrage de Windows* switch on the dashboard,
+`prism autostart on|off`): the engine — Daily Mode, Game Mode, automatic RAM cleaning —
+starts **when Windows boots, before the sign-in screen**, under the system account (a
+scheduled task with no time limit, normal priority, also on battery, restarted if it
+stops); the Prism Bar starts at every sign-in, for any user. Measured in the VM: engine
+running as `NT AUTHORITY\SYSTEM` 5 seconds after boot. Running as the system account,
+the engine acts on the session of whoever is signed in at the console and reads that
+person's settings (`%LOCALAPPDATA%\Prism`); at the sign-in screen it touches no app.
+A single engine runs on the machine at a time.
 
 **Where settings live**: your own settings (bar, theme, effects, tiling, appearance)
 are in `%LOCALAPPDATA%\Prism`, always writable by you; journals of machine-wide changes
@@ -65,9 +68,8 @@ accounts. (Up to v0.7.2 everything was in `%ProgramData%\Prism`, read-only for t
 when it ran without rights: settings were silently not saved. They are moved
 automatically.)
 
-Prism must run **in your user session** (that is what `autostart` sets up). If it runs
-in the services session (for example over SSH), it refuses to touch any process and
-`prism status` tells you so.
+Started from the services session another way (for example over SSH) without anyone
+signed in at the console, the engine touches no process.
 
 **Uninstall** from *Settings › Apps › Installed apps › Prism OS*, the **Désinstaller
 Prism** entry of the Start menu, or the **Désinstaller Prism** button at the bottom of
@@ -410,6 +412,13 @@ Configure it live in **prism-ui → Apparence**:
 
 Settings are stored in `%ProgramData%\Prism\bar.json` and applied within a second.
 
+### Icons and hover labels
+
+The bar shows icons rather than names — chip (processor), memory module, screen (GPU),
+antenna (network), gamepad (Game Mode, lit during a game) — and hovering any element
+shows its name and details in a small bubble: *Processeur : 12 %*, *Mémoire : 9.8 Go /
+31.1 Go (32 %)*, a window's title, the full date on the clock, etc.
+
 ### Open windows
 
 Each open window has a button with its app icon (and its title when there is room);
@@ -593,7 +602,7 @@ Journals are never exported (they describe the original state of *this* PC).
 
 | Symptom | Cause / fix |
 |---|---|
-| `prism status` says Prism runs in the services session | Start it from your own session: `prism autostart on` |
+| The engine does not start with Windows | `prism autostart on` in an administrator terminal (recreates both scheduled tasks) |
 | "droits administrateur requis" (administrator rights required) | Open the terminal as administrator, or use "Relancer en administrateur" in prism-ui |
 | Widgets setting refused by Windows | Recent Windows 11 builds lock some settings; Prism does not bypass Windows protections |
 | GPU widget shows "—" | No GPU performance counters available on this machine |
