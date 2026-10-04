@@ -2287,7 +2287,7 @@ fn bar_preview(ui: &mut egui::Ui, cfg: &prism_core::bar::BarConfig) {
             Widget::Cpu | Widget::Ram | Widget::Gpu => tint(pal.card, pal.ok),
             Widget::GameMode => tint(pal.card, pal.accent),
             Widget::Network => tint(pal.card, pal.warn),
-            Widget::Tray | Widget::Clock => c(pal.card_hi),
+            Widget::Tray | Widget::Clock | Widget::Overflow => c(pal.card_hi),
         };
         p.rect_filled(r, CornerRadius::same(2), color);
     }

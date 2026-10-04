@@ -1165,6 +1165,21 @@ impl Bar {
             return;
         };
         match widget {
+            Widget::Overflow => {
+                // Les fenêtres qui ne tiennent pas : menu de Windows, la choisie passe devant.
+                let Some(p) = self.panel(panel) else { return };
+                let Some(item) = p.items.iter().find(|i| i.widget == Widget::Overflow) else {
+                    return;
+                };
+                let rest: Vec<(HWND, String)> = p.wins[item.index.unwrap_or(0).min(p.wins.len())..]
+                    .iter()
+                    .filter_map(|i| self.windows.get(*i))
+                    .map(|w| (w.hwnd, w.title.clone()))
+                    .collect();
+                if let Some(h) = pick_window(panel, &rest) {
+                    activate(h);
+                }
+            }
             Widget::Tray => {
                 let Some(item) = self
                     .panel(panel)
@@ -2152,6 +2167,11 @@ impl Bar {
                     Widget::Start => {
                         text(mem, bold, colors().accent, r, "◆", DT_CENTER);
                     }
+                    Widget::Overflow => {
+                        let hidden = panel.wins.len().saturating_sub(p.index.unwrap_or(0));
+                        fill(mem, r, colors().item);
+                        text(mem, font, colors().text, r, &format!("+{hidden}"), DT_CENTER);
+                    }
                     Widget::Windows => {
                         if let Some(win) = p
                             .index
@@ -2194,20 +2214,38 @@ impl Bar {
                                     .map(|c| c.to_uppercase().to_string())
                                     .unwrap_or_default()
                             };
-                            let tr = RECT {
-                                left: r.left + 8,
-                                top: r.top,
-                                right: r.right - 6,
-                                bottom: r.bottom,
-                            };
-                            text(
-                                mem,
-                                font,
-                                colors().text,
-                                tr,
-                                &label,
-                                if horizontal { DT_LEFT } else { DT_CENTER },
-                            );
+                            // Icône de l'appli : seule si le bouton est étroit, suivie du
+                            // titre s'il y a la place ; sans icône, le texte comme avant.
+                            let isz = scaled(18);
+                            let wide_enough = horizontal && r.right - r.left >= scaled(90);
+                            let icon = window_icon(win.hwnd);
+                            let mut left = r.left + 8;
+                            if let Some(ic) = icon {
+                                let x = if wide_enough {
+                                    r.left + 8
+                                } else {
+                                    (r.left + r.right - isz) / 2
+                                };
+                                let y = (r.top + r.bottom - isz) / 2;
+                                DrawIconEx(mem, x, y, ic, isz, isz, 0, null_mut(), DI_NORMAL);
+                                left = x + isz + 8;
+                            }
+                            if icon.is_none() || wide_enough {
+                                let tr = RECT {
+                                    left,
+                                    top: r.top,
+                                    right: r.right - 6,
+                                    bottom: r.bottom,
+                                };
+                                text(
+                                    mem,
+                                    font,
+                                    colors().text,
+                                    tr,
+                                    &label,
+                                    if horizontal { DT_LEFT } else { DT_CENTER },
+                                );
+                            }
                         }
                     }
                     Widget::Cpu => meter(mem, r, "CPU", self.sample.cpu, &self.cpu, horizontal, font, small),
@@ -2541,6 +2579,62 @@ fn is_fullscreen(hwnd: HWND) -> bool {
         }
         let m = mi.rcMonitor;
         r.left <= m.left && r.top <= m.top && r.right >= m.right && r.bottom >= m.bottom
+    }
+}
+
+/// Petite icône d'une fenêtre (celle de sa barre de titre), sans attendre une appli
+/// figée (20 ms au plus). L'icône appartient à la fenêtre : on ne la détruit pas.
+fn window_icon(hwnd: HWND) -> Option<HICON> {
+    use windows_sys::Win32::UI::WindowsAndMessaging::{
+        GetClassLongPtrW, SendMessageTimeoutW, GCLP_HICON, GCLP_HICONSM, ICON_SMALL2, SMTO_ABORTIFHUNG, WM_GETICON,
+    };
+    // SAFETY: lectures sur une fenêtre d'un autre processus, avec délai borné.
+    unsafe {
+        let mut res: usize = 0;
+        SendMessageTimeoutW(
+            hwnd,
+            WM_GETICON,
+            ICON_SMALL2 as usize,
+            0,
+            SMTO_ABORTIFHUNG,
+            20,
+            &mut res,
+        );
+        if res == 0 {
+            res = GetClassLongPtrW(hwnd, GCLP_HICONSM);
+        }
+        if res == 0 {
+            res = GetClassLongPtrW(hwnd, GCLP_HICON);
+        }
+        (res != 0).then_some(res as HICON)
+    }
+}
+
+/// Menu (natif) des fenêtres qui ne tiennent pas dans la barre ; rend la choisie.
+fn pick_window(owner: HWND, wins: &[(HWND, String)]) -> Option<HWND> {
+    use windows_sys::Win32::UI::WindowsAndMessaging::{
+        AppendMenuW, CreatePopupMenu, DestroyMenu, TrackPopupMenu, MF_STRING, TPM_RETURNCMD, TPM_RIGHTBUTTON,
+    };
+    if wins.is_empty() {
+        return None;
+    }
+    // SAFETY: menu créé, affiché puis détruit ici ; chaînes vivantes pendant l'ajout.
+    unsafe {
+        let menu = CreatePopupMenu();
+        if menu.is_null() {
+            return None;
+        }
+        for (i, (_, title)) in wins.iter().enumerate().take(60) {
+            let t: String = title.chars().take(70).collect();
+            let w = wide(&t);
+            AppendMenuW(menu, MF_STRING, i + 1, w.as_ptr());
+        }
+        let mut pt = POINT { x: 0, y: 0 };
+        GetCursorPos(&mut pt);
+        SetForegroundWindow(owner);
+        let cmd = TrackPopupMenu(menu, TPM_RETURNCMD | TPM_RIGHTBUTTON, pt.x, pt.y, 0, owner, null());
+        DestroyMenu(menu);
+        (cmd > 0).then(|| wins[cmd as usize - 1].0)
     }
 }
 

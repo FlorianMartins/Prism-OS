@@ -49,6 +49,9 @@ pub enum Widget {
     /// applis (barre Windows montrée quelques secondes).
     Tray,
     Clock,
+    /// « +N » : fenêtres qui ne tiennent pas dans la barre (posé par la mise en page,
+    /// jamais choisi dans la liste des widgets).
+    Overflow,
 }
 
 impl Widget {
@@ -74,6 +77,7 @@ impl Widget {
             Widget::Network => "Réseau",
             Widget::GameMode => "Mode Jeu",
             Widget::Tray => "Zone système",
+            Widget::Overflow => "Autres fenêtres",
             Widget::Clock => "Horloge",
         }
     }
@@ -560,7 +564,7 @@ fn extent(w: Widget, thickness: i32, horizontal: bool) -> i32 {
         Widget::GameMode => 110,
         Widget::Tray => 108,
         Widget::Clock => 112,
-        Widget::Windows => 0, // remplit l'espace restant
+        Widget::Windows | Widget::Overflow => 0, // remplit l'espace restant
     }
 }
 
@@ -618,19 +622,31 @@ pub fn layout(cfg: &BarConfig, width: i32, height: i32, window_count: usize) -> 
     if split.is_some() && window_count > 0 && end > cursor {
         let room = end - cursor;
         let max_item = if horizontal { 200 } else { thickness };
+        let min_item = thickness.min(32);
         let item = (room / window_count as i32 - pad).clamp(0, max_item);
-        if item >= thickness.min(32) {
-            for i in 0..window_count {
-                let start = cursor + i as i32 * (item + pad);
-                if start + item > end {
-                    break;
-                }
-                out.push(Placed {
-                    widget: Widget::Windows,
-                    index: Some(i),
-                    rect: along(start, item),
-                });
-            }
+        // Trop de fenêtres pour la place : les plus récentes (ordre d'empilement) à
+        // la taille minimale, et un bouton « +N » pour les autres. Avant, aucune n'était
+        // montrée (vu en VM avec une cinquantaine de fenêtres).
+        let (shown, item) = if item >= min_item {
+            (window_count, item)
+        } else {
+            let fit = (room / (min_item + pad)) as usize;
+            (fit.saturating_sub(1), min_item)
+        };
+        for i in 0..shown {
+            let start = cursor + i as i32 * (item + pad);
+            out.push(Placed {
+                widget: Widget::Windows,
+                index: Some(i),
+                rect: along(start, item),
+            });
+        }
+        if shown < window_count && room >= min_item {
+            out.push(Placed {
+                widget: Widget::Overflow,
+                index: Some(shown),
+                rect: along(cursor + shown as i32 * (item + pad), min_item),
+            });
         }
     }
     tail_placed.reverse();
@@ -669,6 +685,27 @@ impl History {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn too_many_windows_show_the_most_recent_and_a_more_button() {
+        let c = BarConfig::default();
+        let items = layout(&c, 1280, 40, 55);
+        let wins: Vec<_> = items.iter().filter(|i| i.widget == Widget::Windows).collect();
+        let more: Vec<_> = items.iter().filter(|i| i.widget == Widget::Overflow).collect();
+        assert!(!wins.is_empty(), "aucune fenêtre montrée");
+        assert_eq!(more.len(), 1);
+        assert_eq!(more[0].index, Some(wins.len()));
+        // Rien ne déborde sur les widgets de fin.
+        let first_tail = items
+            .iter()
+            .filter(|i| i.widget == Widget::Cpu)
+            .map(|i| i.rect.left)
+            .next()
+            .unwrap();
+        assert!(more[0].rect.right <= first_tail);
+        // Peu de fenêtres : pas de bouton.
+        assert!(!layout(&c, 1280, 40, 3).iter().any(|i| i.widget == Widget::Overflow));
+    }
 
     #[test]
     fn tray_is_added_once_to_existing_bars() {

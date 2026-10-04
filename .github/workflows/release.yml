@@ -64,11 +64,14 @@ jobs:
           for f in $(find . -name "*.exe"); do
             if objdump -p "$f" | grep -iE "DLL Name: (vcruntime|msvcp)"; then echo "$f dépend du runtime Visual C++"; exit 1; fi
           done
-          sha256sum Prism-Setup-*.exe prism-*-x64.msi > SHA256SUMS
+          # Copie au nom fixe : lien permanent vers la dernière version,
+          # https://github.com/<dépôt>/releases/latest/download/Prism-Setup.exe
+          cp Prism-Setup-*.exe Prism-Setup.exe
+          sha256sum Prism-Setup-*.exe Prism-Setup.exe prism-*-x64.msi > SHA256SUMS
           cat SHA256SUMS
       - name: Version GitHub
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           cd dist
-          gh release create "$GITHUB_REF_NAME" Prism-Setup-*.exe prism-*-x64.msi SHA256SUMS --repo "$GITHUB_REPOSITORY" --title "Prism OS $GITHUB_REF_NAME" --generate-notes
+          gh release create "$GITHUB_REF_NAME" Prism-Setup-*.exe Prism-Setup.exe prism-*-x64.msi SHA256SUMS --repo "$GITHUB_REPOSITORY" --title "Prism OS $GITHUB_REF_NAME" --generate-notes

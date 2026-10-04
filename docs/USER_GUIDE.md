@@ -24,7 +24,11 @@ widgets about **15 MB**, the app about 58 MB (close it while you play).
 
 ## 2. Install
 
-1. Download **`Prism-Setup-<version>.exe`** from the GitHub release and run it: an
+**Permanent download link** (always the latest version — this address never
+changes): <https://github.com/FlorianMartins/Prism-OS/releases/latest/download/Prism-Setup.exe>
+
+1. Download **`Prism-Setup.exe`** (link above, or `Prism-Setup-<version>.exe` from a
+   given GitHub release) and run it: an
    animated installer (the Prism logo builds itself and spins while installing) lets
    you **choose the install folder** (default `C:\Program Files\Prism`), shows the
    installation step by step, and offers *Lancer Prism* at the end. The plain
@@ -385,6 +389,12 @@ Configure it live in **prism-ui → Apparence**:
   inside modern WinUI apps are part of the app window and cannot be targeted on their own.
 
 Settings are stored in `%ProgramData%\Prism\bar.json` and applied within a second.
+
+### Open windows
+
+Each open window has a button with its app icon (and its title when there is room);
+the active one is underlined. With more windows than fit, the most recent ones are
+shown and a **+N** button lists all the others (click one to bring it to the front).
 
 ### Prism Start menu
 

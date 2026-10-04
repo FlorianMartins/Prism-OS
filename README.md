@@ -81,6 +81,9 @@ real gaming hardware.
 
 ## Quick start
 
+**Download (permanent link, always the latest version):**
+[Prism-Setup.exe](https://github.com/FlorianMartins/Prism-OS/releases/latest/download/Prism-Setup.exe)
+
 Install with `prism-<version>-x64.msi` (GitHub Releases, or CI artifact
 `prism-installer`): Start menu entry, `prism` in every terminal, and uninstalling from
 *Installed apps* puts back everything Prism changed. `prism maj installer` updates to
