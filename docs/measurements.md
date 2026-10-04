@@ -97,6 +97,22 @@ Reading:
 Side finding: Task Scheduler launches its tasks at `BelowNormal` priority with a low
 memory priority, and their children inherit it.
 
+## 5. Prism Bar, desktop widgets and per-app transparency — 2026-10-04
+
+Same Windows 11 VM, run in the interactive user session.
+
+| Check | Result |
+|---|---|
+| Bar docked at the bottom, Windows taskbar auto-hidden | ✓ |
+| Maximised windows stop above the bar (work area reserved) | ✓ |
+| Widgets: Start, open windows (active one highlighted), CPU and RAM with history, Game Mode, clock and date | ✓ |
+| Live switch to the left edge, floating (10 px margin), rounded, 56 px — without restarting the bar | ✓ |
+| Desktop icons and windows move right of the bar | ✓ |
+| Notepad at 70 % opacity through a transparency rule (works with the new WinUI Notepad) | ✓ |
+| Desktop widgets: clock with French date, system panel (CPU, RAM 2.5 / 12.0 GB, GPU, network), CPU graph | ✓ (GPU counters were available even in the VM) |
+| `prism bar off`: Windows taskbar back (not auto-hidden), widgets gone, Notepad no longer layered | ✓ |
+| Memory of `prism-bar.exe` with three desktop widgets | **15 MB** |
+
 ## What cannot be measured in a VM
 
 - **FPS and micro-stutters**: this requires a real gaming PC, with a protocol published

@@ -19,8 +19,8 @@ makes is recorded and can be undone.
 | `prism-ui.exe` | Graphical app: dashboard, games, startup, debloat, appearance, tools | ~11 MB |
 | `prism-bar.exe` | Prism Bar: your own taskbar plus desktop widgets | ~0.5 MB |
 
-Measured on Windows 11: `prism watch` uses about **3 MB** of RAM, the app about 58 MB
-(close it while you play), the bar a few MB.
+Measured on Windows 11: `prism watch` uses about **3 MB** of RAM, the Prism Bar with its
+widgets about **15 MB**, the app about 58 MB (close it while you play).
 
 ## 2. Install
 
@@ -228,5 +228,5 @@ Invalid files are refused with a clear message rather than half-applied.
 | `prism status` says Prism runs in the services session | Start it from your own session: `prism autostart on` |
 | "droits administrateur requis" (administrator rights required) | Open the terminal as administrator, or use "Relancer en administrateur" in prism-ui |
 | Widgets setting refused by Windows | Recent Windows 11 builds lock some settings; Prism does not bypass Windows protections |
-| GPU widget shows "—" | No GPU performance counters (virtual machine or basic display driver) |
+| GPU widget shows "—" | No GPU performance counters available on this machine |
 | A game refuses to start because of a tool | Close the flagged debugger/kernel-driver tool shown by `prism status` |

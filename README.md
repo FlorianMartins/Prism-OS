@@ -54,6 +54,7 @@ From a Windows 11 test VM ([details and protocol](docs/measurements.md)):
 | Daily Mode with every app kept at startup | −300 MB |
 | Debloat "advanced" services | −10 processes, ≈ −95 MB |
 | `prism watch` memory footprint | ≈ 3 MB |
+| Prism Bar with three desktop widgets | ≈ 15 MB |
 
 FPS and anti-cheat compatibility cannot be measured in a VM; they will be measured on
 real gaming hardware.
