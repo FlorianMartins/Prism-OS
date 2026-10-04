@@ -169,7 +169,7 @@ fn split_rows(r: Rect, n: usize) -> Vec<Rect> {
 pub type Originals = Vec<(isize, u32, [i32; 4])>;
 
 pub fn originals_path() -> std::path::PathBuf {
-    crate::paths::data_dir().join("tuiles.json")
+    crate::paths::user_dir().join("tuiles.json")
 }
 
 pub fn load_originals() -> Originals {
@@ -184,7 +184,7 @@ pub fn save_originals(list: &Originals) {
     if list.is_empty() {
         let _ = std::fs::remove_file(&path);
     } else if let Ok(json) = serde_json::to_vec(list) {
-        let _ = std::fs::create_dir_all(crate::paths::data_dir());
+        let _ = std::fs::create_dir_all(crate::paths::user_dir());
         let _ = std::fs::write(&path, json);
     }
 }

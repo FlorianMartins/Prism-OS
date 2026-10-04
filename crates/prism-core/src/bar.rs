@@ -389,7 +389,7 @@ impl BarConfig {
     }
 
     pub fn path() -> PathBuf {
-        crate::paths::data_dir().join("bar.json")
+        crate::paths::user_dir().join("bar.json")
     }
 
     pub fn load() -> BarConfig {

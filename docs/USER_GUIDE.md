@@ -47,6 +47,20 @@ widgets about **15 MB**, the app about 58 MB (close it while you play).
    prism bar autostart on
    ```
 
+**Administrator rights without prompts**: the installer creates an on-demand task,
+*Prism (admin)*, for your account; opening the app without rights relaunches it through
+that task, with administrator rights and no confirmation window. **Start with Windows**:
+the *Prism au démarrage de Windows* switch on the dashboard (also turned on by the
+first-launch button) starts the engine — which frees the RAM of idle apps — and the
+Prism Bar at every sign-in.
+
+**Where settings live**: your own settings (bar, theme, effects, tiling, appearance)
+are in `%LOCALAPPDATA%\Prism`, always writable by you; journals of machine-wide changes
+(debloat, privacy, engine) stay in `%ProgramData%\Prism`, read-only for standard
+accounts. (Up to v0.7.2 everything was in `%ProgramData%\Prism`, read-only for the app
+when it ran without rights: settings were silently not saved. They are moved
+automatically.)
+
 Prism must run **in your user session** (that is what `autostart` sets up). If it runs
 in the services session (for example over SSH), it refuses to touch any process and
 `prism status` tells you so.
@@ -248,8 +262,8 @@ Configure it live in **prism-ui → Apparence**:
 
 - position (top, bottom, left, right), thickness, margin (floating bar), opacity,
   rounded corners;
-- hide the Windows taskbar while the bar runs (uses Windows' own auto-hide option and
-  restores it on exit);
+- **replace the Windows taskbar** while the bar runs: Windows' taskbars (every screen)
+  are hidden completely — not in pop-up auto-hide — and shown again if the bar stops;
 - hide during fullscreen games and videos — only the bar of the screen showing the
   game or video steps aside;
 - **several screens**: *Une barre sur chaque écran* (a bar on every screen, default) and

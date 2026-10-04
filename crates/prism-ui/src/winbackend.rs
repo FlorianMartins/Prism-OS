@@ -46,6 +46,14 @@ fn now_unix() -> u64 {
         .unwrap_or(0)
 }
 
+/// Commande lancée sans fenêtre de console (l'appli n'en a pas).
+fn hidden(exe: &str) -> Command {
+    use std::os::windows::process::CommandExt;
+    let mut c = Command::new(exe);
+    c.creation_flags(0x0800_0000);
+    c
+}
+
 fn prism_exe() -> std::path::PathBuf {
     std::env::current_exe()
         .ok()
@@ -385,7 +393,7 @@ impl Backend for WinBackend {
     }
 
     fn appearance_set(&mut self, id: &str, option: usize) -> Result<String, String> {
-        let path = data_dir().join("apparence.json");
+        let path = prism_core::paths::user_dir().join("apparence.json");
         let mut j = prism_core::apparence::AppearanceJournal::load(&path)?;
         let r = crate::appearance_common::set(&mut prism_win::WindowsAppearance, &mut j, id, option);
         j.save(&path)?;
@@ -393,7 +401,7 @@ impl Backend for WinBackend {
     }
 
     fn appearance_preset(&mut self, id: &str) -> Result<String, String> {
-        let path = data_dir().join("apparence.json");
+        let path = prism_core::paths::user_dir().join("apparence.json");
         let mut j = prism_core::apparence::AppearanceJournal::load(&path)?;
         let r = crate::appearance_common::preset(&mut prism_win::WindowsAppearance, &mut j, id);
         j.save(&path)?;
@@ -401,7 +409,7 @@ impl Backend for WinBackend {
     }
 
     fn appearance_restore(&mut self) -> Result<String, String> {
-        let path = data_dir().join("apparence.json");
+        let path = prism_core::paths::user_dir().join("apparence.json");
         let mut j = prism_core::apparence::AppearanceJournal::load(&path)?;
         let r = crate::appearance_common::restore_all(&mut prism_win::WindowsAppearance, &mut j);
         j.save(&path)?;
@@ -420,6 +428,56 @@ impl Backend for WinBackend {
         prism_win::bar_app::running()
     }
 
+    fn autostart(&mut self) -> bool {
+        hidden("schtasks.exe")
+            .args(["/Query", "/TN", "Prism OS"])
+            .output()
+            .map(|o| o.status.success())
+            .unwrap_or(false)
+    }
+
+    fn set_autostart(&mut self, on: bool) -> Result<String, String> {
+        let run = |args: &[&str]| -> Result<(), String> {
+            let ok = hidden("schtasks.exe")
+                .args(args)
+                .output()
+                .map(|o| o.status.success())
+                .unwrap_or(false);
+            if ok {
+                Ok(())
+            } else {
+                Err("le Planificateur de tâches a refusé (droits administrateur ?)".into())
+            }
+        };
+        if on {
+            // Moteur (allège la RAM et le processeur) et barre, à chaque ouverture de
+            // session, avec les droits dont ils ont besoin (la barre déplace et anime aussi
+            // les fenêtres des applis lancées en administrateur).
+            let engine = format!("\"{}\" watch --quiet", prism_exe().display());
+            let bar = format!("\"{}\"", prism_exe().with_file_name("prism-bar.exe").display());
+            run(&[
+                "/Create", "/TN", "Prism OS", "/TR", &engine, "/SC", "ONLOGON", "/RL", "HIGHEST", "/F",
+            ])?;
+            run(&[
+                "/Create",
+                "/TN",
+                "Prism Bar",
+                "/TR",
+                &bar,
+                "/SC",
+                "ONLOGON",
+                "/RL",
+                "HIGHEST",
+                "/F",
+            ])?;
+            Ok("Prism se lancera à chaque démarrage de Windows".into())
+        } else {
+            let _ = run(&["/Delete", "/TN", "Prism OS", "/F"]);
+            let _ = run(&["/Delete", "/TN", "Prism Bar", "/F"]);
+            Ok("Prism ne se lancera plus au démarrage".into())
+        }
+    }
+
     fn uninstall(&mut self) -> Result<String, String> {
         // Le raccourci « Désinstaller Prism » posé par l'installateur (msiexec /x).
         let lnk = std::path::PathBuf::from(std::env::var("ProgramData").unwrap_or_else(|_| "C:\\ProgramData".into()))
@@ -436,12 +494,12 @@ impl Backend for WinBackend {
     }
 
     fn welcome_done(&mut self) -> bool {
-        data_dir().join("accueil-vu").exists()
+        prism_core::paths::user_dir().join("accueil-vu").exists()
     }
 
     fn set_welcome_done(&mut self) {
-        let _ = std::fs::create_dir_all(data_dir());
-        let _ = std::fs::write(data_dir().join("accueil-vu"), b"1");
+        let _ = std::fs::create_dir_all(prism_core::paths::user_dir());
+        let _ = std::fs::write(prism_core::paths::user_dir().join("accueil-vu"), b"1");
     }
 
     fn bar_start(&mut self) -> Result<String, String> {

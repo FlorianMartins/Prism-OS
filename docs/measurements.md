@@ -272,6 +272,26 @@ working set).
   updater's input/output handles and kept its log file open; they now start detached
   (`prism bar on` too).
 
+## 9. Endurance test with the released binaries — 2026-10-04
+
+After a report of "more than 10 GB used and high CPU" on a real PC: 10 minutes in the VM
+with the released (MSVC) binaries, bar with effects and tiling on, app open, engine
+running, a window opened / minimized / restored / maximized / closed every few seconds.
+Sampled every 30 s:
+
+| Process | Private memory | Over 10 min | CPU |
+|---|---|---|---|
+| Engine (`prism watch`) | 1.5 → 1.7 MB | flat | 0.3 % of one core |
+| Prism Bar | 8.4 → 13.8 MB | flat after the first minute | 23.6 % under this intense activity |
+| App (`prism-ui`) | 276 MB | flat | 0.8 % |
+
+No leak towards 10 GB in Prism's processes. Findings acted on: the bar copied the
+active window on every focus change (30–50 ms of CPU each) — now at most once every
+3 s per window; the settings file was read-only for the app without administrator
+rights, so nothing configured in the app was ever applied — settings moved to the
+user's folder; the engine (which frees RAM) needs administrator rights and must start
+with Windows — app elevated through an on-demand task, *start with Windows* switch.
+
 ## What cannot be measured in a VM
 
 - **FPS and micro-stutters**: this requires a real gaming PC, with a protocol published

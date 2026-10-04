@@ -69,6 +69,8 @@ pub struct PrismApp {
     theme_ready: bool,
     /// Accueil du premier lancement déjà vu.
     welcome_done: bool,
+    /// Prism au démarrage de Windows.
+    autostart_on: bool,
     toast: Option<(String, bool)>,
     /// Mode console : lanceur plein écran, navigable au clavier ou à la manette.
     pub console: bool,
@@ -86,6 +88,7 @@ impl PrismApp {
         let games = backend.games();
         let (privacy, privacy_conns) = backend.privacy();
         let welcome_done = backend.welcome_done();
+        let autostart_on = backend.autostart();
         PrismApp {
             backend,
             page: Page::Dashboard,
@@ -98,6 +101,7 @@ impl PrismApp {
             privacy_refresh: 0.0,
             theme_ready: false,
             welcome_done,
+            autostart_on,
             toast: None,
             console: false,
             console_sel: 0,
@@ -400,6 +404,24 @@ impl PrismApp {
             }
         });
         ui.add_space(12.0);
+        card(ui, false, |ui| {
+            let mut on = self.autostart_on;
+            if ui
+                .checkbox(&mut on, RichText::new("Prism au démarrage de Windows").strong())
+                .on_hover_text("Le moteur (qui allège la RAM et le processeur) et la Prism Bar se lancent à chaque ouverture de session")
+                .changed()
+            {
+                let r = self.backend.set_autostart(on);
+                self.autostart_on = self.backend.autostart();
+                self.result(r);
+            }
+            ui.label(
+                RichText::new("Sans lui, Prism ne fait rien après un redémarrage : c'est le moteur qui libère la mémoire des applis inactives.")
+                    .small()
+                    .color(th::muted()),
+            );
+        });
+        ui.add_space(8.0);
         ui.horizontal(|ui| {
             ui.label(
                 RichText::new(format!(
@@ -766,9 +788,14 @@ impl PrismApp {
                     } else {
                         self.backend.bar_start()
                     };
-                    action = Some(saved.and(started).map(|_| {
-                        "Prism Bar lancée et effets activés — réduisez ou déplacez une fenêtre pour les voir".into()
-                    }));
+                    // Et au démarrage de Windows : c'est le moteur qui allège la RAM.
+                    let boot = self.backend.set_autostart(true);
+                    action = Some(
+                        saved
+                            .and(started)
+                            .and(boot)
+                            .map(|_| "Prism Bar lancée, effets activés, Prism au démarrage de Windows".into()),
+                    );
                     self.backend.set_welcome_done();
                     self.welcome_done = true;
                     self.page = Page::Appearance;

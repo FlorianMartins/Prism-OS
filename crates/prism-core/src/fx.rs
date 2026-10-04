@@ -449,7 +449,7 @@ pub struct FxStat {
 pub const STATS_KEEP: usize = 50;
 
 pub fn stats_path() -> std::path::PathBuf {
-    crate::paths::data_dir().join("fx-stats.json")
+    crate::paths::user_dir().join("fx-stats.json")
 }
 
 pub fn load_stats() -> Vec<FxStat> {
@@ -479,7 +479,7 @@ pub fn save_stats(list: &[FxStat]) -> Result<(), String> {
 pub type HiddenWindows = Vec<(isize, u32, isize)>;
 
 pub fn hidden_path() -> std::path::PathBuf {
-    crate::paths::data_dir().join("fx-hidden.json")
+    crate::paths::user_dir().join("fx-hidden.json")
 }
 
 pub fn load_hidden() -> HiddenWindows {
@@ -494,7 +494,7 @@ pub fn save_hidden(list: &HiddenWindows) {
     if list.is_empty() {
         let _ = std::fs::remove_file(&path);
     } else if let Ok(json) = serde_json::to_vec(list) {
-        let _ = std::fs::create_dir_all(crate::paths::data_dir());
+        let _ = std::fs::create_dir_all(crate::paths::user_dir());
         let _ = std::fs::write(&path, json);
     }
 }

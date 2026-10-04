@@ -25,6 +25,7 @@ pub struct MockBackend {
     pub privacy: prism_core::privacy::MockPrivacy,
     pub privacy_journal: prism_core::privacy::Journal,
     pub welcome_seen: bool,
+    pub autostart_on: bool,
 }
 
 impl Default for MockBackend {
@@ -126,6 +127,7 @@ impl Default for MockBackend {
             },
             privacy_journal: prism_core::privacy::Journal::default(),
             welcome_seen: false,
+            autostart_on: false,
             log: Vec::new(),
         }
     }
@@ -432,6 +434,15 @@ impl Backend for MockBackend {
 
     fn bar_running(&mut self) -> bool {
         self.bar_on
+    }
+
+    fn autostart(&mut self) -> bool {
+        self.autostart_on
+    }
+
+    fn set_autostart(&mut self, on: bool) -> Result<String, String> {
+        self.autostart_on = on;
+        Ok("ok".into())
     }
 
     fn uninstall(&mut self) -> Result<String, String> {

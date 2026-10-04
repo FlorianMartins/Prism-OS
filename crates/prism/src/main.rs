@@ -651,7 +651,7 @@ fn platform_command(cfg: &Config, args: &[&str]) -> Result<(), String> {
             }
             if !b.appearance.is_empty() {
                 let ac = apparence::Catalog::builtin();
-                let path = sys::data_dir().join("apparence.json");
+                let path = prism_core::paths::user_dir().join("apparence.json");
                 let mut j = apparence::AppearanceJournal::load(&path)?;
                 let r = apparence::apply(&mut prism_win::WindowsAppearance, &ac, &b.appearance, &mut j);
                 j.save(&path)?;
@@ -865,34 +865,37 @@ fn platform_command(cfg: &Config, args: &[&str]) -> Result<(), String> {
                 true => println!("{dir} ajouté au PATH du système"),
                 false => println!("{dir} déjà dans le PATH"),
             }
-            // Puis l'appli s'ouvre dans la session de l'utilisateur (sans droits
-            // administrateur) : installer sans rien voir changer laissait croire que rien
-            // ne s'était passé (retour d'un vrai utilisateur).
-            // Avec l'assistant (UILevel 5) ou Prism-Setup.exe (PRISM_SETUP=1), c'est leur case
-            // « Lancer Prism » qui ouvre l'appli.
+            // Tâche « Prism (admin) » de l'utilisateur, à la demande, avec les droits
+            // administrateur : l'appli s'y relance seule, sans fenêtre de confirmation à
+            // chaque ouverture (sans droits, Prism ne pouvait presque rien faire — retour
+            // d'un vrai utilisateur). `--depuis-tache` empêche toute boucle de relance.
             let quiet =
                 rest.get(1).and_then(|l| l.parse::<u32>().ok()).map_or(true, |l| l < 5) && rest.get(2) != Some(&"1");
-            if let Some(user) = rest.first().filter(|u| !u.is_empty() && quiet) {
-                let ui = format!("\"{dir}\\prism-ui.exe\"");
+            if let Some(user) = rest.first().filter(|u| !u.is_empty()) {
+                let ui = format!("\"{dir}\\prism-ui.exe\" --depuis-tache");
                 let created = schtasks(&[
                     "/Create",
                     "/TN",
-                    "Prism ouverture",
+                    ADMIN_TASK,
                     "/TR",
                     &ui,
                     "/SC",
                     "ONCE",
                     "/ST",
-                    "23:59",
+                    "00:00",
+                    "/SD",
+                    "01/01/2020",
                     "/RU",
                     user,
                     "/IT",
+                    "/RL",
+                    "HIGHEST",
                     "/F",
                 ]);
-                if created.is_ok() {
-                    let _ = schtasks(&["/Run", "/TN", "Prism ouverture"]);
-                    std::thread::sleep(std::time::Duration::from_secs(3));
-                    let _ = schtasks(&["/Delete", "/TN", "Prism ouverture", "/F"]);
+                // Installation sans assistant : l'appli s'ouvre (avec l'assistant ou
+                // Prism-Setup.exe, c'est leur case « Lancer Prism » qui s'en charge).
+                if created.is_ok() && quiet {
+                    let _ = schtasks(&["/Run", "/TN", ADMIN_TASK]);
                 }
             }
             Ok(())
@@ -1057,6 +1060,10 @@ fn update_apply(msi: &str, bar: bool, engine: bool) -> Result<(), String> {
     }
 }
 
+/// Tâche à la demande qui ouvre l'appli avec les droits administrateur, sans invite.
+#[cfg(windows)]
+const ADMIN_TASK: &str = "Prism (admin)";
+
 #[cfg(windows)]
 fn install_dir() -> Result<String, String> {
     let exe = std::env::current_exe().map_err(|e| e.to_string())?;
@@ -1114,6 +1121,7 @@ fn uninstall(args: &[&str]) -> Result<(), String> {
         }
         let _ = schtasks(&["/Delete", "/TN", "Prism OS", "/F"]);
         let _ = schtasks(&["/Delete", "/TN", "Prism Bar", "/F"]);
+        let _ = schtasks(&["/Delete", "/TN", ADMIN_TASK, "/F"]);
         prism_win::install::path_remove(&install_dir()?)?;
         return Ok(());
     }
@@ -1163,7 +1171,7 @@ fn uninstall(args: &[&str]) -> Result<(), String> {
         println!("✓ allègement : {} remis, {} échec(s)", r.done.len(), r.failed.len());
     }
     {
-        let path = sys::data_dir().join("apparence.json");
+        let path = prism_core::paths::user_dir().join("apparence.json");
         let mut j = prism_core::apparence::AppearanceJournal::load(&path)?;
         let r = prism_core::apparence::restore(
             &mut prism_win::WindowsAppearance,
@@ -1204,7 +1212,7 @@ fn apparence_run(
         &mut prism_core::apparence::AppearanceJournal,
     ) -> prism_core::apparence::AppearanceReport,
 ) -> Result<(), String> {
-    let path = sys::data_dir().join("apparence.json");
+    let path = prism_core::paths::user_dir().join("apparence.json");
     let mut j = prism_core::apparence::AppearanceJournal::load(&path)?;
     let r = f(&mut prism_win::WindowsAppearance, &mut j);
     j.save(&path)?;

@@ -124,6 +124,9 @@ pub trait Backend {
     fn bar_running(&mut self) -> bool;
     fn bar_start(&mut self) -> Result<String, String>;
     /// L'accueil du premier lancement a-t-il déjà été vu ?
+    /// Prism (moteur + barre) se lance-t-il à l'ouverture de session ?
+    fn autostart(&mut self) -> bool;
+    fn set_autostart(&mut self, on: bool) -> Result<String, String>;
     /// Lance la désinstallation de Windows (qui demande confirmation).
     fn uninstall(&mut self) -> Result<String, String>;
     fn welcome_done(&mut self) -> bool;

@@ -279,7 +279,7 @@ fn fx_log(msg: impl FnOnce() -> String) {
     if !FX_DEBUG.load(std::sync::atomic::Ordering::Relaxed) {
         return;
     }
-    let path = prism_core::paths::data_dir().join("fx-debug.log");
+    let path = prism_core::paths::user_dir().join("fx-debug.log");
     if let Ok(mut f) = std::fs::OpenOptions::new().append(true).open(path) {
         let _ = writeln!(f, "{}", msg());
     }
@@ -290,7 +290,7 @@ fn fx_dump(img: &prism_core::fx::Image, name: &str) {
     if !FX_DEBUG.load(std::sync::atomic::Ordering::Relaxed) {
         return;
     }
-    let dir = prism_core::paths::data_dir();
+    let dir = prism_core::paths::user_dir();
     let mut ppm = format!("P6 {} {} 255\n", img.width, img.height).into_bytes();
     for px in &img.pixels {
         let a = px >> 24;
@@ -368,6 +368,42 @@ fn appbar_data(hwnd: HWND) -> APPBARDATA {
     }
 }
 
+/// Toutes les barres des tâches de Windows (écran principal et autres écrans).
+fn all_taskbars() -> Vec<HWND> {
+    let mut out = vec![taskbar_hwnd()];
+    let class = wide("Shell_SecondaryTrayWnd");
+    let mut prev: HWND = null_mut();
+    // SAFETY: recherche des fenêtres de cette classe, l'une après l'autre.
+    unsafe {
+        loop {
+            let h = FindWindowExW(null_mut(), prev, class.as_ptr(), null());
+            if h.is_null() {
+                break;
+            }
+            out.push(h);
+            prev = h;
+        }
+    }
+    out.retain(|h| !h.is_null());
+    out
+}
+
+/// Fait disparaître (ou réapparaître) les barres des tâches de Windows : la Prism Bar
+/// les remplace. Le masquage automatique reste actif dessous, pour qu'aucune bande vide
+/// ne reste réservée.
+fn set_taskbars_visible(visible: bool) {
+    for h in all_taskbars() {
+        // SAFETY: fenêtres de l'Explorateur, seulement montrées ou cachées.
+        unsafe { ShowWindow(h, if visible { SW_SHOWNOACTIVATE } else { SW_HIDE }) };
+    }
+}
+
+/// Windows a-t-il remontré une de ses barres (redémarrage de l'Explorateur, écran…) ?
+fn any_taskbar_visible() -> bool {
+    // SAFETY: lecture d'état.
+    all_taskbars().iter().any(|h| unsafe { IsWindowVisible(*h) } != 0)
+}
+
 fn taskbar_hwnd() -> HWND {
     let c = wide("Shell_TrayWnd");
     // SAFETY: nom de classe local.
@@ -378,7 +414,7 @@ fn taskbar_hwnd() -> HWND {
 /// arrêtée de force ne doit pas faire oublier l'état d'origine (sinon la suivante
 /// noterait « masquée » comme état d'origine — vu en VM).
 fn taskbar_state_path() -> std::path::PathBuf {
-    prism_core::paths::data_dir().join("barre-windows.txt")
+    prism_core::paths::user_dir().join("barre-windows.txt")
 }
 
 fn taskbar_state() -> Option<u32> {
@@ -408,11 +444,12 @@ fn hide_taskbar() {
     let path = taskbar_state_path();
     if !path.exists() {
         if let Some(cur) = taskbar_state() {
-            let _ = std::fs::create_dir_all(prism_core::paths::data_dir());
+            let _ = std::fs::create_dir_all(prism_core::paths::user_dir());
             let _ = std::fs::write(&path, cur.to_string());
         }
     }
     set_taskbar_state(ABS_AUTOHIDE);
+    set_taskbars_visible(false);
 }
 
 /// Remet la barre des tâches de Windows dans son état d'origine.
@@ -422,6 +459,7 @@ fn show_taskbar() {
         .ok()
         .and_then(|t| t.trim().parse::<u32>().ok());
     let target = saved.unwrap_or_else(|| taskbar_state().unwrap_or(0) & !ABS_AUTOHIDE);
+    set_taskbars_visible(true);
     set_taskbar_state(target);
     let _ = std::fs::remove_file(path);
 }
@@ -909,8 +947,11 @@ impl Bar {
         if self.monitors_changed() {
             self.dock();
         }
+        if self.cfg.hide_windows_taskbar && !self.desk_hidden && any_taskbar_visible() {
+            set_taskbars_visible(false);
+        }
         FX_DEBUG.store(
-            prism_core::paths::data_dir().join("fx-debug.log").exists(),
+            prism_core::paths::user_dir().join("fx-debug.log").exists(),
             std::sync::atomic::Ordering::Relaxed,
         );
         lap(0, &mut costs);
@@ -1682,8 +1723,16 @@ impl Bar {
             }
             match ev {
                 EVENT_SYSTEM_FOREGROUND_ID if self.fx_allowed(h, true) => {
-                    if let Some(s) = crate::fx_overlay::capture(h) {
-                        self.snaps.insert(key, s);
+                    // Une copie coûte 30 à 50 ms de processeur : pas plus d'une toutes les
+                    // 3 s par fenêtre (Alt-Tab répétés), elle reste assez récente pour l'effet.
+                    let fresh = self
+                        .snaps
+                        .get(&key)
+                        .is_some_and(|s| s.at.elapsed() < Duration::from_secs(3));
+                    if !fresh {
+                        if let Some(s) = crate::fx_overlay::capture(h) {
+                            self.snaps.insert(key, s);
+                        }
                     }
                     if self.snaps.len() > 16 {
                         if let Some(oldest) = self.snaps.iter().min_by_key(|(_, s)| s.at).map(|(k, _)| *k) {

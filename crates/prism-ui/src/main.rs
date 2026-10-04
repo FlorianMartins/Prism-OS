@@ -33,6 +33,23 @@ fn run(renderer: eframe::Renderer) -> eframe::Result<()> {
 /// session qui refuse l'un n'empêche pas l'appli de s'ouvrir. Si rien ne marche,
 /// l'erreur est montrée (sans console, l'appli se fermait sans rien dire).
 fn main() {
+    // Sans droits administrateur, l'appli se relance par la tâche « Prism (admin) » posée
+    // à l'installation : droits obtenus sans fenêtre de confirmation. Lancée par cette
+    // tâche (`--depuis-tache`), elle ne recommence jamais (compte standard : mode limité).
+    #[cfg(windows)]
+    if !prism_win::is_elevated() && !std::env::args().any(|a| a == "--depuis-tache") {
+        use std::os::windows::process::CommandExt;
+        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+        let ok = std::process::Command::new("schtasks.exe")
+            .args(["/Run", "/TN", "Prism (admin)"])
+            .creation_flags(CREATE_NO_WINDOW)
+            .output()
+            .map(|o| o.status.success())
+            .unwrap_or(false);
+        if ok {
+            return;
+        }
+    }
     let Err(first) = run(eframe::Renderer::Wgpu) else {
         return;
     };

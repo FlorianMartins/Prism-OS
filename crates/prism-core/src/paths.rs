@@ -18,6 +18,45 @@ pub fn data_dir() -> PathBuf {
     }
 }
 
+/// Réglages et état propres à l'utilisateur (barre, thème, effets, tuiles, apparence),
+/// toujours inscriptibles par lui : `%LOCALAPPDATA%\Prism`. Les journaux qui touchent la
+/// machine (allègement, vie privée, moteur) restent dans `data_dir`, en lecture seule pour
+/// les utilisateurs — sinon un compte standard pourrait y écrire ce qu'une restauration
+/// en administrateur appliquerait.
+pub fn user_dir() -> PathBuf {
+    if !cfg!(windows) {
+        return data_dir();
+    }
+    let base = std::env::var_os("LOCALAPPDATA").unwrap_or_else(|| "C:\\Users\\Default\\AppData\\Local".into());
+    let dir = PathBuf::from(base).join("Prism");
+    static MIGRATED: std::sync::Once = std::sync::Once::new();
+    MIGRATED.call_once(|| migrate_user_files(&dir));
+    dir
+}
+
+/// Fichiers utilisateur autrefois rangés dans `data_dir` (v0.7.x) : copiés une fois
+/// vers `user_dir` (là-bas ils étaient en lecture seule pour l'utilisateur, les réglages
+/// de l'appli lancée sans droits administrateur n'étaient jamais enregistrés).
+const USER_FILES: [&str; 6] = [
+    "bar.json",
+    "apparence.json",
+    "fx-stats.json",
+    "tuiles.json",
+    "barre-windows.txt",
+    "accueil-vu",
+];
+
+fn migrate_user_files(dir: &std::path::Path) {
+    let old = data_dir();
+    for f in USER_FILES {
+        let (from, to) = (old.join(f), dir.join(f));
+        if from.exists() && !to.exists() {
+            let _ = fs::create_dir_all(dir);
+            let _ = fs::copy(&from, &to);
+        }
+    }
+}
+
 pub fn config_path() -> PathBuf {
     data_dir().join("config.toml")
 }
