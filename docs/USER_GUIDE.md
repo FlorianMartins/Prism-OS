@@ -24,8 +24,12 @@ widgets about **15 MB**, the app about 58 MB (close it while you play).
 
 ## 2. Install
 
-1. Download the installer `prism-<version>-x64.msi` (CI artifact `prism-installer`)
-   and run it. It installs Prism in `C:\Program Files\Prism`, adds a **Prism** entry to
+1. Download **`Prism-Setup-<version>.exe`** from the GitHub release and run it: an
+   animated installer (the Prism logo builds itself and spins while installing) lets
+   you **choose the install folder** (default `C:\Program Files\Prism`), shows the
+   installation step by step, and offers *Lancer Prism* at the end. The plain
+   `prism-<version>-x64.msi` is also published, with its own wizard (folder choice,
+   *Lancer Prism*), and for silent installs (`msiexec /i … /qn`). Prism adds a **Prism** entry to
    the Start menu (the app), adds the folder to the system `PATH` (so `prism` works in
    any terminal) and registers *Prism OS* in **Settings › Apps › Installed apps**.
    Installing a newer version upgrades in place. When installation ends, the Prism app
