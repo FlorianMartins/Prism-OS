@@ -1,0 +1,11 @@
+[package]
+name = "prism-core"
+description = "Logique de décision de Prism OS (sans dépendance Windows)"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+toml.workspace = true

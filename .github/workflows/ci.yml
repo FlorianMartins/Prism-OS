@@ -1,0 +1,51 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  linux:
+    name: Logique + compilation croisée (Linux)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+          targets: x86_64-pc-windows-gnu
+      - run: cargo fmt --all --check
+      - run: cargo clippy --workspace --all-targets -- -D warnings
+      - run: cargo test --workspace
+      - name: Le code Windows vérifié depuis Linux
+        run: cargo clippy --workspace --all-targets --target x86_64-pc-windows-gnu -- -D warnings
+      - run: cargo run -q -p prism -- demo
+
+  windows:
+    name: Tests sur un vrai Windows
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Tests (cœur + intégration Windows réelle)
+        run: cargo test --workspace -- --test-threads=1
+      - run: cargo build --release -p prism
+      - name: Fumée — le binaire répond sur Windows
+        shell: pwsh
+        run: |
+          $exe = "target/release/prism.exe"
+          & $exe version
+          & $exe status
+          & $exe ram
+          & $exe profile
+          & $exe tools reverse
+          & $exe ram clean
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+      - uses: actions/upload-artifact@v4
+        with:
+          name: prism-windows-x64
+          path: target/release/prism.exe

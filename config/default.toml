@@ -1,0 +1,236 @@
+# Prism OS — configuration par défaut (embarquée dans prism.exe).
+# Copie modifiable : `prism config init` l'écrit dans %ProgramData%\Prism\config.toml,
+# qui remplace alors ce fichier.
+#
+# Motifs de noms : en minuscules, `*` remplace n'importe quelle suite de caractères.
+
+default_profile = "gaming"
+poll_seconds = 2
+# Nombre de passages sans jeu avant de restaurer (évite de restaurer pendant un
+# redémarrage du jeu par son lanceur).
+release_after_polls = 3
+
+# ---------------------------------------------------------------------------
+# Profils
+# ---------------------------------------------------------------------------
+[profiles.gaming]
+label = "Gaming"
+description = "Tout pour le jeu : arrière-plan en retrait, RAM libérée, performances élevées."
+game_mode = true
+background_priority = "below_normal"     # normal | below_normal | idle
+background_ecoqos = true
+background_memory_priority = "low"       # very_low | low | medium | below_normal | normal
+trim_background = true
+purge_standby = "low"                    # off | low | all
+purge_when_free_below_percent = 25
+power_plan = "high_performance"          # unchanged | high_performance
+shutdown_wsl = true
+tool_packs = []
+
+[profiles.balanced]
+label = "Équilibré"
+description = "Le jeu passe devant, sans toucher à la RAM ni à l'alimentation."
+game_mode = true
+background_priority = "below_normal"
+background_ecoqos = true
+background_memory_priority = "normal"
+trim_background = false
+purge_standby = "off"
+purge_when_free_below_percent = 0
+power_plan = "unchanged"
+shutdown_wsl = false
+tool_packs = []
+
+[profiles.cyber]
+label = "Cyber"
+description = "Poste de sécurité : Mode Jeu coupé, WSL/Kali libres, packs d'outils proposés."
+game_mode = false
+background_priority = "normal"
+background_ecoqos = false
+background_memory_priority = "normal"
+trim_background = false
+purge_standby = "off"
+purge_when_free_below_percent = 0
+power_plan = "unchanged"
+shutdown_wsl = false
+tool_packs = ["reseau", "web", "reverse", "kali"]
+
+# ---------------------------------------------------------------------------
+# Listes de classement (voir docs/specs/v0.1-mode-jeu.md §2)
+# ---------------------------------------------------------------------------
+[lists]
+# Jamais touchés : système, shell, sécurité, anti-cheats.
+protected = [
+  "system", "idle", "registry", "memory compression", "secure system",
+  "smss.exe", "csrss.exe", "wininit.exe", "winlogon.exe", "services.exe",
+  "lsass.exe", "lsaiso.exe", "svchost.exe", "fontdrvhost.exe", "dwm.exe",
+  "sihost.exe", "ctfmon.exe", "explorer.exe", "taskhostw.exe", "conhost.exe",
+  "audiodg.exe", "startmenuexperiencehost.exe", "shellexperiencehost.exe",
+  "textinputhost.exe", "runtimebroker.exe", "userinit.exe", "logonui.exe",
+  "vmmem*", "vmcompute.exe", "vmwp.exe",
+  # sécurité
+  "msmpeng.exe", "mpdefendercoreservice.exe", "nissrv.exe", "mssense.exe",
+  "securityhealthservice.exe", "securityhealthsystray.exe", "smartscreen.exe",
+  # anti-cheats
+  "vgc.exe", "vgtray.exe", "vgm.exe",
+  "easyanticheat*.exe", "eaanticheat*.exe", "eac_launcher.exe", "start_protected_game.exe",
+  "beservice*.exe", "battleye*.exe", "belauncher.exe",
+  "faceit*.exe", "esea*.exe", "gameguard*.exe", "gamemon*.exe", "xigncode*.exe",
+  "pnkbstr*.exe", "sguard*.exe", "ace-*.exe", "mhyprot*.exe", "atvi-randgrid*.exe",
+]
+
+# Utiles pendant le jeu (voix, capture, overlay, périphériques) : laissés tels quels.
+companions = [
+  "discord*.exe", "teamspeak*.exe", "ts3client_win64.exe", "mumble.exe",
+  "obs64.exe", "obs32.exe", "obs-ffmpeg-mux.exe", "streamlabs*.exe", "medal*.exe",
+  "spotify.exe",
+  "steam.exe", "steamwebhelper.exe", "steamservice.exe", "gameoverlayui*.exe",
+  "nvcontainer.exe", "nvidia overlay.exe", "nvsphelper64.exe", "nvidia app.exe",
+  "amdrsserv.exe", "radeonsoftware.exe", "amdow.exe",
+  "msiafterburner.exe", "rtss.exe", "rtsshooks*.exe", "encoderserver*.exe",
+  "gamebar*.exe", "xboxpcapp*.exe", "xboxgamebarwidgets.exe",
+  "voicemeeter*.exe", "lghub*.exe", "icue*.exe", "razer*.exe", "steelseriesgg*.exe",
+]
+
+# Jeux nommés explicitement (en plus des racines ci-dessous).
+games = []
+
+# Un exécutable dont le chemin contient l'un de ces fragments est un jeu.
+game_roots = [
+  "\\steamapps\\common\\",
+  "\\epic games\\",
+  "\\gog galaxy\\games\\",
+  "\\xboxgames\\",
+  "\\riot games\\",
+  "\\ea games\\",
+  "\\ubisoft game launcher\\games\\",
+  "\\battle.net\\games\\",
+]
+
+# Processus annexes installés sous une racine de jeu mais qui ne sont pas le jeu.
+game_helpers = [
+  "unitycrashhandler*.exe", "crashpad_handler.exe", "crashreportclient.exe",
+  "crashreporter*.exe", "steamerrorreporter*.exe", "redist*.exe", "vc_redist*.exe",
+  "dxsetup.exe", "uninstall*.exe", "unins*.exe",
+]
+
+# ---------------------------------------------------------------------------
+# Catalogue d'outils cyber (identifiants winget vérifiés dans microsoft/winget-pkgs)
+# source = winget | wsl-distro | kali-apt
+# gaming_conflict = none | warn  (warn : signalé si ouvert pendant un jeu)
+# ---------------------------------------------------------------------------
+[packs.reseau]
+label = "Réseau"
+tools = ["wireshark", "putty", "winscp"]
+
+[packs.web]
+label = "Web / API"
+tools = ["burp", "zap", "mitmproxy"]
+
+[packs.reverse]
+label = "Reverse / forensique"
+tools = ["sysinternals", "x64dbg", "cutter", "yara-x"]
+
+[packs.kali]
+label = "Kali Linux (WSL)"
+tools = ["kali", "kali-essentiels"]
+
+[[tools]]
+id = "wireshark"
+name = "Wireshark"
+source = "winget"
+package = "WiresharkFoundation.Wireshark"
+gaming_conflict = "none"
+processes = ["wireshark.exe"]
+
+[[tools]]
+id = "putty"
+name = "PuTTY"
+source = "winget"
+package = "PuTTY.PuTTY"
+gaming_conflict = "none"
+processes = ["putty.exe"]
+
+[[tools]]
+id = "winscp"
+name = "WinSCP"
+source = "winget"
+package = "WinSCP.WinSCP"
+gaming_conflict = "none"
+processes = ["winscp.exe"]
+
+[[tools]]
+id = "burp"
+name = "Burp Suite Community"
+source = "winget"
+package = "PortSwigger.BurpSuite.Community"
+gaming_conflict = "none"
+processes = ["burpsuitecommunity.exe"]
+
+[[tools]]
+id = "zap"
+name = "ZAP"
+source = "winget"
+package = "ZAP.ZAP"
+gaming_conflict = "none"
+processes = ["zap.exe"]
+
+[[tools]]
+id = "mitmproxy"
+name = "mitmproxy"
+source = "winget"
+package = "mitmproxy.mitmproxy"
+gaming_conflict = "none"
+processes = ["mitmproxy.exe", "mitmweb.exe", "mitmdump.exe"]
+
+[[tools]]
+id = "sysinternals"
+name = "Sysinternals Suite"
+source = "winget"
+package = "Microsoft.Sysinternals.Suite"
+gaming_conflict = "warn"
+reason = "Process Explorer et Process Monitor chargent un pilote noyau que certains anti-cheats refusent."
+processes = ["procexp*.exe", "procmon*.exe"]
+
+[[tools]]
+id = "x64dbg"
+name = "x64dbg"
+source = "winget"
+package = "x64dbg.x64dbg"
+gaming_conflict = "warn"
+reason = "Débogueur : la plupart des anti-cheats refusent de démarrer s'il est ouvert."
+processes = ["x64dbg.exe", "x32dbg.exe", "x96dbg.exe"]
+
+[[tools]]
+id = "cutter"
+name = "Cutter (Rizin)"
+source = "winget"
+package = "Rizin.Cutter"
+gaming_conflict = "warn"
+reason = "Intègre un débogueur : à fermer avant de lancer un jeu protégé."
+processes = ["cutter.exe"]
+
+[[tools]]
+id = "yara-x"
+name = "YARA-X"
+source = "winget"
+package = "VirusTotal.YARA-X"
+gaming_conflict = "none"
+processes = ["yr.exe"]
+
+[[tools]]
+id = "kali"
+name = "Kali Linux (WSL)"
+source = "wsl-distro"
+package = "kali-linux"
+gaming_conflict = "none"
+processes = []
+
+[[tools]]
+id = "kali-essentiels"
+name = "Outils Kali essentiels (nmap, sqlmap, hashcat, john, gobuster)"
+source = "kali-apt"
+package = "nmap sqlmap hashcat john gobuster"
+gaming_conflict = "none"
+processes = []
+requires = ["kali"]

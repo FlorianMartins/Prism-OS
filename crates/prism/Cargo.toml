@@ -1,0 +1,20 @@
+[package]
+name = "prism"
+description = "Prism OS — Mode Jeu, RAM, profils et outils cyber pour Windows"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+
+[[bin]]
+name = "prism"
+path = "src/main.rs"
+
+[dependencies]
+prism-core = { path = "../prism-core" }
+prism-win = { path = "../prism-win" }
+serde.workspace = true
+serde_json.workspace = true
+
+[target.'cfg(windows)'.dependencies.windows-sys]
+version = "0.61"
+features = ["Win32_Foundation", "Win32_System_Console"]

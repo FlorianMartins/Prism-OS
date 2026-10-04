@@ -1,0 +1,17 @@
+//! Prism OS — cœur de décision.
+//!
+//! Ce crate décide *quoi* faire (classement des processus, plan du Mode Jeu, politique
+//! RAM, journal de restauration, catalogue d'outils) sans jamais appeler Windows.
+//! L'exécution passe par le trait [`platform::Platform`].
+
+pub mod classify;
+pub mod config;
+pub mod engine;
+pub mod glob;
+pub mod journal;
+pub mod mock;
+pub mod model;
+pub mod plan;
+pub mod platform;
+pub mod tools;
+pub mod watch;
