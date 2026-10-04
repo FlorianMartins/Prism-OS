@@ -189,6 +189,7 @@ in **prism-ui → Apparence → Effets de fenêtres** (window effects):
 | Réduire / Restaurer / Ouvrir / Fermer (minimize / restore / open / close) | Aucun (none), Lampe de génie (genie lamp: the window is sucked into its bar button, and comes back out of it), Gélatine (jelly: spring-damped wobble), Zoom et fondu (zoom and fade) |
 | Durée (duration) | 120–900 ms |
 | Intensité (deformation intensity) | 0–100 % |
+| Gélatine pendant le déplacement (jelly while dragging) | on (default) / off |
 
 - The Prism Bar must be running: it plays the effects in a click-through overlay.
 - Turning the effects on also sets Windows' own minimize animation to *Instantanée*
@@ -197,6 +198,12 @@ in **prism-ui → Apparence → Effets de fenêtres** (window effects):
 - Effects never apply to a game, to a fullscreen window, or while Game Mode is active.
 - Minimize and restore get the effect whether you click the bar button, use the window's
   title-bar button or a keyboard shortcut.
+- **Jelly while dragging**: grab a window by its title bar and move it. The point you
+  hold stays under the cursor, the rest of the window trails behind, overshoots when you
+  stop and settles. The intensity slider also sets how soft it is. During the drag the
+  window shows the image it had when you grabbed it (a playing video freezes until you
+  release). Resizing, snapping to a screen edge or dragging a maximized window gives the
+  window straight back to Windows.
 
 Check them and their cost on your PC:
 
@@ -262,3 +269,5 @@ Invalid files are refused with a clear message rather than half-applied.
 | Widgets setting refused by Windows | Recent Windows 11 builds lock some settings; Prism does not bypass Windows protections |
 | GPU widget shows "—" | No GPU performance counters available on this machine |
 | A game refuses to start because of a tool | Close the flagged debugger/kernel-driver tool shown by `prism status` |
+| A window stays invisible after the Prism Bar was killed during an effect | Start the bar again (`prism bar on`): it makes such windows visible again (journal `fx-hidden.json`) |
+| An effect does not play | Create an empty `%ProgramData%\Prism\fx-debug.log`: within a second the bar writes what it receives and decides there (delete the file to stop) |

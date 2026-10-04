@@ -25,3 +25,4 @@ pub mod plan;
 pub mod platform;
 pub mod tools;
 pub mod watch;
+pub mod wobbly;

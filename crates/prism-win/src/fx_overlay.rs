@@ -7,7 +7,7 @@ use std::ptr::{null, null_mut};
 use std::time::{Duration, Instant};
 
 use prism_core::bar::Rect;
-use prism_core::fx::{Animation, FxStat, Image};
+use prism_core::fx::{Animation, Effect, FxStat, Image};
 use windows_sys::Win32::Foundation::{HWND, POINT, RECT, SIZE};
 use windows_sys::Win32::Graphics::Dwm::{DwmFlush, DwmGetWindowAttribute, DWMWA_EXTENDED_FRAME_BOUNDS};
 use windows_sys::Win32::Graphics::Gdi::*;
@@ -211,7 +211,7 @@ impl Overlay {
         }
     }
 
-    fn show_frame(&mut self, img: &Image, x: i32, y: i32) {
+    pub fn show_frame(&mut self, img: &Image, x: i32, y: i32) {
         let (w, h) = (img.width as i32, img.height as i32);
         if self.dib.as_ref().map_or(true, |d| d.w != w || d.h != h) {
             self.dib = Dib::new(w, h);
@@ -233,6 +233,27 @@ impl Overlay {
         }
     }
 
+    /// Affiche la couche au premier plan, sans prendre le focus.
+    pub fn raise(&self) {
+        // SAFETY: notre fenêtre.
+        unsafe {
+            SetWindowPos(
+                self.hwnd,
+                HWND_TOPMOST,
+                0,
+                0,
+                0,
+                0,
+                SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_SHOWWINDOW,
+            );
+        }
+    }
+
+    pub fn hide(&self) {
+        // SAFETY: notre fenêtre.
+        unsafe { ShowWindow(self.hwnd, SW_HIDE) };
+    }
+
     /// Joue l'animation. `after_first` s'exécute juste après la première image
     /// (ex. : réduire la vraie fenêtre une fois qu'elle est recouverte).
     #[allow(clippy::too_many_arguments)]
@@ -250,11 +271,7 @@ impl Overlay {
         let mut frame = Image::new(size.0, size.1);
         let start = Instant::now();
         let mut after = Some(after_first);
-        let (mut frames, mut total_work, mut max_work) = (0u32, Duration::ZERO, Duration::ZERO);
-        let mut latency = 0.0f32;
-        let mut intervals: Vec<Duration> = Vec::new();
-        let mut works: Vec<Duration> = Vec::new();
-        let mut last_flip: Option<Instant> = None;
+        let mut meter = Meter::new(trigger);
         loop {
             let t = start.elapsed().as_secs_f32() / duration.as_secs_f32();
             if t >= 1.0 {
@@ -263,72 +280,117 @@ impl Overlay {
             let w0 = Instant::now();
             anim.render(t, &mut frame);
             self.show_frame(&frame, origin.0, origin.1);
-            if frames == 0 {
-                // SAFETY: notre fenêtre ; affichée sans prendre le focus.
-                unsafe {
-                    SetWindowPos(
-                        self.hwnd,
-                        HWND_TOPMOST,
-                        0,
-                        0,
-                        0,
-                        0,
-                        SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_SHOWWINDOW,
-                    );
-                }
-                latency = trigger.elapsed().as_secs_f32() * 1e3;
+            if meter.frames == 0 {
+                self.raise();
                 if let Some(f) = after.take() {
                     f();
                 }
             }
-            let work = w0.elapsed();
-            total_work += work;
-            max_work = max_work.max(work);
-            works.push(work);
-            frames += 1;
-            // Attend la prochaine composition de l'écran : cadence calée sur l'affichage.
-            // SAFETY: appel sans argument.
-            unsafe { DwmFlush() };
-            let now = Instant::now();
-            if let Some(l) = last_flip {
-                intervals.push(now - l);
-            }
-            last_flip = Some(now);
+            meter.frame(w0);
         }
-        // SAFETY: notre fenêtre.
-        unsafe { ShowWindow(self.hwnd, SW_HIDE) };
+        self.hide();
         if let Some(f) = after.take() {
             f();
         }
-        let elapsed = start.elapsed().as_secs_f32();
-        let mut sorted = intervals.clone();
+        meter.stat(
+            anim.effect,
+            trigger_name,
+            (anim.source.width, anim.source.height),
+            capture_ms,
+        )
+    }
+}
+
+/// Mesure des images d'un effet : latence, travail par image, cadence, images ratées.
+pub struct Meter {
+    trigger: Instant,
+    start: Instant,
+    pub frames: u32,
+    latency: f32,
+    works: Vec<Duration>,
+    intervals: Vec<Duration>,
+    last_flip: Option<Instant>,
+}
+
+impl Meter {
+    pub fn new(trigger: Instant) -> Meter {
+        Meter {
+            trigger,
+            start: Instant::now(),
+            frames: 0,
+            latency: 0.0,
+            works: Vec::new(),
+            intervals: Vec::new(),
+            last_flip: None,
+        }
+    }
+
+    /// Une image vient d'être envoyée (travail commencé en `w0`) : attend la prochaine
+    /// composition de l'écran, ce qui cale la cadence sur l'affichage.
+    pub fn frame(&mut self, w0: Instant) {
+        if self.frames == 0 {
+            self.latency = self.trigger.elapsed().as_secs_f32() * 1e3;
+        }
+        self.works.push(w0.elapsed());
+        self.frames += 1;
+        // SAFETY: appel sans argument.
+        unsafe { DwmFlush() };
+        let now = Instant::now();
+        if let Some(l) = self.last_flip {
+            self.intervals.push(now - l);
+        }
+        self.last_flip = Some(now);
+    }
+
+    pub fn stat(&self, effect: Effect, trigger: &str, size: (u32, u32), capture_ms: f32) -> FxStat {
+        let elapsed = self.start.elapsed().as_secs_f32();
+        let mut sorted = self.intervals.clone();
         sorted.sort();
         let refresh = sorted
             .get(sorted.len() / 2)
             .copied()
             .unwrap_or(Duration::from_micros(16_667));
-        let missed = works.iter().filter(|w| **w > refresh).count() as u32;
+        let total: Duration = self.works.iter().sum();
         FxStat {
-            effect: anim.effect,
-            trigger: trigger_name.to_string(),
-            width: anim.source.width,
-            height: anim.source.height,
+            effect,
+            trigger: trigger.to_string(),
+            width: size.0,
+            height: size.1,
             capture_ms,
-            latency_ms: latency,
-            frames,
-            avg_frame_ms: if frames > 0 {
-                total_work.as_secs_f32() * 1e3 / frames as f32
+            latency_ms: self.latency,
+            frames: self.frames,
+            avg_frame_ms: if self.frames > 0 {
+                total.as_secs_f32() * 1e3 / self.frames as f32
             } else {
                 0.0
             },
-            max_frame_ms: max_work.as_secs_f32() * 1e3,
-            missed,
-            fps: if elapsed > 0.0 { frames as f32 / elapsed } else { 0.0 },
+            max_frame_ms: self.works.iter().max().map_or(0.0, |w| w.as_secs_f32() * 1e3),
+            missed: self.works.iter().filter(|w| **w > refresh).count() as u32,
+            fps: if elapsed > 0.0 {
+                self.frames as f32 / elapsed
+            } else {
+                0.0
+            },
         }
     }
 }
 
-/// Rend une fenêtre invisible le temps d'un effet (calque à opacité nulle). Renvoie
+/// Journal des fenêtres rendues invisibles le temps d'un effet : si la barre est tuée
+/// pendant ce temps, son prochain démarrage les rend visibles (`recover_hidden`).
+fn hidden_update(f: impl FnOnce(&mut prism_core::fx::HiddenWindows)) {
+    let mut list = prism_core::fx::load_hidden();
+    f(&mut list);
+    prism_core::fx::save_hidden(&list);
+}
+
+fn window_pid(hwnd: HWND) -> u32 {
+    let mut pid = 0u32;
+    // SAFETY: sortie locale.
+    unsafe { GetWindowThreadProcessId(hwnd, &mut pid) };
+    pid
+}
+
+/// Rend une fenêtre invisible le temps d'un effet (calque presque transparent). Renvoie
 /// le style d'origine, `None` si la fenêtre gère déjà sa transparence (on ne la touche pas).
 pub fn hide_temp(hwnd: HWND) -> Option<isize> {
     // SAFETY: style étendu et opacité de calque d'une fenêtre, remis par `unhide`.
@@ -337,8 +399,11 @@ pub fn hide_temp(hwnd: HWND) -> Option<isize> {
         if ex as u32 & WS_EX_LAYERED != 0 {
             return None;
         }
+        hidden_update(|l| l.push((hwnd as isize, window_pid(hwnd), ex)));
         SetWindowLongPtrW(hwnd, GWL_EXSTYLE, ex | WS_EX_LAYERED as isize);
-        SetLayeredWindowAttributes(hwnd, 0, 0, LWA_ALPHA);
+        // Opacité 1/255 et non 0 : invisible à l'œil, mais une fenêtre à opacité nulle
+        // ne reçoit plus la souris, et un déplacement en cours s'arrêterait net.
+        SetLayeredWindowAttributes(hwnd, 0, 1, LWA_ALPHA);
         Some(ex)
     }
 }
@@ -346,4 +411,27 @@ pub fn hide_temp(hwnd: HWND) -> Option<isize> {
 pub fn unhide(hwnd: HWND, ex: isize) {
     // SAFETY: remise du style étendu d'origine.
     unsafe { SetWindowLongPtrW(hwnd, GWL_EXSTYLE, ex) };
+    hidden_update(|l| l.retain(|(h, _, _)| *h != hwnd as isize));
+}
+
+/// Au démarrage de la barre : rend visibles les fenêtres qu'une barre précédente,
+/// arrêtée de force, avait laissées invisibles. Renvoie leur nombre.
+pub fn recover_hidden() -> usize {
+    let mut n = 0;
+    hidden_update(|l| {
+        for (h, pid, ex) in l.drain(..) {
+            let hwnd = h as HWND;
+            // SAFETY: lectures d'état ; même fenêtre ET même processus, sinon on ne touche à rien.
+            unsafe {
+                if IsWindow(hwnd) != 0
+                    && window_pid(hwnd) == pid
+                    && GetWindowLongPtrW(hwnd, GWL_EXSTYLE) as u32 & WS_EX_LAYERED != 0
+                {
+                    SetWindowLongPtrW(hwnd, GWL_EXSTYLE, ex);
+                    n += 1;
+                }
+            }
+        }
+    });
+    n
 }

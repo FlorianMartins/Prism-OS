@@ -35,7 +35,8 @@ tools. Every change is journaled and reversible.
 - **Desktop widgets and transparency** — Conky-style widgets; translucent app windows,
   menus, dropdown lists, tooltips and dialogs, each with its own opacity (never games).
 - **Window effects** — genie lamp, jelly and zoom on minimize, restore, open and close,
-  drawn by Prism with official APIs; adjustable duration and intensity.
+  and jelly ("wobbly") windows while you drag them, drawn by Prism with official APIs;
+  adjustable duration and intensity.
 - **App** (`prism-ui`) — dashboard, game launcher with a console mode, and every
   setting above.
 - **Cyber tools on demand** — Wireshark, Burp, ZAP, Sysinternals, x64dbg, Kali under WSL
@@ -58,6 +59,7 @@ From a Windows 11 test VM ([details and protocol](docs/measurements.md)):
 | `prism watch` memory footprint | ≈ 3 MB |
 | Prism Bar with three desktop widgets | ≈ 15 MB |
 | Window effects: latency to first frame / time per frame | 3–6 ms / 1.5 ms, 0 dropped frames |
+| Jelly while dragging | 2.7 ms per frame, 0 dropped frames |
 
 FPS and anti-cheat compatibility cannot be measured in a VM; they will be measured on
 real gaming hardware.

@@ -90,6 +90,36 @@ struct Bar {
     /// une fois quand Windows les renvoie, quel que soit le délai de traitement.
     skip: HashMap<(isize, u32), Instant>,
     stats: Vec<prism_core::fx::FxStat>,
+    /// Fenêtre en cours de déplacement, en gélatine.
+    drag: Option<DragFx>,
+}
+
+/// Gélatine pendant un déplacement : la vraie fenêtre, rendue invisible, est
+/// déplacée par Windows ; Prism dessine sa copie déformée par-dessus.
+struct DragFx {
+    hwnd: HWND,
+    /// Style étendu d'origine (remis à la fin).
+    ex: isize,
+    snap: crate::fx_overlay::Snap,
+    wob: prism_core::wobbly::Wobbly,
+    frame: prism_core::fx::Image,
+    margin: i32,
+    last: Instant,
+    started: Instant,
+    released: Option<Instant>,
+    /// Thread de la fenêtre : on lui demande s'il est encore dans sa boucle de déplacement.
+    thread: u32,
+    meter: crate::fx_overlay::Meter,
+}
+
+/// Le thread est-il dans une boucle de déplacement/redimensionnement ?
+fn in_move_size(thread: u32) -> bool {
+    // SAFETY: structure de sortie locale, taille renseignée.
+    unsafe {
+        let mut info: GUITHREADINFO = std::mem::zeroed();
+        info.cbSize = size_of::<GUITHREADINFO>() as u32;
+        GetGUIThreadInfo(thread, &mut info) != 0 && info.flags & GUI_INMOVESIZE != 0
+    }
 }
 
 /// Ce qu'on fait à la fenêtre : apparition (ouverture, restauration) ou disparition.
@@ -113,10 +143,46 @@ fn with_bar<R>(f: impl FnOnce(&mut Bar) -> R) -> Option<R> {
     BAR.with(|b| b.try_borrow_mut().ok()?.as_mut().map(f))
 }
 
+/// Diagnostic activé (`fx-debug.log` existe) : relu chaque seconde par la barre.
+static FX_DEBUG: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// Journal de diagnostic des effets, seulement si `fx-debug.log` existe déjà.
+fn fx_log(msg: impl FnOnce() -> String) {
+    use std::io::Write;
+    if !FX_DEBUG.load(std::sync::atomic::Ordering::Relaxed) {
+        return;
+    }
+    let path = prism_core::paths::data_dir().join("fx-debug.log");
+    if let Ok(mut f) = std::fs::OpenOptions::new().append(true).open(path) {
+        let _ = writeln!(f, "{}", msg());
+    }
+}
+
+/// Diagnostic : écrit une image affichée (PPM) si `fx-debug.log` existe.
+fn fx_dump(img: &prism_core::fx::Image, name: &str) {
+    if !FX_DEBUG.load(std::sync::atomic::Ordering::Relaxed) {
+        return;
+    }
+    let dir = prism_core::paths::data_dir();
+    let mut ppm = format!("P6 {} {} 255\n", img.width, img.height).into_bytes();
+    for px in &img.pixels {
+        let a = px >> 24;
+        // Fond gris sous les pixels transparents.
+        let mix = |c: u32| (c + 0x50 * (255 - a) / 255).min(255) as u8;
+        ppm.extend([mix((px >> 16) & 0xff), mix((px >> 8) & 0xff), mix(px & 0xff)]);
+    }
+    let _ = std::fs::write(dir.join(format!("{name}.ppm")), ppm);
+}
+
 const WM_FX: u32 = WM_APP + 3;
+/// Image suivante de la gélatine de déplacement (message que la barre se poste à
+/// elle-même : sa boucle de messages continue entre deux images).
+const WM_FX_DRAG: u32 = WM_APP + 4;
 /// Démonstration mesurée des effets (`prism fx demo`).
 pub const WM_FX_DEMO: u32 = WM_APP + 2;
 const EVENT_SYSTEM_FOREGROUND_ID: u32 = 0x0003;
+const EVENT_SYSTEM_MOVESIZESTART_ID: u32 = 0x000A;
+const EVENT_SYSTEM_MOVESIZEEND_ID: u32 = 0x000B;
 const EVENT_SYSTEM_MINIMIZESTART_ID: u32 = 0x0016;
 const EVENT_SYSTEM_MINIMIZEEND_ID: u32 = 0x0017;
 const EVENT_OBJECT_SHOW_ID: u32 = 0x8002;
@@ -524,6 +590,10 @@ impl Bar {
 
     fn tick(&mut self) {
         self.reload_config_if_changed();
+        FX_DEBUG.store(
+            prism_core::paths::data_dir().join("fx-debug.log").exists(),
+            std::sync::atomic::Ordering::Relaxed,
+        );
         self.sample = self.metrics.sample();
         self.cpu.push(self.sample.cpu);
         self.ram.push(self.sample.ram);
@@ -851,6 +921,158 @@ impl Bar {
         false
     }
 
+    /// Début d'un déplacement : copie, fenêtre rendue invisible, gélatine lancée.
+    fn drag_start(&mut self, h: HWND, at: Instant) {
+        // SAFETY: lectures d'état.
+        let (maximized, mut cursor) = unsafe { (IsZoomed(h) != 0, POINT { x: 0, y: 0 }) };
+        if maximized {
+            return; // la déplacer la restaure : sa taille change
+        }
+        // SAFETY: sortie locale.
+        unsafe { GetCursorPos(&mut cursor) };
+        let Some(r) = crate::fx_overlay::visible_rect(h) else {
+            return;
+        };
+        // Un redimensionnement commence aussi par cet événement : poignées sur les bords.
+        let grip = (6.0 * self.scale).round() as i32;
+        let on_border = cursor.x < r.left + grip
+            || cursor.x >= r.right - grip
+            || cursor.y < r.top + grip / 2
+            || cursor.y >= r.bottom - grip;
+        let keyboard = !r.contains(cursor.x, cursor.y);
+        fx_log(|| {
+            format!(
+                "drag_start rect {r:?} cursor {},{} border {on_border} keyboard {keyboard}",
+                cursor.x, cursor.y
+            )
+        });
+        if on_border && !keyboard {
+            return;
+        }
+        let Some(snap) = crate::fx_overlay::capture(h) else {
+            return;
+        };
+        let Some(ex) = crate::fx_overlay::hide_temp(h) else {
+            return; // la fenêtre gère déjà sa transparence : on n'y touche pas
+        };
+        let grab = if keyboard {
+            (snap.rect.width() as f32 / 2.0, 0.0)
+        } else {
+            ((cursor.x - snap.rect.left) as f32, (cursor.y - snap.rect.top) as f32)
+        };
+        let wob = prism_core::wobbly::Wobbly::new(
+            snap.img.width,
+            snap.img.height,
+            (snap.rect.left as f32, snap.rect.top as f32),
+            grab,
+            self.cfg.fx.intensity as f32 / 100.0,
+        );
+        let margin = wob.margin();
+        let frame = prism_core::fx::Image::new(snap.img.width + 2 * margin as u32, snap.img.height + 2 * margin as u32);
+        self.drag = Some(DragFx {
+            hwnd: h,
+            ex,
+            snap,
+            wob,
+            frame,
+            margin,
+            last: Instant::now(),
+            started: Instant::now(),
+            released: None,
+            // SAFETY: lecture du thread propriétaire.
+            thread: unsafe { GetWindowThreadProcessId(h, null_mut()) },
+            meter: crate::fx_overlay::Meter::new(at),
+        });
+        self.drag_frame();
+    }
+
+    /// Une image de la gélatine, puis la suivante est demandée par message.
+    fn drag_frame(&mut self) {
+        let Some(d) = self.drag.as_mut() else { return };
+        let Some(overlay) = self.overlay.as_mut() else {
+            self.drag_end();
+            return;
+        };
+        let w0 = Instant::now();
+        // SAFETY: lecture d'état ; la fenêtre peut avoir été fermée pendant le déplacement.
+        let alive = unsafe { IsWindow(d.hwnd) != 0 };
+        let rect = alive.then(|| crate::fx_overlay::visible_rect(d.hwnd)).flatten();
+        let Some(r) = rect else {
+            fx_log(|| "drag: window gone".into());
+            self.drag_end();
+            return;
+        };
+        // Taille changée (redimensionnement, ancrage, agrandissement) : la vraie fenêtre
+        // reprend la main tout de suite.
+        if (r.width() - d.snap.rect.width()).abs() > 2 || (r.height() - d.snap.rect.height()).abs() > 2 {
+            fx_log(|| format!("drag: size changed {r:?}"));
+            self.drag_end();
+            return;
+        }
+        // La fin du déplacement est lue sur le thread de la fenêtre : l'événement de fin
+        // n'arrive pas toujours (vu en VM).
+        if d.released.is_none() && d.meter.frames > 0 && !in_move_size(d.thread) {
+            d.released = Some(Instant::now());
+        }
+        let dt = d.last.elapsed().as_secs_f32();
+        d.last = Instant::now();
+        d.wob.step((r.left as f32, r.top as f32), dt);
+        let m = d.margin as f32;
+        d.wob.render(&d.snap.img, (m, m), &mut d.frame);
+        overlay.show_frame(&d.frame, r.left - d.margin, r.top - d.margin);
+        if matches!(d.meter.frames, 6 | 12 | 18 | 24) {
+            fx_dump(&d.frame, &format!("drag-{:02}", d.meter.frames));
+        }
+        if d.meter.frames == 0 {
+            overlay.raise();
+        }
+        d.meter.frame(w0);
+        let done = match d.released {
+            Some(t) => d.wob.settled() || t.elapsed() > Duration::from_millis(1500),
+            // Filet de sécurité si la fin du déplacement n'arrive jamais.
+            None => d.started.elapsed() > Duration::from_secs(120),
+        };
+        if d.meter.frames % 30 == 1 || done {
+            fx_log(|| {
+                format!(
+                    "drag_frame #{} at {},{} released {:?} settled {}",
+                    d.meter.frames,
+                    r.left,
+                    r.top,
+                    d.released.map(|t| t.elapsed()),
+                    d.wob.settled()
+                )
+            });
+        }
+        if done {
+            self.drag_end();
+        } else {
+            // SAFETY: message à notre propre fenêtre.
+            unsafe { PostMessageW(self.hwnd, WM_FX_DRAG, 0, 0) };
+        }
+    }
+
+    /// Fin : la vraie fenêtre réapparaît à sa place, la couche disparaît, mesure gardée.
+    fn drag_end(&mut self) {
+        let Some(d) = self.drag.take() else { return };
+        fx_log(|| format!("drag_end after {} frames", d.meter.frames));
+        crate::fx_overlay::unhide(d.hwnd, d.ex);
+        if let Some(o) = self.overlay.as_ref() {
+            o.hide();
+        }
+        if d.meter.frames > 0 {
+            let stat = d.meter.stat(
+                prism_core::fx::Effect::Jelly,
+                "déplacement",
+                (d.snap.img.width, d.snap.img.height),
+                d.snap.capture_ms,
+            );
+            prism_core::fx::push_stat(&mut self.stats, stat);
+            let _ = prism_core::fx::save_stats(&self.stats);
+        }
+        self.snaps.insert(d.hwnd as isize, d.snap);
+    }
+
     /// Traite les événements de fenêtres en attente.
     fn process_fx(&mut self) {
         let events: Vec<(u32, isize, Instant)> = FX_QUEUE.with(|q| std::mem::take(&mut *q.borrow_mut()));
@@ -859,12 +1081,26 @@ impl Bar {
         }
         for (ev, key, at) in events {
             let h = key as HWND;
+            fx_log(|| {
+                format!(
+                    "event {ev:#x} hwnd {key:#x} age {:?} allowed {}",
+                    at.elapsed(),
+                    self.fx_allowed(h, true)
+                )
+            });
             if let Some(t) = self.skip.remove(&(key, ev)) {
                 if t.elapsed() < Duration::from_secs(10) {
                     continue; // Prism l'a provoqué lui-même : déjà animé
                 }
             }
             // Une animation en retard est pire que pas d'animation (vu en VM : 501 ms).
+            if ev == EVENT_SYSTEM_MOVESIZEEND_ID {
+                // Jamais abandonné : c'est lui qui rend la vraie fenêtre.
+                if let Some(d) = self.drag.as_mut().filter(|d| d.hwnd == h) {
+                    d.released.get_or_insert(at);
+                }
+                continue;
+            }
             if ev != EVENT_SYSTEM_FOREGROUND_ID && at.elapsed() > Duration::from_millis(250) {
                 continue;
             }
@@ -881,7 +1117,10 @@ impl Bar {
                     }
                 }
                 EVENT_SYSTEM_MINIMIZESTART_ID if self.fx_allowed(h, false) => {
-                    if let Some(snap) = self.snaps.remove(&key) {
+                    // Copie fraîche si la fenêtre est encore affichée (celle prise au
+                    // focus peut dater de plusieurs minutes), sinon la dernière.
+                    let fresh = crate::fx_overlay::capture(h);
+                    if let Some(snap) = fresh.or_else(|| self.snaps.remove(&key)) {
                         let target = self.target_for(h);
                         self.play_effect(fx.minimize, FxKind::Disappear, &snap, target, at, "réduction", || {});
                         self.snaps.insert(key, snap);
@@ -896,6 +1135,9 @@ impl Bar {
                         }
                         self.snaps.insert(key, snap);
                     }
+                }
+                EVENT_SYSTEM_MOVESIZESTART_ID if fx.drag && self.drag.is_none() && self.fx_allowed(h, true) => {
+                    self.drag_start(h, at);
                 }
                 EVENT_OBJECT_SHOW_ID
                     if fx.open != prism_core::fx::Effect::None
@@ -1523,6 +1765,10 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) 
             with_bar(|b| b.fx_demo());
             0
         }
+        WM_FX_DRAG => {
+            with_bar(|b| b.drag_frame());
+            0
+        }
         WM_TIMER => {
             with_bar(|b| b.tick());
             0
@@ -1586,6 +1832,7 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) 
         }
         WM_DESTROY => {
             with_bar(|b| {
+                b.drag_end();
                 b.restore_opacity();
                 for d in b.desk.drain(..) {
                     DestroyWindow(d.hwnd);
@@ -1614,6 +1861,8 @@ pub fn run() -> Result<(), String> {
         {
             return Err("Prism Bar tourne déjà".into());
         }
+        // Une barre précédente arrêtée de force pendant un effet : fenêtres rendues visibles.
+        crate::fx_overlay::recover_hidden();
         SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
         let hinst = GetModuleHandleW(null());
         let class = wide(CLASS);
@@ -1701,6 +1950,7 @@ pub fn run() -> Result<(), String> {
                 snaps: HashMap::new(),
                 skip: HashMap::new(),
                 stats: prism_core::fx::load_stats(),
+                drag: None,
             })
         });
         with_bar(|b| {
@@ -1741,12 +1991,21 @@ pub fn run() -> Result<(), String> {
             0,
             flags,
         );
+        let hook_move = SetWinEventHook(
+            EVENT_SYSTEM_MOVESIZESTART,
+            EVENT_SYSTEM_MOVESIZEEND,
+            null_mut(),
+            Some(on_object_show),
+            0,
+            0,
+            flags,
+        );
         let mut msg: MSG = std::mem::zeroed();
         while GetMessageW(&mut msg, null_mut(), 0, 0) > 0 {
             TranslateMessage(&msg);
             DispatchMessageW(&msg);
         }
-        for h in [hook, hook_fg, hook_min] {
+        for h in [hook, hook_fg, hook_min, hook_move] {
             if !h.is_null() {
                 UnhookWinEvent(h);
             }

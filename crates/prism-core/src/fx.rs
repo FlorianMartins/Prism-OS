@@ -152,6 +152,8 @@ pub struct FxConfig {
     pub duration_ms: u32,
     /// Intensité de la déformation, en pourcentage.
     pub intensity: u8,
+    /// Gélatine pendant le déplacement d'une fenêtre (`wobbly`).
+    pub drag: bool,
 }
 
 impl Default for FxConfig {
@@ -164,6 +166,7 @@ impl Default for FxConfig {
             close: Effect::Zoom,
             duration_ms: 320,
             intensity: 70,
+            drag: true,
         }
     }
 }
@@ -442,6 +445,31 @@ pub fn save_stats(list: &[FxStat]) -> Result<(), String> {
 }
 
 /// Tableau lisible des mesures.
+/// Fenêtres rendues invisibles le temps d'un effet : (fenêtre, processus, style
+/// étendu d'origine). Relu au démarrage de la barre si elle a été tuée entre-temps.
+pub type HiddenWindows = Vec<(isize, u32, isize)>;
+
+pub fn hidden_path() -> std::path::PathBuf {
+    crate::paths::data_dir().join("fx-hidden.json")
+}
+
+pub fn load_hidden() -> HiddenWindows {
+    std::fs::read(hidden_path())
+        .ok()
+        .and_then(|b| serde_json::from_slice(&b).ok())
+        .unwrap_or_default()
+}
+
+pub fn save_hidden(list: &HiddenWindows) {
+    let path = hidden_path();
+    if list.is_empty() {
+        let _ = std::fs::remove_file(&path);
+    } else if let Ok(json) = serde_json::to_vec(list) {
+        let _ = std::fs::create_dir_all(crate::paths::data_dir());
+        let _ = std::fs::write(&path, json);
+    }
+}
+
 pub fn summarize(list: &[FxStat]) -> String {
     let mut out = format!(
         "{:<8} {:<22} {:>9} {:>8} {:>9} {:>7} {:>7} {:>6} {:>6}\n",
@@ -657,6 +685,7 @@ mod tests {
         assert_eq!((c.duration_ms, c.intensity), (DURATION_MIN, 100));
         let c: FxConfig = serde_json::from_str(r#"{"enabled":true}"#).unwrap();
         assert_eq!(c.minimize, Effect::Genie);
+        assert!(c.drag, "gélatine au déplacement activée par défaut");
     }
 
     /// Coût du rendu : `cargo test --release -p prism-core fx_bench -- --ignored --nocapture`.

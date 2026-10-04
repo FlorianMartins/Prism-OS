@@ -858,6 +858,10 @@ impl PrismApp {
                         .text("intensité de la déformation")
                         .suffix(" %"),
                 );
+                ui.checkbox(
+                    &mut cfg.fx.drag,
+                    "Gélatine pendant le déplacement : la fenêtre ondule quand on la fait glisser",
+                );
             });
         });
         if cfg.fx.enabled && !was_enabled {

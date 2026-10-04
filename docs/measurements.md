@@ -145,6 +145,13 @@ records every animation the bar plays.
 | Minimize by Windows (title-bar button, shortcut) | 4.5–5.6 ms | 1.4–1.5 ms / 4.6 ms | 0 / 52 |
 | Restore by Windows | 4.3–4.6 ms | 1.4 ms / 3.1 ms | 0 / 51 |
 | `prism fx demo` (restore, close, open) | 2–3 ms | ≈ 2.0 ms | 0 |
+| **Jelly while dragging** (5 drags, slow and fast, ≈ 1,000 px/s for the fastest) | 38–54 ms, see below | 2.2–2.9 ms / 9.5 ms | 0 in every drag (143 to 386 frames each) |
+
+Jelly while dragging: the 38–54 ms before the first jelly frame is the copy of the window
+(33–49 ms in this VM). During that time the real window is still shown and already follows
+the mouse, so nothing lags: the jelly replaces it once ready. Frames written by the bar
+itself during a drag (debug mode) show the far side of the window trailing and bending,
+then settling about half a second after release.
 
 - **Latency is below one frame** (16.7 ms at 60 Hz). The expensive step is copying the
   window (`PrintWindow`, 18–46 ms in this VM). It never sits between the action and the
@@ -163,6 +170,18 @@ Bugs found by these measurements and fixed:
   copied.
 - Waiting 40 ms for a new window to finish drawing made the open effect start 167 ms
   late. The wait was removed.
+- A window hidden at opacity 0 no longer receives the mouse: the drag stopped dead the
+  moment the jelly started. Windows are now hidden at opacity 1/255 (invisible to the
+  eye, still a mouse target).
+- The end-of-move event did not always arrive, which left the window hidden. The end of
+  a drag is now read from the window's own thread (`GetGUIThreadInfo`, flag
+  `GUI_INMOVESIZE`) at every frame, and a bar that is killed during an effect makes the
+  window visible again at its next start.
+
+Known limit: a minimize started from the window itself (title-bar button, shortcut) is
+animated from the copy taken when the window last got focus — Windows has already
+minimized it when the event arrives. If the window's content changed since, the first
+frames show the older content. Minimizing from the Prism Bar always uses a fresh copy.
 
 ## What cannot be measured in a VM
 
