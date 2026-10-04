@@ -309,6 +309,39 @@ fn set_power_plan(guid: &GUID) -> u32 {
     unsafe { PowerSetActiveScheme(null_mut(), guid) }
 }
 
+/// Listes mémoire brutes de Windows, en octets (diagnostic, `memlab`).
+#[derive(Clone, Copy, Debug, Default)]
+pub struct MemoryLists {
+    pub zero: u64,
+    pub free: u64,
+    pub modified: u64,
+    pub standby_by_priority: [u64; 8],
+}
+
+/// Nécessite les droits administrateur (SeProfileSingleProcessPrivilege).
+pub fn memory_lists() -> Option<MemoryLists> {
+    let mut info = SystemMemoryListInformation::default();
+    // SAFETY: structure de sortie locale, taille exacte.
+    let st = unsafe {
+        NtQuerySystemInformation(
+            SYSTEM_MEMORY_LIST_INFORMATION,
+            &mut info as *mut _ as *mut c_void,
+            size_of::<SystemMemoryListInformation>() as u32,
+            null_mut(),
+        )
+    };
+    if st < 0 {
+        return None;
+    }
+    let pages = |n: usize| n as u64 * PAGE;
+    Some(MemoryLists {
+        zero: pages(info.zero_page_count),
+        free: pages(info.free_page_count),
+        modified: pages(info.modified_page_count),
+        standby_by_priority: info.page_count_by_priority.map(pages),
+    })
+}
+
 fn memory_status() -> MemStatus {
     // SAFETY: structures de sortie locales, tailles passées explicitement.
     unsafe {
