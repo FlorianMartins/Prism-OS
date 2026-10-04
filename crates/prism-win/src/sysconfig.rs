@@ -16,10 +16,11 @@ use windows_sys::Win32::System::Registry::{
 };
 use windows_sys::Win32::System::Services::{
     ChangeServiceConfig2W, ChangeServiceConfigW, CloseServiceHandle, ControlService, OpenSCManagerW, OpenServiceW,
-    QueryServiceConfig2W, QueryServiceConfigW, StartServiceW, QUERY_SERVICE_CONFIGW, SC_HANDLE, SC_MANAGER_CONNECT,
-    SERVICE_AUTO_START, SERVICE_BOOT_START, SERVICE_CHANGE_CONFIG, SERVICE_CONFIG_DELAYED_AUTO_START_INFO,
-    SERVICE_CONTROL_STOP, SERVICE_DELAYED_AUTO_START_INFO, SERVICE_DEMAND_START, SERVICE_DISABLED, SERVICE_NO_CHANGE,
-    SERVICE_QUERY_CONFIG, SERVICE_QUERY_STATUS, SERVICE_START, SERVICE_STATUS, SERVICE_STOP, SERVICE_SYSTEM_START,
+    QueryServiceConfig2W, QueryServiceConfigW, QueryServiceStatus, StartServiceW, QUERY_SERVICE_CONFIGW, SC_HANDLE,
+    SC_MANAGER_CONNECT, SERVICE_AUTO_START, SERVICE_BOOT_START, SERVICE_CHANGE_CONFIG,
+    SERVICE_CONFIG_DELAYED_AUTO_START_INFO, SERVICE_CONTROL_STOP, SERVICE_DELAYED_AUTO_START_INFO,
+    SERVICE_DEMAND_START, SERVICE_DISABLED, SERVICE_NO_CHANGE, SERVICE_QUERY_CONFIG, SERVICE_QUERY_STATUS,
+    SERVICE_START, SERVICE_STATUS, SERVICE_STOP, SERVICE_STOP_PENDING, SERVICE_SYSTEM_START,
 };
 
 pub(crate) fn wide(s: &str) -> Vec<u16> {
@@ -287,7 +288,7 @@ impl SystemConfig for WindowsSystemConfig {
     }
 
     fn set_service_start(&mut self, name: &str, to: StartType) -> Result<(), String> {
-        let access = SERVICE_QUERY_CONFIG | SERVICE_CHANGE_CONFIG | SERVICE_STOP | SERVICE_START;
+        let access = SERVICE_QUERY_CONFIG | SERVICE_QUERY_STATUS | SERVICE_CHANGE_CONFIG | SERVICE_STOP | SERVICE_START;
         let Some((svc, _scm)) = open_service(name, access)? else {
             return Err("service absent".into());
         };
@@ -325,7 +326,17 @@ impl SystemConfig for WindowsSystemConfig {
                     SERVICE_CONFIG_DELAYED_AUTO_START_INFO,
                     &info as *const _ as *const c_void,
                 );
-                // Remis en automatique : on le relance tout de suite (sans attendre un redémarrage).
+                // Remis en automatique : on le relance tout de suite (sans attendre un
+                // redémarrage). S'il est encore en train de s'arrêter (arrêté par Prism
+                // juste avant), on attend la fin de l'arrêt, sinon le démarrage échoue
+                // (vu en VM : SysMain resté « Stop Pending »).
+                for _ in 0..50 {
+                    let mut st: SERVICE_STATUS = std::mem::zeroed();
+                    if QueryServiceStatus(svc.0, &mut st) == 0 || st.dwCurrentState != SERVICE_STOP_PENDING {
+                        break;
+                    }
+                    std::thread::sleep(std::time::Duration::from_millis(200));
+                }
                 StartServiceW(svc.0, 0, null());
             }
             if matches!(to, StartType::Disabled | StartType::Manual) {

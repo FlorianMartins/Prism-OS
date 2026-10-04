@@ -40,6 +40,7 @@ Utilisation : prism <commande>
   tools uninstall <x>     désinstalle un outil ou un pack (Kali : efface la distribution)
   rapport                 où part la mémoire (fichier texte à envoyer, sans données personnelles)
   allege restore          remet toutes les valeurs d'origine (admin)
+  allege on|off <clé>     un seul élément (svc:sysmain, app:msteams, pol:…, task:…)
   vie-privee              tableau de bord : protections en place, télémétrie qui parle en ce moment
   vie-privee apply [niveau]  applique : recommande (défaut) ou strict (admin)
   vie-privee restore      remet tout comme avant (admin)
@@ -531,6 +532,41 @@ fn platform_command(cfg: &Config, args: &[&str]) -> Result<(), String> {
         }
         ["watch"] => watch(cfg, false),
         ["watch", "--quiet"] => watch(cfg, true),
+        ["allege", onoff @ ("on" | "off"), key] => {
+            use prism_core::allege::{apply, change_for, journaled, restore_keys, AllegeJournal, Catalog};
+            let c = Catalog::builtin();
+            let path = sys::data_dir().join("allegement.json");
+            let mut journal = AllegeJournal::load(&path)?;
+            let r = if *onoff == "on" {
+                let change = change_for(&c, key)
+                    .ok_or_else(|| format!("élément inconnu « {key} » (ex. svc:sysmain, app:msteams)"))?;
+                apply(
+                    &mut prism_win::WindowsSystemConfig,
+                    &c,
+                    &[change],
+                    &mut journal,
+                    &mut |j| j.save(&path),
+                )
+            } else {
+                if !journaled(&journal, key) {
+                    return Err(format!("{key} : déjà ainsi avant Prism, rien à remettre"));
+                }
+                let r = restore_keys(&mut prism_win::WindowsSystemConfig, &mut journal, &[key.to_string()]);
+                journal.save(&path)?;
+                r
+            };
+            for l in r.done.iter().chain(&r.unchanged) {
+                println!("  {l}");
+            }
+            for f in &r.failed {
+                println!("  ÉCHEC : {f}");
+            }
+            if r.failed.is_empty() {
+                Ok(())
+            } else {
+                Err("échec".into())
+            }
+        }
         ["allege", "apply", tiers @ ..] => {
             use prism_core::allege::{apply, plan, AllegeJournal, Catalog};
             let c = Catalog::builtin();

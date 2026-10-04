@@ -48,6 +48,10 @@ pub struct StartupRow {
 
 #[derive(Clone, Debug)]
 pub struct AllegeRow {
+    /// Clé de l'élément (`svc:dps`…) : pour l'appliquer ou le remettre seul.
+    pub key: String,
+    /// Prism l'a changé (sa valeur d'origine est au journal : on peut la remettre).
+    pub by_prism: bool,
     pub tier: Tier,
     pub label: String,
     pub current: String,
@@ -127,6 +131,8 @@ pub trait Backend {
     fn allege(&mut self) -> Vec<AllegeRow>;
     fn allege_apply(&mut self, tier: Tier) -> Result<String, String>;
     fn allege_restore(&mut self) -> Result<String, String>;
+    /// Applique (`on`) ou remet (`!on`) un seul élément.
+    fn allege_toggle(&mut self, key: &str, on: bool) -> Result<String, String>;
 
     /// Plan automatique des jeux à anti-cheat noyau (réglages de l'utilisateur).
     fn noyau(&mut self) -> prism_core::noyau::Reglages {

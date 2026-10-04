@@ -276,6 +276,8 @@ impl Backend for MockBackend {
             .services
             .iter()
             .map(|s| AllegeRow {
+                key: String::new(),
+                by_prism: false,
                 tier: s.tier,
                 label: s.label.clone(),
                 current: if self.applied.contains(&s.tier) {
@@ -289,6 +291,8 @@ impl Backend for MockBackend {
             })
             .collect();
         rows.extend(c.policies.iter().map(|p| AllegeRow {
+            key: String::new(),
+            by_prism: false,
             tier: p.tier,
             label: p.label.clone(),
             current: if self.applied.contains(&p.tier) {
@@ -301,6 +305,8 @@ impl Backend for MockBackend {
             why: p.why.clone(),
         }));
         rows.extend(c.tasks.iter().map(|t| AllegeRow {
+            key: String::new(),
+            by_prism: false,
             tier: t.tier,
             label: format!("Tâche : {}", t.label),
             current: if self.applied.contains(&t.tier) {
@@ -314,6 +320,8 @@ impl Backend for MockBackend {
         }));
         rows.extend(c.apps.iter().map(|a| {
             AllegeRow {
+                key: String::new(),
+                by_prism: false,
                 tier: a.tier,
                 label: format!("Appli : {}", a.label),
                 current: if self.applied.contains(&a.tier) {
@@ -327,6 +335,13 @@ impl Backend for MockBackend {
                 why: a.why.clone(),
             }
         }));
+        // Même ordre que le plan : services, stratégies, tâches, applis.
+        let keys = prism_core::allege::plan(&c, &[Tier::Sur, Tier::Avance, Tier::Jeu, Tier::Extreme]);
+        debug_assert_eq!(keys.len(), rows.len());
+        for (r, k) in rows.iter_mut().zip(keys) {
+            r.key = k.key();
+            r.by_prism = r.done;
+        }
         rows
     }
 
@@ -343,6 +358,10 @@ impl Backend for MockBackend {
     fn set_noyau(&mut self, r: &prism_core::noyau::Reglages) -> Result<String, String> {
         self.noyau = r.clone();
         Ok("Plan « jeu noyau » enregistré".into())
+    }
+
+    fn allege_toggle(&mut self, key: &str, on: bool) -> Result<String, String> {
+        Ok(format!("{key} {}", if on { "appliqué" } else { "remis" }))
     }
 
     fn allege_apply(&mut self, tier: Tier) -> Result<String, String> {

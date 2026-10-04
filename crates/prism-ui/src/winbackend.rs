@@ -309,6 +309,8 @@ impl Backend for WinBackend {
                 };
                 let done = matches!(cur, Ok(Some(st)) if st == s.start) || matches!(cur, Ok(None));
                 AllegeRow {
+                    key: String::new(),
+                    by_prism: false,
                     tier: s.tier,
                     label: s.label.clone(),
                     current,
@@ -327,6 +329,8 @@ impl Backend for WinBackend {
             };
             let done = matches!(&cur, Ok(Some(d)) if *d == p.data);
             AllegeRow {
+                key: String::new(),
+                by_prism: false,
                 tier: p.tier,
                 label: p.label.clone(),
                 current,
@@ -345,6 +349,8 @@ impl Backend for WinBackend {
             };
             let done = matches!(cur, Ok(Some(false)) | Ok(None));
             AllegeRow {
+                key: String::new(),
+                by_prism: false,
                 tier: t.tier,
                 label: format!("Tâche : {}", t.label),
                 current,
@@ -361,6 +367,8 @@ impl Backend for WinBackend {
                 Err(e) => e.clone(),
             };
             AllegeRow {
+                key: String::new(),
+                by_prism: false,
                 tier: a.tier,
                 label: format!("Appli : {}", a.label),
                 current,
@@ -369,7 +377,39 @@ impl Backend for WinBackend {
                 why: a.why.clone(),
             }
         }));
+        // Même ordre que le plan : services, stratégies, tâches, applis.
+        let keys = prism_core::allege::plan(&c, &[Tier::Sur, Tier::Avance, Tier::Jeu, Tier::Extreme]);
+        debug_assert_eq!(keys.len(), rows.len());
+        let journal = allege::AllegeJournal::load(&data_dir().join("allegement.json")).unwrap_or_default();
+        for (r, k) in rows.iter_mut().zip(keys) {
+            r.key = k.key();
+            r.by_prism = allege::journaled(&journal, &r.key);
+        }
         rows
+    }
+
+    fn allege_toggle(&mut self, key: &str, on: bool) -> Result<String, String> {
+        let c = AllegeCatalog::builtin();
+        let path = data_dir().join("allegement.json");
+        let mut journal = allege::AllegeJournal::load(&path)?;
+        let r = if on {
+            let change = allege::change_for(&c, key).ok_or_else(|| format!("élément inconnu : {key}"))?;
+            allege::apply(&mut WindowsSystemConfig, &c, &[change], &mut journal, &mut |j| {
+                j.save(&path)
+            })
+        } else {
+            if !allege::journaled(&journal, key) {
+                return Err("Déjà ainsi avant Prism : rien à remettre".into());
+            }
+            let r = allege::restore_keys(&mut WindowsSystemConfig, &mut journal, &[key.to_string()]);
+            journal.save(&path)?;
+            r
+        };
+        match (r.done.first(), r.failed.first()) {
+            (_, Some(f)) => Err(f.clone()),
+            (Some(d), None) => Ok(d.clone()),
+            (None, None) => Ok(r.unchanged.first().cloned().unwrap_or_else(|| "Rien à changer".into())),
+        }
     }
 
     fn allege_apply(&mut self, tier: Tier) -> Result<String, String> {

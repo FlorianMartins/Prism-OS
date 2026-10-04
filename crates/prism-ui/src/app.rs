@@ -859,6 +859,7 @@ impl PrismApp {
         self.noyau_section(ui, &mut action);
         ui.add_space(12.0);
         self.webview_section(ui, &mut action);
+        let mut toggle: Option<(String, bool)> = None;
         for (tier, title, note) in [
             (
                 Tier::Sur,
@@ -904,11 +905,16 @@ impl PrismApp {
                     .striped(true)
                     .show(ui, |ui| {
                         for r in &rows {
-                            ui.label(RichText::new(if r.done { "✔" } else { "·" }).color(if r.done {
-                                th::ok()
-                            } else {
-                                th::muted()
-                            }));
+                            // Case par élément : cochée = appliqué. Décocher remet la valeur
+                            // d'origine, seulement si c'est Prism qui l'a changée.
+                            let mut on = r.done;
+                            let can = !r.done || r.by_prism;
+                            let resp = ui
+                                .add_enabled(can, egui::Checkbox::without_text(&mut on))
+                                .on_disabled_hover_text("Déjà ainsi avant Prism : rien à remettre");
+                            if resp.changed() {
+                                toggle = Some((r.key.clone(), on));
+                            }
                             ui.label(&r.label).on_hover_text(&r.why);
                             ui.label(
                                 RichText::new(format!("{}  ›  {}", r.current, r.target))
@@ -919,6 +925,9 @@ impl PrismApp {
                         }
                     });
             });
+        }
+        if let Some((key, on)) = toggle {
+            action = Some(self.backend.allege_toggle(&key, on));
         }
         if let Some(r) = action {
             self.result(r);

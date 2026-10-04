@@ -201,6 +201,13 @@ prism allege restore         # put back every original value
 changed, even by editing the catalogue. Be realistic: disabling services saves about
 100 MB; startup apps and Daily Mode are where the big gains are.
 
+**One item at a time**: every line of the *Allègement* page has its own checkbox —
+tick to apply that single item, untick to put its original value back (only for items
+Prism changed; an item that was already that way before Prism has nothing to put back).
+Command line: `prism allege on|off <key>` with keys such as `svc:sysmain`,
+`app:msteams`, `task:\microsoft\windows\…` or `pol:hklm\…\value`. A service set back to
+automatic is started again at once (Prism waits for a stop still in progress).
+
 **Extreme level** (*Extrême* in the app, *Allègement* page):
 
 - ~28 background services (diagnostics, Windows AI fabric, network discovery,

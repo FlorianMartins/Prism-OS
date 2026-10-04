@@ -350,7 +350,7 @@ impl Change {
         }
     }
 
-    fn key(&self) -> String {
+    pub fn key(&self) -> String {
         match self {
             Change::ServiceStart { name, .. } => format!("svc:{}", name.to_ascii_lowercase()),
             Change::RemoveApp { package, .. } => format!("app:{}", package.to_ascii_lowercase()),
@@ -643,6 +643,30 @@ pub fn restore(sys: &mut dyn SystemConfig, journal: &mut AllegeJournal) -> Alleg
     r
 }
 
+/// Changement du catalogue identifié par sa clé (`svc:dps`, `app:msteams`…), quel que
+/// soit son niveau : pour appliquer un seul élément.
+pub fn change_for(catalog: &Catalog, key: &str) -> Option<Change> {
+    plan(catalog, &[Tier::Sur, Tier::Avance, Tier::Jeu, Tier::Extreme])
+        .into_iter()
+        .find(|c| c.key() == key)
+}
+
+/// Remet seulement les éléments de ces clés ; les autres restent au journal.
+pub fn restore_keys(sys: &mut dyn SystemConfig, journal: &mut AllegeJournal, keys: &[String]) -> AllegeReport {
+    let (mine, others): (Vec<Original>, Vec<Original>) =
+        journal.originals.drain(..).partition(|o| keys.contains(&o.key()));
+    journal.originals = others;
+    let mut partial = AllegeJournal { originals: mine };
+    let r = restore(sys, &mut partial);
+    journal.originals.extend(partial.originals);
+    r
+}
+
+/// Prism a-t-il changé cet élément (valeur d'origine au journal) ?
+pub fn journaled(journal: &AllegeJournal, key: &str) -> bool {
+    journal.has(key)
+}
+
 /// Simulation pour les tests et la démonstration.
 #[derive(Clone, Debug, Default)]
 pub struct MockSystem {
@@ -754,6 +778,23 @@ mod tests {
         restore(&mut m, &mut j);
         assert!(m.apps.contains_key("microsoft.bingnews"));
         assert!(j.originals.is_empty());
+    }
+
+    #[test]
+    fn one_entry_can_be_applied_and_put_back_alone() {
+        let c = Catalog::builtin();
+        let mut m = stock_windows(&c);
+        let mut j = AllegeJournal::default();
+        run(&mut m, &c, &[Tier::Sur], &mut j);
+        let sysmain = change_for(&c, "svc:sysmain").unwrap();
+        apply(&mut m, &c, &[sysmain], &mut j, &mut |_| Ok(()));
+        assert_eq!(m.services["sysmain"], StartType::Disabled);
+        // Seul SysMain revient ; la télémétrie reste coupée.
+        restore_keys(&mut m, &mut j, &["svc:sysmain".into()]);
+        assert_eq!(m.services["sysmain"], StartType::Auto);
+        assert_eq!(m.services["diagtrack"], StartType::Disabled);
+        assert!(!journaled(&j, "svc:sysmain") && journaled(&j, "svc:diagtrack"));
+        assert!(change_for(&c, "svc:wuauserv").is_none());
     }
 
     #[test]
