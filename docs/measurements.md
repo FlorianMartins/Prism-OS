@@ -292,6 +292,35 @@ rights, so nothing configured in the app was ever applied — settings moved to 
 user's folder; the engine (which frees RAM) needs administrator rights and must start
 with Windows — app elevated through an on-demand task, *start with Windows* switch.
 
+## 10. Processor: the bar's 20 % found, two-speed engine — 2026-10-04
+
+After a report that Prism's CPU use "is what a web browser uses": same VM, engine and
+bar started in the user's session, 30 s warm-up, then 120 s measured (`cpu-avant-apres.ps1`:
+CPU time difference / wall time, so **% of one core**; Task Manager divides by the
+number of cores — 6 here). Desktop left as after earlier tests: ~50 windows open,
+tiling on.
+
+| Process | v0.8.0 | After |
+|---|---|---|
+| `prism watch` (engine) | 5.1 MB, 0.18 % (219 ms / 120 s) | 5.1 MB, 0.18 % |
+| Prism Bar | 11.8 MB, **19.8 %** (23.7 s / 120 s) | 11.3 MB, **0.26 %** (313 ms / 120 s) |
+
+- **Cause of the 20 %** (also the "23.6 % under intense activity" of §9): the tiling
+  manager set aside a window that does not fit its tile, but that changed the set of
+  windows it watches, which immediately put the window back in a tile — every window
+  was moved again on every pass (debug log: 333 moves per pass). Fixed: the watched set
+  includes floating windows; and no tile is smaller than 320 × 200 — the extra
+  (newest) windows stay where they are instead of becoming 7-pixel-high tiles.
+- **Bar**: one update every 2 s instead of every second, GPU counter (the most
+  expensive) read every other update, and the bar is redrawn only when what it shows
+  changes (values rounded as displayed, windows, active window, minute) — at least every
+  30 s for the graphs. A change of active window, a click or a shortcut redraws at once.
+- **Engine**: each pass (2 s) now only lists process IDs (no process opened); the full
+  scan (path, memory, CPU time of every process) runs when a new process appeared
+  (could be a game: Game Mode engages as fast as before), during a game and its restore
+  delay, and otherwise every 10 s. Already light at idle, so no measurable change here;
+  the saving shows with many processes.
+
 ## What cannot be measured in a VM
 
 - **FPS and micro-stutters**: this requires a real gaming PC, with a protocol published

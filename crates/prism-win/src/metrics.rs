@@ -37,6 +37,9 @@ pub struct Metrics {
     last_cpu: Option<(u64, u64)>,
     last_net: Option<(u64, u64, std::time::Instant)>,
     gpu_query: Option<(Pdh, Pdh)>,
+    /// Le compteur GPU (le plus coûteux) n'est lu qu'une mesure sur deux.
+    gpu_turn: u32,
+    last_gpu: Option<f32>,
 }
 
 impl Default for Metrics {
@@ -51,6 +54,8 @@ impl Metrics {
             last_cpu: None,
             last_net: None,
             gpu_query: open_gpu_query(),
+            gpu_turn: 0,
+            last_gpu: None,
         }
     }
 
@@ -93,7 +98,11 @@ impl Metrics {
             }
             self.last_net = Some((down, up, now));
         }
-        s.gpu = self.gpu_query.and_then(|(q, c)| gpu_percent(q, c));
+        if self.gpu_turn % 2 == 0 {
+            self.last_gpu = self.gpu_query.and_then(|(q, c)| gpu_percent(q, c));
+        }
+        self.gpu_turn = self.gpu_turn.wrapping_add(1);
+        s.gpu = self.last_gpu;
         s
     }
 }

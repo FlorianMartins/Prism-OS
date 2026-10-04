@@ -253,7 +253,8 @@ Configure it live in **prism-ui → Apparence**:
   **+Left/Right** previous/next window, **+Up/Down** main width, **+F** float/tile the
   active window. Drop a window on another one to swap them. Games, fullscreen windows,
   dialogs and maximized windows are never tiled; a window too large for its tile (some
-  apps impose a minimum size) stays floating. Turning tiling off puts every window back
+  apps impose a minimum size) stays floating, and no tile gets smaller than 320 × 200:
+  extra windows stay where they are. Turning tiling off puts every window back
   where it was;
 - **theme** (top of the page): Prism, Nord, Dracula, Catppuccin Mocha, Gruvbox, Tokyo
   Night, Rouge gaming or Clair (light, Solarized), plus an optional custom accent

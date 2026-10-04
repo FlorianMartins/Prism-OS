@@ -185,11 +185,10 @@ impl Tiler {
 
     /// Met en tuiles `windows` (déjà filtrées) ; renvoie le nombre de fenêtres déplacées.
     pub fn apply(&mut self, windows: &[HWND], cfg: &TilingConfig, scale: f32) -> usize {
-        let mut set: Vec<isize> = windows
-            .iter()
-            .map(|w| *w as isize)
-            .filter(|w| !self.auto_floating.contains(w))
-            .collect();
+        // Ensemble des fenêtres ouvertes, flottantes comprises : mettre une fenêtre de
+        // côté ne doit pas le changer (sinon elle était aussitôt remise en tuile, et
+        // tout était replacé à chaque passage — vu en VM : 333 déplacements par passe).
+        let mut set: Vec<isize> = windows.iter().map(|w| *w as isize).collect();
         set.sort_unstable();
         if set != self.last_set {
             for w in self.auto_floating.drain() {
@@ -210,9 +209,21 @@ impl Tiler {
         let mut moved = 0;
         let mut overflow = Vec::new();
         for (mon, current) in by_monitor {
-            let order = keep_order(self.order.get(&mon).map(Vec::as_slice).unwrap_or(&[]), &current);
+            let mut order = keep_order(self.order.get(&mon).map(Vec::as_slice).unwrap_or(&[]), &current);
             let Some(area) = work_area(mon) else { continue };
-            let tiles = tile(cfg.layout, area, order.len(), gap, cfg.master_ratio());
+            // Pas de tuile plus petite que 320 × 200 : les fenêtres en trop (les plus
+            // récentes) restent libres là où elles sont.
+            let (min_w, min_h) = ((320.0 * scale) as i32, (200.0 * scale) as i32);
+            let mut tiles = tile(cfg.layout, area, order.len(), gap, cfg.master_ratio());
+            while order.len() > 1 && tiles.iter().any(|t| t.width() < min_w || t.height() < min_h) {
+                if let Some(extra) = order.pop() {
+                    // Elle était en tuile : elle reprend sa place d'origine.
+                    if self.placed.remove(&extra).is_some() {
+                        self.give_back(extra as HWND);
+                    }
+                }
+                tiles = tile(cfg.layout, area, order.len(), gap, cfg.master_ratio());
+            }
             for (h, t) in order.iter().zip(&tiles) {
                 let hwnd = *h as HWND;
                 if !self.original.contains_key(h) {

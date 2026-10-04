@@ -108,7 +108,7 @@ impl Backend for WinBackend {
         top.sort_by(|a, b| b.cpu_percent.total_cmp(&a.cpu_percent).then(b.ram.cmp(&a.ram)));
         top.truncate(12);
         let etat = Etat::load();
-        let watch_alive = etat.as_ref().is_some_and(|e| e.alive(now_unix(), 15));
+        let watch_alive = etat.as_ref().is_some_and(|e| e.alive(now_unix(), 30));
         let cores = prism_core::cores::split(&snap.cpus)
             .map(|s| s.describe())
             .unwrap_or_else(|| format!("{} cœurs logiques homogènes", snap.cpus.len()));

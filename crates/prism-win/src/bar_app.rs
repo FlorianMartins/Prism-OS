@@ -139,6 +139,9 @@ struct Bar {
     tick_costs: [Duration; 8],
     paint_cost: Duration,
     tick_count: u64,
+    /// Empreinte de ce qui était affiché au dernier redessin : rien ne change, rien
+    /// n'est redessiné.
+    drawn_key: u64,
 }
 
 /// Gélatine pendant un déplacement : la vraie fenêtre, rendue invisible, est
@@ -932,6 +935,38 @@ impl Bar {
         }
     }
 
+    fn invalidate_all(&self) {
+        // SAFETY: invalidation de nos propres fenêtres.
+        unsafe {
+            for p in &self.panels {
+                InvalidateRect(p.hwnd, null(), 0);
+            }
+            for d in &self.desk {
+                InvalidateRect(d.hwnd, null(), 0);
+            }
+        }
+    }
+
+    /// Empreinte de ce que la barre montre.
+    fn display_key(&self) -> u64 {
+        use std::hash::{Hash, Hasher};
+        let mut h = std::collections::hash_map::DefaultHasher::new();
+        let s = &self.sample;
+        (s.cpu.round() as i32, s.ram.round() as i32, s.gpu.map(|g| g.round() as i32)).hash(&mut h);
+        (human_rate(s.net_down), human_rate(s.net_up), s.ram_used >> 24).hash(&mut h);
+        for w in &self.windows {
+            (w.hwnd as usize, &w.title, w.pid).hash(&mut h);
+        }
+        // SAFETY: lectures sans effet.
+        let (fg, minute) = unsafe {
+            let mut t = std::mem::zeroed();
+            GetLocalTime(&mut t);
+            (GetForegroundWindow() as usize, (t.wHour, t.wMinute))
+        };
+        (fg, minute, self.game, self.desk_hidden, self.panels.len(), self.cfg_stamp).hash(&mut h);
+        h.finish()
+    }
+
     fn tick(&mut self) {
         // Mesure du coût de chaque étape (diagnostic, si `fx-debug.log` existe).
         let mut t = Instant::now();
@@ -972,14 +1007,12 @@ impl Bar {
         lap(5, &mut costs);
         self.relayout();
         lap(6, &mut costs);
-        // SAFETY: invalidation de nos propres fenêtres.
-        unsafe {
-            for p in &self.panels {
-                InvalidateRect(p.hwnd, null(), 0);
-            }
-            for d in &self.desk {
-                InvalidateRect(d.hwnd, null(), 0);
-            }
+        // Redessin seulement si l'affichage change (valeurs arrondies comme à l'écran,
+        // fenêtres, heure), et au moins toutes les 30 s pour les courbes.
+        let key = self.display_key();
+        if key != self.drawn_key || self.tick_count % 15 == 0 {
+            self.drawn_key = key;
+            self.invalidate_all();
         }
         lap(7, &mut costs);
         self.tick_count += 1;
@@ -1478,6 +1511,7 @@ impl Bar {
     /// Suit l'appli au premier plan : son cadre, et l'abonnement aux changements de
     /// position de ses fenêtres (seulement si la glisse est activée).
     fn follow_foreground(&mut self, h: HWND) {
+        self.invalidate_all();
         use windows_sys::Win32::UI::Accessibility::{SetWinEventHook, UnhookWinEvent};
         // SAFETY: lecture d'état.
         if unsafe { IsIconic(h) } == 0 {
@@ -2543,7 +2577,10 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) 
             0
         }
         WM_HOTKEY => {
-            with_bar(|b| b.hotkey(wp as i32));
+            with_bar(|b| {
+                b.hotkey(wp as i32);
+                b.invalidate_all();
+            });
             0
         }
         WM_TIMER => {
@@ -2571,7 +2608,10 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) 
         WM_LBUTTONUP => {
             let x = (lp & 0xffff) as i16 as i32;
             let y = ((lp >> 16) & 0xffff) as i16 as i32;
-            with_bar(|b| b.click(hwnd, x, y));
+            with_bar(|b| {
+                b.click(hwnd, x, y);
+                b.invalidate_all();
+            });
             0
         }
         WM_APPBAR => {
@@ -2727,6 +2767,7 @@ pub fn run() -> Result<(), String> {
                 tick_costs: [Duration::ZERO; 8],
                 paint_cost: Duration::ZERO,
                 tick_count: 0,
+                drawn_key: 0,
             })
         });
         with_bar(|b| {
@@ -2739,7 +2780,7 @@ pub fn run() -> Result<(), String> {
             b.tick();
         });
         ShowWindow(hwnd, SW_SHOWNOACTIVATE);
-        SetTimer(hwnd, TIMER_ID, 1000, None);
+        SetTimer(hwnd, TIMER_ID, 2000, None);
         {
             use windows_sys::Win32::UI::Input::KeyboardAndMouse::{
                 RegisterHotKey, MOD_ALT, MOD_CONTROL, MOD_NOREPEAT, MOD_WIN,

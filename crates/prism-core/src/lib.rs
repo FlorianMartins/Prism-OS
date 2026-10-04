@@ -7,6 +7,7 @@
 pub mod allege;
 pub mod apparence;
 pub mod backup;
+pub mod cadence;
 pub mod bar;
 pub mod classify;
 pub mod config;

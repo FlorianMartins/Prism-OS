@@ -18,6 +18,13 @@ pub enum Outcome {
 pub trait Platform {
     fn snapshot(&mut self) -> Result<Snapshot, String>;
 
+    /// PID des processus présents, à bas coût (sans ouvrir les processus) : sert à
+    /// sauter le relevé complet quand rien de nouveau n'a démarré. `None` : la
+    /// plateforme ne sait pas, le relevé complet est fait à chaque passe.
+    fn process_ids(&mut self) -> Option<Vec<u32>> {
+        None
+    }
+
     /// Applique l'action. Une action qui vise un processus doit vérifier son
     /// identité complète (PID + date de création) avant d'agir, et ne jamais
     /// *remonter* une priorité (CPU ou mémoire) déjà plus basse que la cible :

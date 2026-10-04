@@ -532,6 +532,26 @@ impl Default for WindowsPlatform {
 }
 
 impl Platform for WindowsPlatform {
+    fn process_ids(&mut self) -> Option<Vec<u32>> {
+        // SAFETY: même instantané Toolhelp que `snapshot`, sans ouvrir aucun processus.
+        unsafe {
+            let snap = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
+            if snap == INVALID_HANDLE_VALUE {
+                return None;
+            }
+            let snap = Owned(snap);
+            let mut entry: PROCESSENTRY32W = zeroed();
+            entry.dwSize = size_of::<PROCESSENTRY32W>() as u32;
+            let mut pids = Vec::with_capacity(256);
+            let mut more = Process32FirstW(snap.0, &mut entry) != 0;
+            while more {
+                pids.push(entry.th32ProcessID);
+                more = Process32NextW(snap.0, &mut entry) != 0;
+            }
+            Some(pids)
+        }
+    }
+
     fn snapshot(&mut self) -> Result<Snapshot, String> {
         // SAFETY: instantané Toolhelp ; la structure est initialisée avec sa taille et
         // le handle est fermé par Owned.

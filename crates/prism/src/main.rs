@@ -1062,6 +1062,9 @@ fn update_apply(msi: &str, bar: bool, engine: bool) -> Result<(), String> {
 
 /// Tâche à la demande qui ouvre l'appli avec les droits administrateur, sans invite.
 #[cfg(windows)]
+/// Hors partie, intervalle du relevé complet des processus (secondes).
+const FULL_SCAN_SECS: u64 = 10;
+
 const ADMIN_TASK: &str = "Prism (admin)";
 
 #[cfg(windows)]
@@ -1317,7 +1320,9 @@ fn watch(cfg: &Config, quiet: bool) -> Result<(), String> {
         ..Default::default()
     };
     let mut written = prism_core::etat::Etat::default();
-    let mut ticks: u64 = 0;
+    let mut written_at = std::time::Instant::now();
+    // Relevé complet au plus toutes les 10 s hors partie (vérification légère à chaque passe).
+    let mut cadence = prism_core::cadence::Cadence::new(FULL_SCAN_SECS.max(cfg.poll_seconds));
     out.line(&format!(
         "Prism en marche (profil {}) : Mode Quotidien permanent, Mode Jeu automatique.",
         sys::active_profile(cfg)
@@ -1330,6 +1335,11 @@ fn watch(cfg: &Config, quiet: bool) -> Result<(), String> {
         // Le profil peut changer pendant la surveillance (`prism profile cyber`).
         let profile_name = sys::active_profile(cfg);
         let profile = cfg.profile(&profile_name)?.clone();
+        let busy = watcher.session.is_some();
+        let Some(since_full) = cadence.due(w.process_ids(), busy, cfg.poll_seconds) else {
+            sys::sleep_interruptible(Duration::from_secs(cfg.poll_seconds));
+            continue;
+        };
         match w.snapshot() {
             Ok(snap) => {
                 let event = watcher.tick(&mut w, &mut store, cfg, &profile_name, &profile, &snap);
@@ -1339,7 +1349,7 @@ fn watch(cfg: &Config, quiet: bool) -> Result<(), String> {
                     cfg,
                     &profile,
                     &snap,
-                    cfg.poll_seconds,
+                    since_full.max(cfg.poll_seconds),
                     watcher.engaged(),
                 );
                 if !r.done.is_empty() || !r.failed.is_empty() {
@@ -1364,14 +1374,16 @@ fn watch(cfg: &Config, quiet: bool) -> Result<(), String> {
                 etat.game = watcher.games.clone();
                 etat.eased = daily.eased_names(&snap);
                 etat.mem = snap.mem;
-                ticks += 1;
-                if !etat.same_content(&written) || ticks % 5 == 0 {
+                // Écrit si l'état a changé, sinon une fois par relevé complet espacé
+                // (signe de vie lu par l'appli).
+                if !etat.same_content(&written) || written_at.elapsed() >= Duration::from_secs(FULL_SCAN_SECS) {
                     etat.updated_unix = std::time::SystemTime::now()
                         .duration_since(std::time::UNIX_EPOCH)
                         .map(|d| d.as_secs())
                         .unwrap_or(0);
                     if etat.save().is_ok() {
                         written = etat.clone();
+                        written_at = std::time::Instant::now();
                     }
                 }
                 match event {
