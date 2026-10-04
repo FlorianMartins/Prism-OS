@@ -457,6 +457,33 @@ impl Backend for WinBackend {
         (rows, prism_win::telemetry_connections(&c))
     }
 
+    fn privacy_toggle(&mut self, key: &str, on: bool) -> Result<String, String> {
+        use prism_core::privacy::{apply, change_for, journal_path, journaled, restore_keys, Catalog, Journal};
+        let path = journal_path();
+        let mut journal = Journal::load(&path)?;
+        let c = Catalog::builtin();
+        let r = if on {
+            let change = change_for(&c, key).ok_or_else(|| format!("élément inconnu : {key}"))?;
+            apply(
+                &mut prism_win::WindowsPrivacy::new(),
+                &[change],
+                &mut journal,
+                &mut |j| j.save(&path),
+            )
+        } else {
+            if !journaled(&journal, key) {
+                return Err("Déjà ainsi avant Prism : rien à remettre".into());
+            }
+            restore_keys(&mut prism_win::WindowsPrivacy::new(), &mut journal, &[key.to_string()])
+        };
+        journal.save(&path)?;
+        match (r.done.first(), r.failed.first()) {
+            (_, Some(f)) => Err(f.clone()),
+            (Some(d), None) => Ok(d.clone()),
+            (None, None) => Ok(r.unchanged.first().cloned().unwrap_or_else(|| "Rien à changer".into())),
+        }
+    }
+
     fn privacy_apply(&mut self, level: prism_core::privacy::Level) -> Result<String, String> {
         use prism_core::privacy::{apply, journal_path, plan, Catalog, Journal};
         let c = Catalog::builtin();

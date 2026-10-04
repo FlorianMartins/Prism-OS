@@ -630,6 +630,7 @@ impl PrismApp {
 
     fn privacy_page(&mut self, ui: &mut egui::Ui) {
         use prism_core::privacy::{score, Category, Kind, Level, State};
+        let mut toggle: Option<(String, bool)> = None;
         let mut action: Option<Result<String, String>> = None;
         let (on, total) = score(&self.privacy);
         card(ui, true, |ui| {
@@ -731,13 +732,24 @@ impl PrismApp {
                     .striped(true)
                     .show(ui, |ui| {
                         for r in &rows {
-                            let (mark, color) = match &r.state {
-                                State::On => ("✔", th::ok()),
-                                State::Off => ("·", th::muted()),
-                                State::Absent => ("–", th::muted()),
-                                State::Unknown(_) => ("⚠", th::warn()),
-                            };
-                            ui.label(RichText::new(mark).color(color));
+                            match (&r.key, &r.state) {
+                                // Réglage ou règle de Prism : une case par ligne.
+                                (Some(key), State::On | State::Off) => {
+                                    let mut on = r.state == State::On;
+                                    if ui.add(egui::Checkbox::without_text(&mut on)).changed() {
+                                        toggle = Some((key.clone(), on));
+                                    }
+                                }
+                                _ => {
+                                    let (mark, color) = match &r.state {
+                                        State::On => ("✔", th::ok()),
+                                        State::Off => ("·", th::muted()),
+                                        State::Absent => ("–", th::muted()),
+                                        State::Unknown(_) => ("⚠", th::warn()),
+                                    };
+                                    ui.label(RichText::new(mark).color(color));
+                                }
+                            }
                             let mut tip = r.why.clone();
                             if let Some(l) = &r.lose {
                                 tip.push_str(&format!("\n\nOn renonce à : {l}"));
@@ -769,6 +781,9 @@ impl PrismApp {
                         }
                     });
             });
+        }
+        if let Some((key, on)) = toggle {
+            action = Some(self.backend.privacy_toggle(&key, on));
         }
         if let Some(r) = action {
             self.result(r);

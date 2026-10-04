@@ -160,6 +160,8 @@ pub trait Backend {
     );
     fn privacy_apply(&mut self, level: prism_core::privacy::Level) -> Result<String, String>;
     fn privacy_restore(&mut self) -> Result<String, String>;
+    /// Applique (`on`) ou remet (`!on`) un seul réglage ou une seule règle.
+    fn privacy_toggle(&mut self, key: &str, on: bool) -> Result<String, String>;
 
     fn games(&mut self) -> Vec<Game>;
     fn launch(&mut self, game: &Game) -> Result<String, String>;

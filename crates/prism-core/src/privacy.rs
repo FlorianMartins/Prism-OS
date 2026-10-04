@@ -285,7 +285,7 @@ impl Change {
         }
     }
 
-    fn key(&self) -> String {
+    pub fn key(&self) -> String {
         match self {
             Change::Reg { key, value, .. } => {
                 format!("reg:{}\\{}", key.to_ascii_lowercase(), value.to_ascii_lowercase())
@@ -548,6 +548,28 @@ pub struct Row {
     /// « Prism » ou le module qui s'en charge.
     pub source: String,
     pub reboot: bool,
+    /// Clé du changement (`reg:…`, `rule:…`) ; `None` pour un contrôle en lecture seule.
+    pub key: Option<String>,
+}
+
+/// Changement du catalogue identifié par sa clé, quel que soit son niveau.
+pub fn change_for(catalog: &Catalog, key: &str) -> Option<Change> {
+    plan(catalog, Level::Strict).into_iter().find(|c| c.key() == key)
+}
+
+/// Remet seulement les éléments de ces clés.
+pub fn restore_keys(sys: &mut dyn PrivacySystem, journal: &mut Journal, keys: &[String]) -> Report {
+    let (mine, others): (Vec<Original>, Vec<Original>) =
+        journal.originals.drain(..).partition(|o| keys.contains(&o.key()));
+    journal.originals = others;
+    let mut partial = Journal { originals: mine };
+    let r = restore(sys, &mut partial);
+    journal.originals.extend(partial.originals);
+    r
+}
+
+pub fn journaled(journal: &Journal, key: &str) -> bool {
+    journal.originals.iter().any(|o| o.key() == key)
 }
 
 pub fn status(sys: &mut dyn PrivacySystem, catalog: &Catalog) -> Vec<Row> {
@@ -568,6 +590,14 @@ pub fn status(sys: &mut dyn PrivacySystem, catalog: &Catalog) -> Vec<Row> {
             lose: r.lose.clone(),
             source: "Prism".into(),
             reboot: r.reboot,
+            key: Some(
+                Change::Reg {
+                    key: r.full_key(),
+                    value: r.value.clone(),
+                    data: r.data.clone(),
+                }
+                .key(),
+            ),
         });
     }
     for f in &catalog.firewall {
@@ -590,6 +620,7 @@ pub fn status(sys: &mut dyn PrivacySystem, catalog: &Catalog) -> Vec<Row> {
             lose: f.lose.clone(),
             source: "Prism".into(),
             reboot: false,
+            key: Some(format!("rule:{}", f.rule_name().to_ascii_lowercase())),
         });
     }
     for c in &catalog.check {
@@ -626,6 +657,7 @@ pub fn status(sys: &mut dyn PrivacySystem, catalog: &Catalog) -> Vec<Row> {
             lose: None,
             source: c.source.clone(),
             reboot: false,
+            key: None,
         });
     }
     rows
@@ -759,6 +791,29 @@ mod tests {
         assert_eq!(sys.reg, before, "registre remis exactement");
         assert!(sys.rules.is_empty(), "règles de Prism supprimées");
         assert!(j.originals.is_empty());
+    }
+
+    #[test]
+    fn every_status_row_key_maps_to_one_change_and_can_be_put_back_alone() {
+        let c = Catalog::builtin();
+        let mut sys = MockPrivacy::default();
+        let rows = status(&mut sys, &c);
+        for r in rows.iter().filter(|r| r.kind != Kind::Check) {
+            let key = r.key.as_ref().expect("clé");
+            assert!(change_for(&c, key).is_some(), "{key} sans changement");
+        }
+        assert!(rows.iter().filter(|r| r.kind == Kind::Check).all(|r| r.key.is_none()));
+        // Appliquer tout, puis remettre une seule ligne.
+        let mut j = Journal::default();
+        run(&mut sys, Level::Strict, &mut j);
+        let first = rows[0].key.clone().unwrap();
+        let before = j.originals.len();
+        restore_keys(&mut sys, &mut j, &[first.clone()]);
+        assert_eq!(j.originals.len(), before - 1);
+        assert!(!journaled(&j, &first));
+        let after = status(&mut sys, &c);
+        assert_eq!(after[0].state, State::Off);
+        assert_eq!(after[1].state, State::On);
     }
 
     #[test]

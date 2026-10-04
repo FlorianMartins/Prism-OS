@@ -294,6 +294,12 @@ panel and one line per protection.
 - On Windows Home and Pro, Windows keeps the "required" diagnostic level whatever the
   policy says (Microsoft's rule); the firewall rules work on every edition.
 
+**One item at a time**: each setting and firewall rule on the *Vie privée* page has its
+own checkbox (tick to apply, untick to put the original back). The lines checked through
+debloat (*via prism allege*) stay read-only there — two journals on the same value would
+undo each other. Command line: `prism vie-privee` shows each line's key, `prism
+vie-privee on|off <key>` (e.g. `rule:prism os - compattelrunner`).
+
 ## 9. Appearance (`prism apparence`)
 
 Official Windows settings only: window animations (minimize/maximize, open/close, menus,

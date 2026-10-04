@@ -399,6 +399,28 @@ impl Backend for MockBackend {
         (rows, conns)
     }
 
+    fn privacy_toggle(&mut self, key: &str, on: bool) -> Result<String, String> {
+        use prism_core::privacy::{apply, change_for, journaled, restore_keys, Catalog};
+        let mut journal = std::mem::take(&mut self.privacy_journal);
+        let c = Catalog::builtin();
+        let r = if on {
+            let change = change_for(&c, key).ok_or_else(|| format!("élément inconnu : {key}"))?;
+            apply(&mut self.privacy, &[change], &mut journal, &mut |_| Ok(()))
+        } else {
+            if !journaled(&journal, key) {
+                self.privacy_journal = journal;
+                return Err("Déjà ainsi avant Prism : rien à remettre".into());
+            }
+            restore_keys(&mut self.privacy, &mut journal, &[key.to_string()])
+        };
+        self.privacy_journal = journal;
+        match (r.done.first(), r.failed.first()) {
+            (_, Some(f)) => Err(f.clone()),
+            (Some(d), None) => Ok(d.clone()),
+            (None, None) => Ok(r.unchanged.first().cloned().unwrap_or_else(|| "Rien à changer".into())),
+        }
+    }
+
     fn privacy_apply(&mut self, level: prism_core::privacy::Level) -> Result<String, String> {
         let c = prism_core::privacy::Catalog::builtin();
         let r = prism_core::privacy::apply(

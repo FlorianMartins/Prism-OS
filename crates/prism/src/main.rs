@@ -40,6 +40,7 @@ Utilisation : prism <commande>
   tools uninstall <x>     désinstalle un outil ou un pack (Kali : efface la distribution)
   rapport                 où part la mémoire (fichier texte à envoyer, sans données personnelles)
   allege restore          remet toutes les valeurs d'origine (admin)
+  vie-privee on|off <clé> un seul réglage ou une seule règle (clés : prism vie-privee)
   allege on|off <clé>     un seul élément (svc:sysmain, app:msteams, pol:…, task:…)
   vie-privee              tableau de bord : protections en place, télémétrie qui parle en ce moment
   vie-privee apply [niveau]  applique : recommande (défaut) ou strict (admin)
@@ -252,7 +253,8 @@ fn print_privacy(rows: &[prism_core::privacy::Row]) {
                 _ => String::new(),
             };
             let kind = if r.kind == Kind::Firewall { " [pare-feu]" } else { "" };
-            println!("  {mark} {}{kind}  ({level})", r.label);
+            let key = r.key.as_deref().map(|k| format!("  [{k}]")).unwrap_or_default();
+            println!("  {mark} {}{kind}  ({level}){key}", r.label);
             if let State::Unknown(e) = &r.state {
                 println!("      {e}");
             }
@@ -937,6 +939,36 @@ fn platform_command(cfg: &Config, args: &[&str]) -> Result<(), String> {
                 Ok(())
             } else {
                 Err("certains changements ont échoué (droits administrateur ?)".into())
+            }
+        }
+        ["vie-privee", onoff @ ("on" | "off"), key] => {
+            use prism_core::privacy::{apply, change_for, journal_path, journaled, restore_keys, Catalog, Journal};
+            let c = Catalog::builtin();
+            let path = journal_path();
+            let mut j = Journal::load(&path)?;
+            let mut sysp = prism_win::WindowsPrivacy::new();
+            let r = if *onoff == "on" {
+                let change = change_for(&c, key)
+                    .ok_or_else(|| format!("élément inconnu « {key} » (clés : prism vie-privee)"))?;
+                apply(&mut sysp, &[change], &mut j, &mut |x| x.save(&path))
+            } else {
+                if !journaled(&j, key) {
+                    return Err(format!("{key} : déjà ainsi avant Prism, rien à remettre"));
+                }
+                let r = restore_keys(&mut sysp, &mut j, &[key.to_string()]);
+                j.save(&path)?;
+                r
+            };
+            for l in r.done.iter().chain(&r.unchanged) {
+                println!("  {l}");
+            }
+            for f in &r.failed {
+                println!("  ÉCHEC : {f}");
+            }
+            if r.failed.is_empty() {
+                Ok(())
+            } else {
+                Err("échec".into())
             }
         }
         ["vie-privee", "restore"] => {
