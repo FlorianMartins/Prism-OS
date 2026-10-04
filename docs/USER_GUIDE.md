@@ -186,12 +186,17 @@ in **prism-ui → Apparence → Effets de fenêtres** (window effects):
 
 | Setting | Choices |
 |---|---|
-| Réduire / Restaurer / Ouvrir / Fermer (minimize / restore / open / close) | Aucun (none), Lampe de génie (genie lamp: the window is sucked into its bar button, and comes back out of it), Gélatine (jelly: spring-damped wobble), Zoom et fondu (zoom and fade) |
+| Réduire / Restaurer / Ouvrir / Fermer (minimize / restore / open / close) — one effect per action | Aucun (none) · Lampe de génie (genie lamp: sucked into its bar button, and back out) · Écrasement (squash: shrinks straight into its bar button) · Gélatine (jelly: spring-damped wobble) · Zoom et fondu (zoom and fade) · Fondu (fade) · Bascule 3D (3D tilt: falls back in perspective while fading) · Éclatement (fall apart: breaks into tumbling pieces; reassembles when opening) |
+| Agrandir / ancrer (maximize, snap to a screen edge, back to normal size) | Aucun · Glisse (glide: the window slides and stretches from its old frame to the new one) · Gélatine (same path with an elastic bounce) · Fondu enchaîné (crossfade in place) |
 | Durée (duration) | 120–900 ms |
 | Intensité (deformation intensity) | 0–100 % |
 | Gélatine pendant le déplacement (jelly while dragging) | on (default) / off |
 
 - The Prism Bar must be running: it plays the effects in a click-through overlay.
+- Maximize/snap animations play for the maximize button, double-clicking the title
+  bar, Win+arrow keys, dropping a window on a screen edge (straight from the drag jelly)
+  and any app that resizes its own window. They start from the window's last image and
+  fade into the real window at its new size.
 - Turning the effects on also sets Windows' own minimize animation to *Instantanée*
   (instant), so the two do not overlap. **Apparence → Réglages d'origine** (original
   settings) puts it back.

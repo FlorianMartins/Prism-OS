@@ -124,10 +124,27 @@ pub enum Effect {
     Jelly,
     /// Zoom et fondu.
     Zoom,
+    /// Fondu simple.
+    Fade,
+    /// Écrasement vers le bouton de la barre (KDE « Squash »).
+    Squash,
+    /// Bascule 3D vers l'arrière avec fondu (KDE « Glide »).
+    Glide,
+    /// Éclatement en carreaux (KDE « Fall Apart »).
+    FallApart,
 }
 
 impl Effect {
-    pub const ALL: [Effect; 4] = [Effect::None, Effect::Genie, Effect::Jelly, Effect::Zoom];
+    pub const ALL: [Effect; 8] = [
+        Effect::None,
+        Effect::Genie,
+        Effect::Squash,
+        Effect::Jelly,
+        Effect::Zoom,
+        Effect::Fade,
+        Effect::Glide,
+        Effect::FallApart,
+    ];
 
     pub fn label(self) -> &'static str {
         match self {
@@ -135,6 +152,10 @@ impl Effect {
             Effect::Genie => "Lampe de génie",
             Effect::Jelly => "Gélatine",
             Effect::Zoom => "Zoom et fondu",
+            Effect::Fade => "Fondu",
+            Effect::Squash => "Écrasement",
+            Effect::Glide => "Bascule 3D",
+            Effect::FallApart => "Éclatement",
         }
     }
 }
@@ -154,6 +175,8 @@ pub struct FxConfig {
     pub intensity: u8,
     /// Gélatine pendant le déplacement d'une fenêtre (`wobbly`).
     pub drag: bool,
+    /// Agrandir, ancrer sur un bord, revenir à la taille normale.
+    pub maximize: crate::fx_effects::MorphEffect,
 }
 
 impl Default for FxConfig {
@@ -167,6 +190,7 @@ impl Default for FxConfig {
             duration_ms: 320,
             intensity: 70,
             drag: true,
+            maximize: crate::fx_effects::MorphEffect::Glide,
         }
     }
 }
@@ -214,6 +238,10 @@ impl Animation {
             Effect::Genie => genie(self, t, out),
             Effect::Jelly => jelly(self, t, out),
             Effect::Zoom => zoom(self, t, out),
+            Effect::Fade => crate::fx_effects::fade_out(self, t, out),
+            Effect::Squash => crate::fx_effects::squash(self, t, out),
+            Effect::Glide => crate::fx_effects::glide(self, t, out),
+            Effect::FallApart => crate::fx_effects::fall_apart(self, t, out),
         }
     }
 }
@@ -398,7 +426,8 @@ fn zoom(a: &Animation, t: f32, out: &mut Image) {
 /// `prism fx stats`), pour ne jamais affirmer « fluide » sans chiffres.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct FxStat {
-    pub effect: Effect,
+    /// Nom de l'effet (`Genie`, `Squash`, `Glide`…).
+    pub effect: String,
     /// Ce qui a déclenché l'effet (clic sur la barre, réduction, ouverture…).
     pub trigger: String,
     pub width: u32,
@@ -472,13 +501,13 @@ pub fn save_hidden(list: &HiddenWindows) {
 
 pub fn summarize(list: &[FxStat]) -> String {
     let mut out = format!(
-        "{:<8} {:<22} {:>9} {:>8} {:>9} {:>7} {:>7} {:>6} {:>6}\n",
+        "{:<10} {:<22} {:>9} {:>8} {:>9} {:>7} {:>7} {:>6} {:>6}\n",
         "effet", "déclencheur", "taille", "capture", "latence", "moy/img", "max/img", "ratées", "i/s"
     );
     for s in list {
         out.push_str(&format!(
-            "{:<8} {:<22} {:>9} {:>6.1}ms {:>7.1}ms {:>5.1}ms {:>5.1}ms {:>3}/{:<3} {:>5.0}\n",
-            format!("{:?}", s.effect),
+            "{:<10} {:<22} {:>9} {:>6.1}ms {:>7.1}ms {:>5.1}ms {:>5.1}ms {:>3}/{:<3} {:>5.0}\n",
+            s.effect.clone(),
             s.trigger,
             format!("{}x{}", s.width, s.height),
             s.capture_ms,
@@ -615,6 +644,22 @@ mod tests {
     }
 
     #[test]
+    fn every_closing_effect_starts_as_the_window_and_ends_gone() {
+        for effect in Effect::ALL {
+            if matches!(effect, Effect::None | Effect::Jelly) {
+                continue; // aucun effet ; la gélatine est définie dans le sens de l'apparition
+            }
+            let a = anim(effect, false);
+            let start = frame(&a, 0.0);
+            assert_eq!(start.bounds(), Some(a.window), "{effect:?}");
+            assert_eq!(start.coverage(), 320 * 200, "{effect:?}");
+            assert_eq!(frame(&a, 1.0).coverage(), 0, "{effect:?}");
+            let mid = frame(&a, 0.5);
+            assert!(mid.coverage() > 0 && mid != start, "{effect:?} bouge à mi-parcours");
+        }
+    }
+
+    #[test]
     fn zoom_fades_out_while_shrinking() {
         let a = anim(Effect::Zoom, false);
         let b = frame(&a, 0.6).bounds().unwrap();
@@ -651,7 +696,7 @@ mod tests {
     fn stats_are_bounded_and_summarized() {
         let mut list = Vec::new();
         let stat = FxStat {
-            effect: Effect::Genie,
+            effect: "Genie".into(),
             trigger: "clic barre".into(),
             width: 1280,
             height: 720,
@@ -712,7 +757,7 @@ mod tests {
             intensity: 0.7,
         };
         let mut out = Image::new(1920, 1080);
-        for effect in [Effect::Genie, Effect::Jelly, Effect::Zoom] {
+        for effect in Effect::ALL.into_iter().skip(1) {
             let anim = a(effect);
             let frames = 60;
             let t0 = std::time::Instant::now();
@@ -743,6 +788,9 @@ mod tests {
             ("genie", anim(Effect::Genie, false)),
             ("jelly", anim(Effect::Jelly, false)),
             ("zoom", anim(Effect::Zoom, false)),
+            ("squash", anim(Effect::Squash, false)),
+            ("glide", anim(Effect::Glide, false)),
+            ("fallapart", anim(Effect::FallApart, false)),
         ] {
             for i in 0..=8 {
                 let f = frame(&a, i as f32 / 8.0);

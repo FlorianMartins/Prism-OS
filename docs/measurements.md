@@ -147,6 +147,17 @@ records every animation the bar plays.
 | `prism fx demo` (restore, close, open) | 2–3 ms | ≈ 2.0 ms | 0 |
 | **Jelly while dragging** (5 drags, slow and fast, ≈ 1,000 px/s for the fastest) | 38–54 ms, see below | 2.2–2.9 ms / 9.5 ms | 0 in every drag (143 to 386 frames each) |
 
+| **Maximize / snap / back to normal** (Glisse and Gélatine; maximize button, Win+←, programmatic resize; 8 runs) | 2.2–5.2 ms | 1.3–2.7 ms / 5.8 ms | 0 |
+| New effects through `prism fx demo` — Squash, 3D tilt, Fade | 1.4–34 ms (see note) | 0.8–2.1 ms / 11.7 ms | 0 / 298 |
+| New effects — Fall apart | 2.4–56 ms (see note) | 2.9–3.6 ms / 11.6 ms | 0 / 89 |
+
+Note on the demo latencies: the high values (33–56 ms) are the demo's *minimize* step,
+which copies the window at the moment of the click when no copy taken at the press of
+the mouse button is available; restore, close and open start in 1.4–13 ms.
+
+Maximize/snap needs no capture on the critical path: the animation starts from the last
+copy of the window and the real window, already at its new size, fades in underneath.
+
 Jelly while dragging: the 38–54 ms before the first jelly frame is the copy of the window
 (33–49 ms in this VM). During that time the real window is still shown and already follows
 the mouse, so nothing lags: the jelly replaces it once ready. Frames written by the bar
@@ -177,6 +188,11 @@ Bugs found by these measurements and fixed:
   a drag is now read from the window's own thread (`GetGUIThreadInfo`, flag
   `GUI_INMOVESIZE`) at every frame, and a bar that is killed during an effect makes the
   window visible again at its next start.
+
+- The bar's settings file written by PowerShell 5 (`Set-Content -Encoding UTF8`)
+  starts with a UTF-8 byte-order mark; the bar refused it silently and fell back to its
+  defaults (effects off). The mark is now accepted (test
+  `config_with_a_utf8_bom_still_loads`).
 
 Known limit: a minimize started from the window itself (title-bar button, shortcut) is
 animated from the copy taken when the window last got focus — Windows has already

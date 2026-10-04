@@ -7,7 +7,7 @@ use std::ptr::{null, null_mut};
 use std::time::{Duration, Instant};
 
 use prism_core::bar::Rect;
-use prism_core::fx::{Animation, Effect, FxStat, Image};
+use prism_core::fx::{Animation, FxStat, Image};
 use windows_sys::Win32::Foundation::{HWND, POINT, RECT, SIZE};
 use windows_sys::Win32::Graphics::Dwm::{DwmFlush, DwmGetWindowAttribute, DWMWA_EXTENDED_FRAME_BOUNDS};
 use windows_sys::Win32::Graphics::Gdi::*;
@@ -268,9 +268,45 @@ impl Overlay {
         capture_ms: f32,
         after_first: impl FnOnce(),
     ) -> FxStat {
+        let mut after = Some(after_first);
+        let meter = self.run(
+            origin,
+            size,
+            duration,
+            trigger,
+            |t, frame| anim.render(t, frame),
+            |i, _| {
+                if i == 0 {
+                    if let Some(f) = after.take() {
+                        f();
+                    }
+                }
+            },
+        );
+        if let Some(f) = after.take() {
+            f();
+        }
+        meter.stat(
+            &format!("{:?}", anim.effect),
+            trigger_name,
+            (anim.source.width, anim.source.height),
+            capture_ms,
+        )
+    }
+
+    /// Boucle d'animation générique : `render(t, image)` dessine chaque image,
+    /// `on_frame(numéro, t)` s'exécute juste après son affichage.
+    pub fn run(
+        &mut self,
+        origin: (i32, i32),
+        size: (u32, u32),
+        duration: Duration,
+        trigger: Instant,
+        mut render: impl FnMut(f32, &mut Image),
+        mut on_frame: impl FnMut(u32, f32),
+    ) -> Meter {
         let mut frame = Image::new(size.0, size.1);
         let start = Instant::now();
-        let mut after = Some(after_first);
         let mut meter = Meter::new(trigger);
         loop {
             let t = start.elapsed().as_secs_f32() / duration.as_secs_f32();
@@ -278,26 +314,16 @@ impl Overlay {
                 break;
             }
             let w0 = Instant::now();
-            anim.render(t, &mut frame);
+            render(t, &mut frame);
             self.show_frame(&frame, origin.0, origin.1);
             if meter.frames == 0 {
                 self.raise();
-                if let Some(f) = after.take() {
-                    f();
-                }
             }
+            on_frame(meter.frames, t);
             meter.frame(w0);
         }
         self.hide();
-        if let Some(f) = after.take() {
-            f();
-        }
-        meter.stat(
-            anim.effect,
-            trigger_name,
-            (anim.source.width, anim.source.height),
-            capture_ms,
-        )
+        meter
     }
 }
 
@@ -342,7 +368,7 @@ impl Meter {
         self.last_flip = Some(now);
     }
 
-    pub fn stat(&self, effect: Effect, trigger: &str, size: (u32, u32), capture_ms: f32) -> FxStat {
+    pub fn stat(&self, effect: &str, trigger: &str, size: (u32, u32), capture_ms: f32) -> FxStat {
         let elapsed = self.start.elapsed().as_secs_f32();
         let mut sorted = self.intervals.clone();
         sorted.sort();
@@ -352,7 +378,7 @@ impl Meter {
             .unwrap_or(Duration::from_micros(16_667));
         let total: Duration = self.works.iter().sum();
         FxStat {
-            effect,
+            effect: effect.to_string(),
             trigger: trigger.to_string(),
             width: size.0,
             height: size.1,
@@ -406,6 +432,13 @@ pub fn hide_temp(hwnd: HWND) -> Option<isize> {
         SetLayeredWindowAttributes(hwnd, 0, 1, LWA_ALPHA);
         Some(ex)
     }
+}
+
+/// Opacité d'une fenêtre cachée par `hide_temp` (fondu vers la vraie fenêtre).
+pub fn set_alpha(hwnd: HWND, alpha: f32) {
+    let a = (alpha.clamp(0.0, 1.0) * 255.0).round().max(1.0) as u8;
+    // SAFETY: fenêtre rendue « calque » par `hide_temp`.
+    unsafe { SetLayeredWindowAttributes(hwnd, 0, a, LWA_ALPHA) };
 }
 
 pub fn unhide(hwnd: HWND, ex: isize) {

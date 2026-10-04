@@ -361,9 +361,17 @@ impl BarConfig {
     pub fn load() -> BarConfig {
         fs::read(Self::path())
             .ok()
-            .and_then(|b| serde_json::from_slice::<BarConfig>(&b).ok())
+            .and_then(|b| Self::parse(&b))
             .unwrap_or_default()
             .sanitized()
+    }
+
+    /// Lecture tolérante à la marque UTF-8 qu'ajoutent PowerShell 5 et certains
+    /// éditeurs Windows (sinon la barre retombait silencieusement sur ses réglages
+    /// par défaut, effets coupés : vu en VM).
+    pub fn parse(bytes: &[u8]) -> Option<BarConfig> {
+        let b = bytes.strip_prefix(b"\xef\xbb\xbf").unwrap_or(bytes);
+        serde_json::from_slice::<BarConfig>(b).ok()
     }
 
     pub fn save(&self) -> Result<(), String> {
@@ -795,5 +803,14 @@ mod tests {
         }
         assert_eq!(h.values(), &[20.0, 30.0, 100.0]);
         assert_eq!(h.last(), 100.0);
+    }
+
+    #[test]
+    fn config_with_a_utf8_bom_still_loads() {
+        let mut json = b"\xef\xbb\xbf".to_vec();
+        json.extend(br#"{"fx":{"enabled":true,"minimize":"fall_apart"}}"#);
+        let c = BarConfig::parse(&json).expect("marque UTF-8 acceptée");
+        assert!(c.fx.enabled);
+        assert_eq!(c.fx.minimize, crate::fx::Effect::FallApart);
     }
 }

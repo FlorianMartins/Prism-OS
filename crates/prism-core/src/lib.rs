@@ -15,6 +15,7 @@ pub mod demarrage;
 pub mod engine;
 pub mod etat;
 pub mod fx;
+pub mod fx_effects;
 pub mod glob;
 pub mod journal;
 pub mod library;

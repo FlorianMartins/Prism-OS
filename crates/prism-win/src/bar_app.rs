@@ -92,6 +92,11 @@ struct Bar {
     stats: Vec<prism_core::fx::FxStat>,
     /// Fenêtre en cours de déplacement, en gélatine.
     drag: Option<DragFx>,
+    /// Dernier cadre connu de chaque fenêtre (départ de la glisse quand sa taille change).
+    geo: HashMap<isize, Rect>,
+    /// Abonnement aux changements de position, limité à l'appli au premier plan
+    /// (pas aux mouvements de souris de tout le système) : (abonnement, processus).
+    loc_hook: Option<(isize, u32)>,
 }
 
 /// Gélatine pendant un déplacement : la vraie fenêtre, rendue invisible, est
@@ -110,6 +115,8 @@ struct DragFx {
     /// Thread de la fenêtre : on lui demande s'il est encore dans sa boucle de déplacement.
     thread: u32,
     meter: crate::fx_overlay::Meter,
+    /// Position de la fenêtre à l'image précédente.
+    pos: (i32, i32),
 }
 
 /// Le thread est-il dans une boucle de déplacement/redimensionnement ?
@@ -187,6 +194,7 @@ const EVENT_SYSTEM_MINIMIZESTART_ID: u32 = 0x0016;
 const EVENT_SYSTEM_MINIMIZEEND_ID: u32 = 0x0017;
 const EVENT_OBJECT_SHOW_ID: u32 = 0x8002;
 const EVENT_OBJECT_HIDE_ID: u32 = 0x8003;
+const EVENT_OBJECT_LOCATIONCHANGE_ID: u32 = 0x800B;
 
 fn edge_code(e: Edge) -> u32 {
     match e {
@@ -982,6 +990,7 @@ impl Bar {
             // SAFETY: lecture du thread propriétaire.
             thread: unsafe { GetWindowThreadProcessId(h, null_mut()) },
             meter: crate::fx_overlay::Meter::new(at),
+            pos: (0, 0),
         });
         self.drag_frame();
     }
@@ -1006,6 +1015,20 @@ impl Bar {
         // reprend la main tout de suite.
         if (r.width() - d.snap.rect.width()).abs() > 2 || (r.height() - d.snap.rect.height()).abs() > 2 {
             fx_log(|| format!("drag: size changed {r:?}"));
+            // Ancrage sur un bord en fin de déplacement : la gélatine glisse vers le
+            // nouveau cadre sans que la vraie fenêtre réapparaisse entre les deux.
+            if self.cfg.fx.maximize != prism_core::fx_effects::MorphEffect::None && d.meter.frames > 0 {
+                let d = self.drag.take().expect("déplacement en cours");
+                let from = Rect {
+                    left: d.pos.0,
+                    top: d.pos.1,
+                    right: d.pos.0 + d.snap.rect.width(),
+                    bottom: d.pos.1 + d.snap.rect.height(),
+                };
+                self.geo.insert(d.hwnd as isize, r);
+                self.play_morph(d.hwnd, d.snap.img, from, r, Some(d.ex), Instant::now(), "ancrage");
+                return;
+            }
             self.drag_end();
             return;
         }
@@ -1017,6 +1040,7 @@ impl Bar {
         let dt = d.last.elapsed().as_secs_f32();
         d.last = Instant::now();
         d.wob.step((r.left as f32, r.top as f32), dt);
+        d.pos = (r.left, r.top);
         let m = d.margin as f32;
         d.wob.render(&d.snap.img, (m, m), &mut d.frame);
         overlay.show_frame(&d.frame, r.left - d.margin, r.top - d.margin);
@@ -1052,6 +1076,171 @@ impl Bar {
         }
     }
 
+    /// Suit l'appli au premier plan : son cadre, et l'abonnement aux changements de
+    /// position de ses fenêtres (seulement si la glisse est activée).
+    fn follow_foreground(&mut self, h: HWND) {
+        use windows_sys::Win32::UI::Accessibility::{SetWinEventHook, UnhookWinEvent};
+        // SAFETY: lecture d'état.
+        if unsafe { IsIconic(h) } == 0 {
+            if let Some(r) = crate::fx_overlay::visible_rect(h) {
+                self.geo.insert(h as isize, r);
+            }
+        }
+        if self.geo.len() > 64 {
+            // SAFETY: lecture d'état.
+            self.geo.retain(|k, _| unsafe { IsWindow(*k as HWND) } != 0);
+        }
+        let want = self.cfg.fx.enabled && self.cfg.fx.maximize != prism_core::fx_effects::MorphEffect::None;
+        let mut pid = 0u32;
+        // SAFETY: sortie locale.
+        unsafe { GetWindowThreadProcessId(h, &mut pid) };
+        if want && self.loc_hook.is_some_and(|(_, p)| p == pid) {
+            return;
+        }
+        if let Some((hook, _)) = self.loc_hook.take() {
+            // SAFETY: abonnement créé ci-dessous.
+            unsafe { UnhookWinEvent(hook as _) };
+        }
+        if want && pid != 0 && pid != std::process::id() {
+            // SAFETY: rappel hors processus, limité à ce processus.
+            let hook = unsafe {
+                SetWinEventHook(
+                    EVENT_OBJECT_LOCATIONCHANGE,
+                    EVENT_OBJECT_LOCATIONCHANGE,
+                    null_mut(),
+                    Some(on_object_show),
+                    pid,
+                    0,
+                    WINEVENT_OUTOFCONTEXT,
+                )
+            };
+            if !hook.is_null() {
+                self.loc_hook = Some((hook as isize, pid));
+            }
+        }
+    }
+
+    /// Une fenêtre a changé de place ou de taille. Si sa taille a changé d'un coup
+    /// (agrandir, ancrer avec Win+flèche, revenir à la taille normale), glisse.
+    fn on_location(&mut self, h: HWND, at: Instant) {
+        let key = h as isize;
+        if self.drag.as_ref().is_some_and(|d| d.hwnd == h) {
+            return;
+        }
+        // SAFETY: lecture d'état.
+        if unsafe { IsIconic(h) } != 0 {
+            return;
+        }
+        let Some(new) = crate::fx_overlay::visible_rect(h) else {
+            return;
+        };
+        let Some(old) = self.geo.insert(key, new) else {
+            return;
+        };
+        let resized = (new.width() - old.width()).abs() > 8 || (new.height() - old.height()).abs() > 8;
+        if !resized || at.elapsed() > Duration::from_millis(250) || old.width() < 200 || old.height() < 120 {
+            return;
+        }
+        // SAFETY: lecture du thread propriétaire.
+        let thread = unsafe { GetWindowThreadProcessId(h, null_mut()) };
+        if in_move_size(thread) {
+            return; // redimensionnement à la souris : la fenêtre suit déjà la main
+        }
+        if self.cfg.fx.maximize == prism_core::fx_effects::MorphEffect::None || !self.fx_allowed(h, true) {
+            return;
+        }
+        // Il faut une copie de l'ancien état, à l'ancienne taille.
+        let Some(snap) = self.snaps.remove(&key) else {
+            return;
+        };
+        if (snap.rect.width() - old.width()).abs() > 3 || (snap.rect.height() - old.height()).abs() > 3 {
+            return;
+        }
+        fx_log(|| format!("morph {old:?} -> {new:?}"));
+        self.play_morph(h, snap.img, old, new, None, at, "agrandir / ancrer");
+    }
+
+    /// Glisse de `from` vers `to` (coordonnées écran) avec la copie `img` ; la vraie
+    /// fenêtre, cachée, réapparaît en fondu dessous. `hidden` : déjà cachée (style d'origine).
+    #[allow(clippy::too_many_arguments)]
+    fn play_morph(
+        &mut self,
+        h: HWND,
+        img: prism_core::fx::Image,
+        from: Rect,
+        to: Rect,
+        hidden: Option<isize>,
+        trigger: Instant,
+        name: &str,
+    ) {
+        let Some(ex) = hidden.or_else(|| crate::fx_overlay::hide_temp(h)) else {
+            return; // la fenêtre gère déjà sa transparence : on n'y touche pas
+        };
+        let fx = self.cfg.fx.clone();
+        let mut morph = prism_core::fx_effects::Morph {
+            effect: fx.maximize,
+            source: img,
+            from,
+            to,
+            intensity: fx.intensity as f32 / 100.0,
+        };
+        // SAFETY: lectures de métriques système.
+        let (vx, vy, vw, vh) = unsafe {
+            (
+                GetSystemMetrics(SM_XVIRTUALSCREEN),
+                GetSystemMetrics(SM_YVIRTUALSCREEN),
+                GetSystemMetrics(SM_CXVIRTUALSCREEN),
+                GetSystemMetrics(SM_CYVIRTUALSCREEN),
+            )
+        };
+        let b = morph.bounds();
+        let (left, top) = (b.left.max(vx), b.top.max(vy));
+        let (right, bottom) = (b.right.min(vx + vw), b.bottom.min(vy + vh));
+        let size = ((right - left).max(1) as u32, (bottom - top).max(1) as u32);
+        let shift = |r: Rect| Rect {
+            left: r.left - left,
+            top: r.top - top,
+            right: r.right - left,
+            bottom: r.bottom - top,
+        };
+        morph.from = shift(from);
+        morph.to = shift(to);
+        // Un peu plus court que les autres effets : on attend la fenêtre agrandie.
+        let duration = Duration::from_millis(fx.duration_ms as u64 * 4 / 5);
+        let mut shown = 0u32;
+        if let Some(mut overlay) = self.overlay.take() {
+            let meter = overlay.run(
+                (left, top),
+                size,
+                duration,
+                trigger,
+                |t, frame| {
+                    morph.render(t, frame);
+                    shown += 1;
+                    if matches!(shown, 3 | 6 | 9 | 12) {
+                        fx_dump(frame, &format!("morph-{shown:02}"));
+                    }
+                },
+                |_, t| crate::fx_overlay::set_alpha(h, morph.window_alpha(t)),
+            );
+            self.overlay = Some(overlay);
+            let stat = meter.stat(
+                &format!("{:?}", fx.maximize),
+                name,
+                (morph.source.width, morph.source.height),
+                0.0,
+            );
+            prism_core::fx::push_stat(&mut self.stats, stat);
+            let _ = prism_core::fx::save_stats(&self.stats);
+        }
+        crate::fx_overlay::unhide(h, ex);
+        // Nouvelle copie à la nouvelle taille (prochaine glisse, réduction…), hors du
+        // chemin critique : l'animation est finie.
+        if let Some(s) = crate::fx_overlay::capture(h) {
+            self.snaps.insert(h as isize, s);
+        }
+    }
+
     /// Fin : la vraie fenêtre réapparaît à sa place, la couche disparaît, mesure gardée.
     fn drag_end(&mut self) {
         let Some(d) = self.drag.take() else { return };
@@ -1062,7 +1251,7 @@ impl Bar {
         }
         if d.meter.frames > 0 {
             let stat = d.meter.stat(
-                prism_core::fx::Effect::Jelly,
+                "Wobbly",
                 "déplacement",
                 (d.snap.img.width, d.snap.img.height),
                 d.snap.capture_ms,
@@ -1101,10 +1290,17 @@ impl Bar {
                 }
                 continue;
             }
+            if ev == EVENT_OBJECT_LOCATIONCHANGE_ID {
+                self.on_location(h, at);
+                continue;
+            }
             if ev != EVENT_SYSTEM_FOREGROUND_ID && at.elapsed() > Duration::from_millis(250) {
                 continue;
             }
             let fx = self.cfg.fx.clone();
+            if ev == EVENT_SYSTEM_FOREGROUND_ID {
+                self.follow_foreground(h);
+            }
             match ev {
                 EVENT_SYSTEM_FOREGROUND_ID if self.fx_allowed(h, true) => {
                     if let Some(s) = crate::fx_overlay::capture(h) {
@@ -1951,6 +2147,8 @@ pub fn run() -> Result<(), String> {
                 skip: HashMap::new(),
                 stats: prism_core::fx::load_stats(),
                 drag: None,
+                geo: HashMap::new(),
+                loc_hook: None,
             })
         });
         with_bar(|b| {
@@ -2004,6 +2202,9 @@ pub fn run() -> Result<(), String> {
         while GetMessageW(&mut msg, null_mut(), 0, 0) > 0 {
             TranslateMessage(&msg);
             DispatchMessageW(&msg);
+        }
+        if let Some((h, _)) = with_bar(|b| b.loc_hook.take()).flatten() {
+            UnhookWinEvent(h as _);
         }
         for h in [hook, hook_fg, hook_min, hook_move] {
             if !h.is_null() {

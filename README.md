@@ -34,9 +34,11 @@ tools. Every change is journaled and reversible.
   clock); hides during fullscreen games.
 - **Desktop widgets and transparency** — Conky-style widgets; translucent app windows,
   menus, dropdown lists, tooltips and dialogs, each with its own opacity (never games).
-- **Window effects** — genie lamp, jelly and zoom on minimize, restore, open and close,
-  and jelly ("wobbly") windows while you drag them, drawn by Prism with official APIs;
-  adjustable duration and intensity.
+- **Window effects, KDE/Bazzite-style** — a choice per action: genie lamp, squash,
+  jelly, zoom, fade, 3D tilt or fall apart for minimize, restore, open and close; glide,
+  elastic or crossfade when a window is maximized or snapped to an edge; jelly
+  ("wobbly") windows while you drag them. Drawn by Prism with official APIs; adjustable
+  duration and intensity.
 - **App** (`prism-ui`) — dashboard, game launcher with a console mode, and every
   setting above.
 - **Cyber tools on demand** — Wireshark, Burp, ZAP, Sysinternals, x64dbg, Kali under WSL
@@ -60,6 +62,7 @@ From a Windows 11 test VM ([details and protocol](docs/measurements.md)):
 | Prism Bar with three desktop widgets | ≈ 15 MB |
 | Window effects: latency to first frame / time per frame | 3–6 ms / 1.5 ms, 0 dropped frames |
 | Jelly while dragging | 2.7 ms per frame, 0 dropped frames |
+| Maximize / snap animation: latency / time per frame | 2–5 ms / 1.3–2.7 ms, 0 dropped frames |
 
 FPS and anti-cheat compatibility cannot be measured in a VM; they will be measured on
 real gaming hardware.

@@ -11,11 +11,15 @@ fn shot(name: &str, page: Page, console: bool) -> image::RgbaImage {
 }
 
 fn shot_with(name: &str, page: Page, console: bool, backend: MockBackend) -> image::RgbaImage {
+    shot_sized(name, page, console, backend, 820.0)
+}
+
+fn shot_sized(name: &str, page: Page, console: bool, backend: MockBackend, height: f32) -> image::RgbaImage {
     let mut app = PrismApp::new(Box::new(backend));
     app.page = page;
     app.console = console;
     let mut harness = Harness::builder()
-        .with_size(egui::vec2(1280.0, 820.0))
+        .with_size(egui::vec2(1280.0, height))
         .wgpu()
         .build_ui_state(|ui, app: &mut PrismApp| app.show(ui), app);
     prism_ui::theme::apply(&harness.ctx);
@@ -74,4 +78,15 @@ fn bar_preview_on_the_left_floating_and_rounded() {
     let img = shot_with("apparence-barre-gauche", Page::Appearance, false, b);
     assert!(has_accent(&img));
     assert!(right_margin_is_clear(&img));
+}
+
+/// Page Apparence entière (fenêtre très haute) : la carte des effets, avec un choix
+/// par action, tient dans la largeur.
+#[test]
+fn appearance_page_with_effects_fits() {
+    let mut b = MockBackend::default();
+    b.bar.fx.enabled = true;
+    let img = shot_sized("apparence-complete", Page::Appearance, false, b, 2000.0);
+    assert!(has_accent(&img));
+    assert!(right_margin_is_clear(&img), "la carte des effets déborde à droite");
 }

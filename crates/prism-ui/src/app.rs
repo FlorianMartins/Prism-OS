@@ -583,7 +583,7 @@ impl PrismApp {
     fn appearance_page(&mut self, ui: &mut egui::Ui) {
         let mut action: Option<Result<String, String>> = None;
         ui.label(
-            RichText::new("Réglages officiels de Windows uniquement, tous réversibles. Les animations libres façon Hyprland demanderaient d'injecter du code dans le compositeur de Windows : exclu pour rester compatible avec les anti-cheats.")
+            RichText::new("Réglages officiels de Windows et effets dessinés par Prism dans sa propre couche, tous réversibles. Rien n'est injecté dans les applis ni dans le compositeur de Windows : compatible avec les anti-cheats.")
                 .color(MUTED),
         );
         ui.add_space(10.0);
@@ -831,19 +831,26 @@ impl PrismApp {
                         ];
                         for (label, value) in rows {
                             ui.label(label);
-                            ui.horizontal(|ui| {
-                                for e in prism_core::fx::Effect::ALL {
-                                    let sel = *value == e;
-                                    let b =
-                                        egui::Button::new(RichText::new(e.label()).color(if sel { BG } else { TEXT }))
-                                            .fill(if sel { ACCENT } else { CARD_HI });
-                                    if ui.add(b).clicked() {
-                                        *value = e;
+                            egui::ComboBox::from_id_salt(label)
+                                .selected_text(value.label())
+                                .width(180.0)
+                                .show_ui(ui, |ui| {
+                                    for e in prism_core::fx::Effect::ALL {
+                                        ui.selectable_value(value, e, e.label());
                                     }
-                                }
-                            });
+                                });
                             ui.end_row();
                         }
+                        ui.label("Agrandir / ancrer");
+                        egui::ComboBox::from_id_salt("maximize")
+                            .selected_text(cfg.fx.maximize.label())
+                            .width(180.0)
+                            .show_ui(ui, |ui| {
+                                for e in prism_core::fx_effects::MorphEffect::ALL {
+                                    ui.selectable_value(&mut cfg.fx.maximize, e, e.label());
+                                }
+                            });
+                        ui.end_row();
                     });
                 ui.add(
                     egui::Slider::new(
