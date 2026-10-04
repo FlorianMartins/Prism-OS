@@ -1264,6 +1264,8 @@ impl Bar {
                 }
             }
             Widget::GameMode | Widget::Cpu | Widget::Ram | Widget::Gpu => open_prism_ui(),
+            // Calendrier et notifications de Windows, comme un clic sur l'horloge de sa barre.
+            Widget::Clock => press_win_combo(0x4E),
             _ => {}
         }
     }
@@ -2706,6 +2708,50 @@ fn toggle_window(hwnd: HWND) {
     }
 }
 
+/// Clic droit ailleurs que sur une fenêtre : menu de la barre.
+fn bar_menu(owner: HWND) {
+    use windows_sys::Win32::UI::WindowsAndMessaging::{
+        AppendMenuW, CreatePopupMenu, DestroyMenu, TrackPopupMenu, MF_SEPARATOR, MF_STRING, TPM_RETURNCMD,
+        TPM_RIGHTBUTTON,
+    };
+    // SAFETY: menu créé, affiché puis détruit ici.
+    unsafe {
+        let menu = CreatePopupMenu();
+        if menu.is_null() {
+            return;
+        }
+        let items = [
+            (1usize, "Gestionnaire des tâches"),
+            (2, "Afficher le bureau"),
+            (0, ""),
+            (3, "Menu Démarrer de Windows"),
+            (4, "Réglages de la barre…"),
+        ];
+        for (id, label) in items {
+            if id == 0 {
+                AppendMenuW(menu, MF_SEPARATOR, 0, null());
+            } else {
+                let w = wide(label);
+                AppendMenuW(menu, MF_STRING, id, w.as_ptr());
+            }
+        }
+        let mut pt = POINT { x: 0, y: 0 };
+        GetCursorPos(&mut pt);
+        SetForegroundWindow(owner);
+        let cmd = TrackPopupMenu(menu, TPM_RETURNCMD | TPM_RIGHTBUTTON, pt.x, pt.y, 0, owner, null());
+        DestroyMenu(menu);
+        match cmd {
+            1 => {
+                let _ = std::process::Command::new("taskmgr.exe").spawn();
+            }
+            2 => press_win_combo(0x44),
+            3 => press_win_key(),
+            4 => open_prism_ui(),
+            _ => {}
+        }
+    }
+}
+
 /// Clic du milieu (fermer) ou clic droit (menu de la fenêtre) sur un bouton de fenêtre.
 fn window_menu(owner: HWND, hwnd: HWND, middle: bool) {
     use windows_sys::Win32::UI::WindowsAndMessaging::{
@@ -2994,6 +3040,8 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) 
             if let Some(h) = target {
                 window_menu(hwnd, h, msg == WM_MBUTTONUP);
                 with_bar(|b| b.invalidate_all());
+            } else if msg == WM_RBUTTONUP {
+                bar_menu(hwnd);
             }
             0
         }

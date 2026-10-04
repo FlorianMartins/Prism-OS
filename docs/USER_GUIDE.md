@@ -399,6 +399,10 @@ minimize it, middle-click to close it, right-click for *Restaurer / Réduire / A
 Fermer*. With more windows than fit, the most recently used ones are shown and a **+N**
 button lists all the others (click one to bring it to the front).
 
+Clicking the clock opens Windows' calendar and notifications. Right-clicking an empty
+spot of the bar opens a menu: *Gestionnaire des tâches*, *Afficher le bureau*, *Menu
+Démarrer de Windows*, *Réglages de la barre…* (opens Prism).
+
 ### Prism Start menu
 
 The bar's Start button (and **Alt+F1**, like KDE) opens Prism's own Start menu: type to
