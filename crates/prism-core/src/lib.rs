@@ -30,6 +30,7 @@ pub mod plan;
 pub mod platform;
 pub mod privacy;
 pub mod rapport;
+pub mod start_menu;
 pub mod theme;
 pub mod tiling;
 pub mod tools;

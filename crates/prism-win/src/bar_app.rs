@@ -40,15 +40,15 @@ const fn rgb(r: u8, g: u8, b: u8) -> COLORREF {
 }
 /// Couleurs de la barre, tirées du thème (`bar.json`) ; relues à chaque changement.
 #[derive(Clone, Copy)]
-struct Colors {
-    bg: COLORREF,
-    item: COLORREF,
-    item_active: COLORREF,
-    text: COLORREF,
-    muted: COLORREF,
-    accent: COLORREF,
-    ok: COLORREF,
-    warn: COLORREF,
+pub(crate) struct Colors {
+    pub(crate) bg: COLORREF,
+    pub(crate) item: COLORREF,
+    pub(crate) item_active: COLORREF,
+    pub(crate) text: COLORREF,
+    pub(crate) muted: COLORREF,
+    pub(crate) accent: COLORREF,
+    pub(crate) ok: COLORREF,
+    pub(crate) warn: COLORREF,
 }
 
 impl Colors {
@@ -72,7 +72,7 @@ thread_local! {
     static COLORS: std::cell::Cell<Option<Colors>> = const { std::cell::Cell::new(None) };
 }
 
-fn colors() -> Colors {
+pub(crate) fn colors() -> Colors {
     COLORS
         .with(|c| c.get())
         .unwrap_or_else(|| Colors::from_theme(&prism_core::theme::ThemeConfig::default()))
@@ -82,7 +82,7 @@ fn set_colors(t: &prism_core::theme::ThemeConfig) {
     COLORS.with(|c| c.set(Some(Colors::from_theme(t))));
 }
 
-fn wide(s: &str) -> Vec<u16> {
+pub(crate) fn wide(s: &str) -> Vec<u16> {
     s.encode_utf16().chain(Some(0)).collect()
 }
 
@@ -318,6 +318,9 @@ const HOTKEYS: [(i32, u32, &str); 8] = [
     (7, 0x28, "Win+Ctrl+Alt+Bas : réduire la principale"),
     (8, 0x46, "Win+Ctrl+Alt+F : fenêtre active flottante / en tuile"),
 ];
+
+/// Identifiant du raccourci Alt+F1 (menu Démarrer de Prism).
+const START_HOTKEY: i32 = 100;
 
 const WM_FX: u32 = WM_APP + 3;
 /// Image suivante de la gélatine de déplacement (message que la barre se poste à
@@ -574,6 +577,40 @@ impl Bar {
     }
 
     /// Barre d'une de nos fenêtres.
+    /// Menu Démarrer de Prism, ancré au bouton Démarrer de la barre `panel` (sinon de
+    /// la barre principale ; sans bouton, au coin de la barre).
+    fn open_start_menu(&self, panel: Option<HWND>) {
+        let p = panel.and_then(|h| self.panel(h)).or_else(|| self.panels.first());
+        let Some(p) = p else { return };
+        let item = p.items.iter().find(|i| i.widget == Widget::Start).map(|i| i.rect);
+        let r = item.unwrap_or(Rect {
+            left: 0,
+            top: 0,
+            right: 1,
+            bottom: 1,
+        });
+        let mut a = POINT { x: r.left, y: r.top };
+        let mut b = POINT {
+            x: r.right,
+            y: r.bottom,
+        };
+        // SAFETY: points locaux, fenêtre de la barre.
+        unsafe {
+            ClientToScreen(p.hwnd, &mut a);
+            ClientToScreen(p.hwnd, &mut b);
+        }
+        crate::start_menu::toggle(
+            RECT {
+                left: a.x,
+                top: a.y,
+                right: b.x,
+                bottom: b.y,
+            },
+            self.cfg.edge,
+            p.scale,
+        );
+    }
+
     fn panel(&self, hwnd: HWND) -> Option<&Panel> {
         self.panels.iter().find(|p| p.hwnd == hwnd)
     }
@@ -1115,7 +1152,13 @@ impl Bar {
             return;
         };
         match widget {
-            Widget::Start => press_win_key(),
+            Widget::Start => {
+                if self.cfg.prism_start_menu {
+                    self.open_start_menu(Some(panel));
+                } else {
+                    press_win_key();
+                }
+            }
             Widget::Windows => {
                 if let Some(h) = win {
                     if !self.fx_click(h, "clic barre") {
@@ -1932,6 +1975,10 @@ impl Bar {
     /// Raccourci clavier des tuiles.
     fn hotkey(&mut self, id: i32) {
         fx_log(|| format!("raccourci {id}"));
+        if id == START_HOTKEY {
+            self.open_start_menu(None);
+            return;
+        }
         // SAFETY: lecture d'état.
         let fg = unsafe { GetForegroundWindow() };
         let t = &mut self.cfg.tiling;
@@ -2258,13 +2305,13 @@ fn inset(r: Rect, d: i32) -> RECT {
     }
 }
 
-unsafe fn fill(hdc: HDC, r: RECT, c: COLORREF) {
+pub(crate) unsafe fn fill(hdc: HDC, r: RECT, c: COLORREF) {
     let b = CreateSolidBrush(c);
     FillRect(hdc, &r, b);
     DeleteObject(b as HGDIOBJ);
 }
 
-unsafe fn make_font(px: i32, weight: i32) -> HFONT {
+pub(crate) unsafe fn make_font(px: i32, weight: i32) -> HFONT {
     let face = wide("Segoe UI");
     CreateFontW(
         -px,
@@ -2284,7 +2331,7 @@ unsafe fn make_font(px: i32, weight: i32) -> HFONT {
     )
 }
 
-unsafe fn text(hdc: HDC, font: HFONT, color: COLORREF, r: RECT, s: &str, align: DRAW_TEXT_FORMAT) {
+pub(crate) unsafe fn text(hdc: HDC, font: HFONT, color: COLORREF, r: RECT, s: &str, align: DRAW_TEXT_FORMAT) {
     let old = SelectObject(hdc, font as HGDIOBJ);
     SetTextColor(hdc, color);
     let mut w: Vec<u16> = s.encode_utf16().collect();
@@ -2695,6 +2742,8 @@ pub fn run() -> Result<(), String> {
         }
         // Une barre précédente arrêtée de force pendant un effet : fenêtres rendues visibles.
         crate::fx_overlay::recover_hidden();
+        // Liste des applis du menu Démarrer : chargée tout de suite (premier clic instantané).
+        crate::start_menu::preload();
         SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
         let hinst = GetModuleHandleW(null());
         let class = wide(CLASS);
@@ -2802,6 +2851,10 @@ pub fn run() -> Result<(), String> {
                 if RegisterHotKey(hwnd, id, MOD_WIN | MOD_CONTROL | MOD_ALT | MOD_NOREPEAT, vk) == 0 {
                     fx_log(|| format!("raccourci déjà pris par une autre appli : {label}"));
                 }
+            }
+            // Alt+F1 : menu Démarrer de Prism (comme KDE ; aucun hook clavier).
+            if RegisterHotKey(hwnd, START_HOTKEY, MOD_ALT | MOD_NOREPEAT, 0x70) == 0 {
+                fx_log(|| "raccourci Alt+F1 déjà pris par une autre appli".to_string());
             }
         }
         use windows_sys::Win32::UI::Accessibility::{SetWinEventHook, UnhookWinEvent};

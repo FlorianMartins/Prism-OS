@@ -260,6 +260,10 @@ pub struct BarConfig {
     pub theme: crate::theme::ThemeConfig,
     /// Fenêtres en tuiles.
     pub tiling: crate::tiling::TilingConfig,
+    /// Le bouton Démarrer ouvre le menu de Prism (sinon celui de Windows).
+    pub prism_start_menu: bool,
+    /// Applis épinglées en haut du menu Démarrer de Prism (identifiants `shell:AppsFolder`).
+    pub start_pinned: Vec<String>,
 }
 
 impl Default for BarConfig {
@@ -289,6 +293,8 @@ impl Default for BarConfig {
             windows_per_monitor: true,
             theme: crate::theme::ThemeConfig::default(),
             tiling: crate::tiling::TilingConfig::default(),
+            prism_start_menu: true,
+            start_pinned: Vec::new(),
         }
     }
 }

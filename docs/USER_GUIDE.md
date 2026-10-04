@@ -386,6 +386,20 @@ Configure it live in **prism-ui → Apparence**:
 
 Settings are stored in `%ProgramData%\Prism\bar.json` and applied within a second.
 
+### Prism Start menu
+
+The bar's Start button (and **Alt+F1**, like KDE) opens Prism's own Start menu: type to
+search (accents ignored, initials work — `vsc` finds Visual Studio Code), arrows and
+Enter to launch, Escape to clear then close, a click elsewhere closes it. Every app is
+there, desktop and Store alike: the list is Windows' own Start list (`Get-StartApps`),
+launched through `shell:AppsFolder` exactly like Windows does, refreshed in the
+background every 10 minutes and cached for an instant first open. Right-click an app to
+pin it at the top. Bottom row: open Prism, lock, sleep, restart, shut down.
+
+No keyboard hook is installed (some anti-cheats flag them), so the Windows key keeps
+opening Windows' menu. *Menu Démarrer de Prism* in the bar settings switches the Start
+button back to Windows' menu.
+
 ### Window effects
 
 Beyond Windows' own animations, the Prism Bar draws its own window effects. Turn them on

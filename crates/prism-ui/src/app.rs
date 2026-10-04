@@ -1466,6 +1466,8 @@ impl PrismApp {
                     ui.horizontal_wrapped(|ui| {
                         ui.checkbox(&mut cfg.rounded, "Coins arrondis");
                         ui.checkbox(&mut cfg.hide_windows_taskbar, "Masquer la barre Windows");
+                        ui.checkbox(&mut cfg.prism_start_menu, "Menu Démarrer de Prism (Alt+F1)")
+                            .on_hover_text("Le bouton Démarrer ouvre le menu de Prism : recherche, applis épinglées (clic droit), alimentation. Décoché : le menu de Windows.");
                         ui.checkbox(&mut cfg.hide_in_fullscreen, "Se cacher en plein écran");
                     });
                     field(ui, "Plusieurs écrans");

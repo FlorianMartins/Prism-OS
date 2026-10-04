@@ -29,6 +29,8 @@ pub mod services;
 #[cfg(windows)]
 pub mod setup;
 #[cfg(windows)]
+mod start_menu;
+#[cfg(windows)]
 mod startup;
 #[cfg(windows)]
 mod sysconfig;
