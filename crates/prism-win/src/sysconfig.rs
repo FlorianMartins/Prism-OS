@@ -27,7 +27,7 @@ fn wide(s: &str) -> Vec<u16> {
 
 fn win_err(what: &str, code: u32) -> String {
     if code == ERROR_ACCESS_DENIED {
-        format!("{what} : droits administrateur requis")
+        format!("{what} : accès refusé (droits administrateur requis, ou réglage protégé par Windows)")
     } else {
         format!("{what} : erreur Windows {code}")
     }

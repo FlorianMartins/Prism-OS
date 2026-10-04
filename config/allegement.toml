@@ -6,7 +6,9 @@
 # tier :
 #   sur        appliqué par `prism allege apply` ; aucune fonction utile à un PC de jeu perdue
 #   avance     sur demande (`prism allege apply avance`) : gain réel, contrepartie expliquée
-#   sans-xbox  seulement si vous n'utilisez ni le Game Pass, ni l'appli Xbox, ni de manette Xbox
+#
+# (Les services Xbox Live ne figurent pas ici : ils sont déjà en démarrage manuel
+#  d'usine sur Windows 11, vérifié en VM le 2026-10-04.)
 #
 # Règle anti-cheat : aucune entrée ne peut viser un service de la liste `protected`
 # (vérifié par un test). Voir docs/anticheat-rules.md.
@@ -189,27 +191,6 @@ tier = "avance"
 start = "disabled"
 why = "Envoie les rapports de plantage à Microsoft. Contrepartie : moins de diagnostic en cas de plantage système (les rapporteurs propres aux jeux continuent)."
 
-[[services]]
-name = "XblAuthManager"
-label = "Authentification Xbox Live"
-tier = "sans-xbox"
-start = "manual"
-why = "Démarre à la demande au lieu de tourner : sans effet si vous n'utilisez pas Xbox / Game Pass."
-
-[[services]]
-name = "XblGameSave"
-label = "Sauvegardes de jeux Xbox Live"
-tier = "sans-xbox"
-start = "manual"
-why = "Synchronisation des sauvegardes Xbox ; démarre à la demande."
-
-[[services]]
-name = "XboxNetApiSvc"
-label = "Réseau Xbox Live"
-tier = "sans-xbox"
-start = "manual"
-why = "Réseau Xbox Live ; démarre à la demande."
-
 # ---------------------------------------------------------------------------
 # Stratégies officielles (HKLM\SOFTWARE\Policies, valeurs DWORD)
 # ---------------------------------------------------------------------------
@@ -221,13 +202,10 @@ label = "Télémétrie au minimum autorisé"
 tier = "sur"
 why = "0 coupe la télémétrie sur Entreprise/Éducation ; sur Famille/Pro, Windows la ramène au niveau « obligatoire », le plus bas permis."
 
-[[policies]]
-key = 'SOFTWARE\Policies\Microsoft\Dsh'
-value = "AllowNewsAndInterests"
-data = 0
-label = "Widgets désactivés"
-tier = "sur"
-why = "Supprime le panneau Widgets et ses processus d'arrière-plan (actualités, météo)."
+# Widgets : la stratégie Dsh\AllowNewsAndInterests est verrouillée par Windows 11
+# (accès refusé même en administrateur, vérifié en VM 26H2 le 2026-10-04). Prism ne
+# contourne pas une protection de Windows : désactiver les Widgets dans
+# Paramètres > Personnalisation > Barre des tâches.
 
 [[policies]]
 key = 'SOFTWARE\Policies\Microsoft\Edge'

@@ -17,7 +17,6 @@ pub const ALLEGEMENT_TOML: &str = include_str!("../../../config/allegement.toml"
 pub enum Tier {
     Sur,
     Avance,
-    SansXbox,
 }
 
 impl Tier {
@@ -25,7 +24,6 @@ impl Tier {
         match s {
             "sur" | "sûr" => Some(Tier::Sur),
             "avance" | "avancé" => Some(Tier::Avance),
-            "sans-xbox" => Some(Tier::SansXbox),
             _ => None,
         }
     }
@@ -34,7 +32,6 @@ impl Tier {
         match self {
             Tier::Sur => "sûr",
             Tier::Avance => "avancé",
-            Tier::SansXbox => "sans-xbox",
         }
     }
 }
@@ -474,7 +471,7 @@ mod tests {
         let bad = ALLEGEMENT_TOML.replace("name = \"Fax\"", "name = \"CryptSvc\"");
         assert!(Catalog::parse(&bad).unwrap_err().contains("CryptSvc"));
         let bad = ALLEGEMENT_TOML.replace(
-            r"key = 'SOFTWARE\Policies\Microsoft\Dsh'",
+            r"key = 'SOFTWARE\Policies\Microsoft\Windows\AdvertisingInfo'",
             r"key = 'SYSTEM\CurrentControlSet\Services\vgk'",
         );
         assert!(Catalog::parse(&bad).is_err(), "hors SOFTWARE\\Policies refusé");
@@ -503,7 +500,6 @@ mod tests {
         assert!(r.failed.is_empty(), "{:?}", r.failed);
         assert_eq!(m.services["diagtrack"], StartType::Disabled);
         assert_eq!(m.services["wsearch"], StartType::AutoDelayed, "avancé non appliqué");
-        assert_eq!(m.services["xblauthmanager"], StartType::Manual);
         assert!(r
             .unchanged
             .iter()
@@ -520,7 +516,7 @@ mod tests {
         let factory = stock_windows(&c);
         let mut m = factory.clone();
         let mut j = AllegeJournal::default();
-        run(&mut m, &c, &[Tier::Sur, Tier::Avance, Tier::SansXbox], &mut j);
+        run(&mut m, &c, &[Tier::Sur, Tier::Avance], &mut j);
         assert_ne!(m.services, factory.services);
         let r = restore(&mut m, &mut j);
         assert!(r.failed.is_empty());

@@ -28,7 +28,7 @@ Utilisation : prism <commande>
   tools [pack]            packs d'outils cyber et leurs commandes d'installation
   tools install <pack>    installe un pack (winget, Kali sous WSL)
   allege                  catalogue d'allègement (services, stratégies) et état
-  allege apply [niveaux]  applique : sur (défaut), avance, sans-xbox (admin)
+  allege apply [niveaux]  applique : sur (défaut), avance (admin)
   allege restore          remet toutes les valeurs d'origine (admin)
   config init|check|path  copie modifiable de la configuration
   autostart on|off        lance le Mode Jeu à l'ouverture de session (admin)
@@ -138,7 +138,7 @@ fn allege_tiers(words: &[&str]) -> Result<Vec<prism_core::allege::Tier>, String>
     }
     words
         .iter()
-        .map(|w| Tier::parse(w).ok_or_else(|| format!("niveau inconnu « {w} » (sur, avance, sans-xbox)")))
+        .map(|w| Tier::parse(w).ok_or_else(|| format!("niveau inconnu « {w} » (sur, avance)")))
         .collect()
 }
 
