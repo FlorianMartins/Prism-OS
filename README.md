@@ -29,7 +29,8 @@ tools. Every change is journaled and reversible.
   72 services that anti-cheats and updates need are protected.
 - **Appearance** (`prism apparence`) — official Windows animations, effects and theme
   settings with presets (Performance max, Fluide, original settings).
-- **Prism Bar** — a native taskbar on any edge (top, bottom, left, right), adjustable
+- **Prism Bar** — a native taskbar on any edge (top, bottom, left, right) and on every
+  screen (each bar shows that screen's windows, or all of them), adjustable
   thickness, floating margin, opacity and widgets (CPU, RAM, GPU, network, Game Mode,
   clock); hides during fullscreen games.
 - **Desktop widgets and transparency** — Conky-style widgets; translucent app windows,
@@ -105,7 +106,7 @@ off-screen by the tests into `target/ui-shots/` (needs a Vulkan driver; on Linux
 
 v0.1 engine ✓ · v0.2 process management ✓ · v0.3 interface and customisation ✓ ·
 v0.4 window effects ✓ ·
-next: Prism as a Windows service, tiling window manager, multi-monitor bar, privacy
+next: Prism as a Windows service, tiling window manager, privacy
 dashboard, installer and signed updates, FPS measurements on real hardware. Details:
 [ARCHITECTURE.md](docs/ARCHITECTURE.md).
 

@@ -133,6 +133,22 @@ Same Windows 11 VM, run in the interactive user session.
 | Memory of `prism-bar.exe` with three desktop widgets | **15 MB** |
 | Per-element transparency: the Windows "Run" dialog (`#32770`) at 60 % | ✓ (visibly translucent) |
 
+### Multi-screen bar — 2026-10-04
+
+Same VM with a second screen (second display adapter: virtio-gpu with Red Hat's signed
+`viogpudo` driver from virtio-win; `ECRANS=2 ./start-vm.sh`), two 1280×800 screens side by
+side.
+
+| Check | Result |
+|---|---|
+| One bar per screen, each reserving its band (work area 1280×760 on both screens) | ✓ |
+| Notepad moved to screen 2: it leaves bar 1 and appears, active, on bar 2 | ✓ |
+| Minimize on screen 2: the genie goes into bar 2's button (captured frame by frame) | ✓ 0 dropped frames |
+| "Every window on every bar": both bars list the 3 windows | ✓ |
+| "Primary screen only": bar 2 removed, screen 2 gets its full height back; Notepad shown on bar 1 | ✓ |
+| Fullscreen window on screen 2: bar 2 hidden, bar 1 stays visible; both back afterwards | ✓ |
+| Screen 2 switched off then back (`DisplaySwitch /internal`, `/extend`): one bar, then two again, without restarting | ✓ |
+
 ## 6. Window effects — 2026-10-04
 
 Same VM (WARP software rendering, no GPU), notepad window of about 900×575 px, default

@@ -72,9 +72,12 @@ struct Bar {
     ram: History,
     gpu: History,
     windows: Vec<TaskWin>,
-    items: Vec<Placed>,
+    /// Une barre par écran ; la première (fenêtre principale `hwnd`) est sur l'écran
+    /// principal.
+    panels: Vec<Panel>,
     game: bool,
-    hidden_for_fullscreen: bool,
+    /// Widgets du bureau masqués (plein écran).
+    desk_hidden: bool,
     /// État de la barre Windows avant que Prism la masque (pour le remettre).
     taskbar_prev: Option<u32>,
     scale: f32,
@@ -126,6 +129,84 @@ fn in_move_size(thread: u32) -> bool {
         let mut info: GUITHREADINFO = std::mem::zeroed();
         info.cbSize = size_of::<GUITHREADINFO>() as u32;
         GetGUIThreadInfo(thread, &mut info) != 0 && info.flags & GUI_INMOVESIZE != 0
+    }
+}
+
+/// La barre d'un écran.
+struct Panel {
+    hwnd: HWND,
+    /// Écran (poignée) et son rectangle complet.
+    monitor: isize,
+    rect: Rect,
+    scale: f32,
+    items: Vec<Placed>,
+    /// Indices dans `Bar::windows` des fenêtres montrées par cette barre.
+    wins: Vec<usize>,
+    /// Masquée pendant un plein écran sur son écran.
+    hidden: bool,
+}
+
+/// Écrans branchés : (poignée, rectangle), l'écran principal en premier.
+fn monitors() -> Vec<(isize, Rect)> {
+    unsafe extern "system" fn cb(mon: HMONITOR, _dc: HDC, _r: *mut RECT, lp: LPARAM) -> windows_sys::core::BOOL {
+        let out = &mut *(lp as *mut Vec<(isize, Rect, bool)>);
+        let mut mi: MONITORINFO = std::mem::zeroed();
+        mi.cbSize = size_of::<MONITORINFO>() as u32;
+        if GetMonitorInfoW(mon, &mut mi) != 0 {
+            let r = mi.rcMonitor;
+            out.push((
+                mon as isize,
+                Rect {
+                    left: r.left,
+                    top: r.top,
+                    right: r.right,
+                    bottom: r.bottom,
+                },
+                mi.dwFlags & MONITORINFOF_PRIMARY != 0,
+            ));
+        }
+        1
+    }
+    let mut out: Vec<(isize, Rect, bool)> = Vec::new();
+    // SAFETY: le pointeur vers `out` reste valide pendant l'énumération synchrone.
+    unsafe { EnumDisplayMonitors(null_mut(), null(), Some(cb), &mut out as *mut _ as LPARAM) };
+    out.sort_by_key(|(_, r, primary)| (!*primary, r.left, r.top));
+    out.into_iter().map(|(m, r, _)| (m, r)).collect()
+}
+
+fn monitor_scale(mon: isize) -> f32 {
+    use windows_sys::Win32::UI::HiDpi::{GetDpiForMonitor, MDT_EFFECTIVE_DPI};
+    let (mut x, mut y) = (96u32, 96u32);
+    // SAFETY: sorties locales.
+    unsafe { GetDpiForMonitor(mon as HMONITOR, MDT_EFFECTIVE_DPI, &mut x, &mut y) };
+    x.max(96) as f32 / 96.0
+}
+
+/// Fenêtre d'une barre (une par écran), enregistrée auprès du shell.
+fn create_panel_window() -> HWND {
+    let class = wide(CLASS);
+    let title = wide("Prism Bar");
+    // SAFETY: classe enregistrée par `run`, fenêtre de ce processus.
+    unsafe {
+        let hwnd = CreateWindowExW(
+            WS_EX_TOOLWINDOW | WS_EX_TOPMOST | WS_EX_LAYERED | WS_EX_NOACTIVATE,
+            class.as_ptr(),
+            title.as_ptr(),
+            WS_POPUP,
+            0,
+            0,
+            100,
+            40,
+            null_mut(),
+            null_mut(),
+            GetModuleHandleW(null()),
+            null(),
+        );
+        if !hwnd.is_null() {
+            let mut d = appbar_data(hwnd);
+            SHAppBarMessage(ABM_NEW, &mut d);
+        }
+        hwnd
     }
 }
 
@@ -205,6 +286,18 @@ fn edge_code(e: Edge) -> u32 {
     }
 }
 
+fn client_size(hwnd: HWND) -> (i32, i32) {
+    let mut r = RECT {
+        left: 0,
+        top: 0,
+        right: 0,
+        bottom: 0,
+    };
+    // SAFETY: sortie locale.
+    unsafe { GetClientRect(hwnd, &mut r) };
+    (r.right - r.left, r.bottom - r.top)
+}
+
 fn appbar_data(hwnd: HWND) -> APPBARDATA {
     APPBARDATA {
         cbSize: size_of::<APPBARDATA>() as u32,
@@ -254,47 +347,157 @@ impl Bar {
         (v as f32 * self.scale).round() as i32
     }
 
-    /// (Re)place la barre : réserve la bande auprès du shell puis s'y positionne.
+    /// Une barre par écran voulu : crée celles des écrans branchés, supprime celles
+    /// des écrans débranchés. La barre principale garde la fenêtre principale.
+    fn sync_panels(&mut self) {
+        let mut mons = monitors();
+        if mons.is_empty() {
+            return;
+        }
+        if !self.cfg.all_monitors {
+            mons.truncate(1);
+        }
+        while self.panels.len() > mons.len() {
+            let p = self.panels.pop().expect("barre en trop");
+            let mut d = appbar_data(p.hwnd);
+            // SAFETY: notre fenêtre secondaire, retirée du shell puis détruite.
+            unsafe {
+                SHAppBarMessage(ABM_REMOVE, &mut d);
+                DestroyWindow(p.hwnd);
+            }
+        }
+        while self.panels.len() < mons.len() {
+            let hwnd = create_panel_window();
+            if hwnd.is_null() {
+                break;
+            }
+            self.panels.push(Panel {
+                hwnd,
+                monitor: 0,
+                rect: Rect::default(),
+                scale: 1.0,
+                items: Vec::new(),
+                wins: Vec::new(),
+                hidden: false,
+            });
+        }
+        for (p, (mon, rect)) in self.panels.iter_mut().zip(mons) {
+            p.monitor = mon;
+            p.rect = rect;
+            p.scale = monitor_scale(mon);
+            if !p.hidden {
+                // SAFETY: notre fenêtre.
+                unsafe { ShowWindow(p.hwnd, SW_SHOWNOACTIVATE) };
+            }
+        }
+        if let Some(p) = self.panels.first() {
+            self.scale = p.scale;
+        }
+    }
+
+    /// Les écrans ont-ils changé depuis le dernier placement ?
+    fn monitors_changed(&self) -> bool {
+        let mut mons = monitors();
+        if !self.cfg.all_monitors {
+            mons.truncate(1);
+        }
+        mons.len() != self.panels.len()
+            || mons
+                .iter()
+                .zip(&self.panels)
+                .any(|((m, r), p)| *m != p.monitor || *r != p.rect)
+    }
+
+    /// (Re)place les barres : chacune réserve sa bande auprès du shell sur son écran,
+    /// puis s'y positionne.
     fn dock(&mut self) {
-        let screen = Rect {
-            left: 0,
-            top: 0,
-            // SAFETY: lecture de métriques système.
-            right: unsafe { GetSystemMetrics(SM_CXSCREEN) },
-            bottom: unsafe { GetSystemMetrics(SM_CYSCREEN) },
-        };
-        let mut cfg = self.cfg.clone();
-        cfg.thickness = self.scaled(cfg.thickness) as u32;
-        cfg.margin = self.scaled(cfg.margin) as u32;
-        let (bar, reserved) = bar_rect(screen, &cfg);
-        let mut d = appbar_data(self.hwnd);
-        d.uEdge = edge_code(cfg.edge);
-        d.rc = RECT {
-            left: reserved.left,
-            top: reserved.top,
-            right: reserved.right,
-            bottom: reserved.bottom,
-        };
-        // SAFETY: structure locale ; la barre est enregistrée (ABM_NEW) avant.
-        unsafe {
-            SHAppBarMessage(ABM_QUERYPOS, &mut d);
-            SHAppBarMessage(ABM_SETPOS, &mut d);
-            SetWindowPos(
-                self.hwnd,
-                HWND_TOPMOST,
-                bar.left,
-                bar.top,
-                bar.width(),
-                bar.height(),
-                SWP_NOACTIVATE,
-            );
-            SetLayeredWindowAttributes(self.hwnd, 0, (self.cfg.opacity as u32 * 255 / 100) as u8, LWA_ALPHA);
-            // Coins arrondis (Windows 11) : DWMWA_WINDOW_CORNER_PREFERENCE = 33.
-            let pref: u32 = if self.cfg.rounded { 2 } else { 1 };
-            DwmSetWindowAttribute(self.hwnd, 33, &pref as *const _ as *const c_void, 4);
+        self.sync_panels();
+        for p in &self.panels {
+            let mut cfg = self.cfg.clone();
+            cfg.thickness = (cfg.thickness as f32 * p.scale).round() as u32;
+            cfg.margin = (cfg.margin as f32 * p.scale).round() as u32;
+            let (bar, reserved) = bar_rect(p.rect, &cfg);
+            let mut d = appbar_data(p.hwnd);
+            d.uEdge = edge_code(cfg.edge);
+            d.rc = RECT {
+                left: reserved.left,
+                top: reserved.top,
+                right: reserved.right,
+                bottom: reserved.bottom,
+            };
+            // SAFETY: structure locale ; la barre est enregistrée (ABM_NEW) avant.
+            unsafe {
+                SHAppBarMessage(ABM_QUERYPOS, &mut d);
+                SHAppBarMessage(ABM_SETPOS, &mut d);
+                SetWindowPos(
+                    p.hwnd,
+                    HWND_TOPMOST,
+                    bar.left,
+                    bar.top,
+                    bar.width(),
+                    bar.height(),
+                    SWP_NOACTIVATE,
+                );
+                SetLayeredWindowAttributes(p.hwnd, 0, (self.cfg.opacity as u32 * 255 / 100) as u8, LWA_ALPHA);
+                // Coins arrondis (Windows 11) : DWMWA_WINDOW_CORNER_PREFERENCE = 33.
+                let pref: u32 = if self.cfg.rounded { 2 } else { 1 };
+                DwmSetWindowAttribute(p.hwnd, 33, &pref as *const _ as *const c_void, 4);
+            }
         }
         self.relayout();
         self.sync_desktop();
+    }
+
+    /// Barre d'une de nos fenêtres.
+    fn panel(&self, hwnd: HWND) -> Option<&Panel> {
+        self.panels.iter().find(|p| p.hwnd == hwnd)
+    }
+
+    /// Ce qui est sous le point (x, y) de la barre `hwnd` : le widget, et la fenêtre
+    /// si c'est un bouton de fenêtre.
+    fn hit(&self, hwnd: HWND, x: i32, y: i32) -> Option<(Widget, Option<HWND>)> {
+        let p = self.panel(hwnd)?;
+        let item = p.items.iter().find(|i| i.rect.contains(x, y))?;
+        let win = item
+            .index
+            .and_then(|i| p.wins.get(i))
+            .and_then(|w| self.windows.get(*w))
+            .map(|w| w.hwnd);
+        Some((item.widget, win))
+    }
+
+    /// Plein écran signalé par Windows : chaque barre ne s'efface que si le plein
+    /// écran est sur son écran.
+    fn fullscreen_changed(&mut self, notified: HWND, on: bool) {
+        if !self.cfg.hide_in_fullscreen {
+            return;
+        }
+        // SAFETY: lectures d'état.
+        let fg = unsafe { GetForegroundWindow() };
+        let fs_monitor = (!fg.is_null() && is_fullscreen(fg))
+            // SAFETY: renvoie toujours un écran.
+            .then(|| unsafe { MonitorFromWindow(fg, MONITOR_DEFAULTTONEAREST) } as isize);
+        for p in &mut self.panels {
+            let hide = match (on, fs_monitor) {
+                (false, _) => false,
+                (true, Some(m)) => m == p.monitor,
+                // Plein écran non identifiable : la barre prévenue s'efface.
+                (true, None) => p.hwnd == notified || p.hidden,
+            };
+            if hide != p.hidden {
+                p.hidden = hide;
+                // SAFETY: notre fenêtre.
+                unsafe { ShowWindow(p.hwnd, if hide { SW_HIDE } else { SW_SHOWNOACTIVATE }) };
+            }
+        }
+        let desk_hidden = self.panels.iter().any(|p| p.hidden);
+        if desk_hidden != self.desk_hidden {
+            self.desk_hidden = desk_hidden;
+            for d in &self.desk {
+                // SAFETY: nos widgets.
+                unsafe { ShowWindow(d.hwnd, if desk_hidden { SW_HIDE } else { SW_SHOWNOACTIVATE }) };
+            }
+        }
     }
 
     /// Crée, place ou supprime les widgets du bureau selon la configuration.
@@ -337,7 +540,7 @@ impl Bar {
                         }
                         let pref: u32 = 2;
                         DwmSetWindowAttribute(h, 33, &pref as *const _ as *const c_void, 4);
-                        if !self.hidden_for_fullscreen {
+                        if !self.desk_hidden {
                             ShowWindow(h, SW_SHOWNOACTIVATE);
                         }
                         self.desk.push(DeskWin { hwnd: h, kind: w.kind });
@@ -566,21 +769,24 @@ impl Bar {
         }
     }
 
-    fn client_size(&self) -> (i32, i32) {
-        let mut r = RECT {
-            left: 0,
-            top: 0,
-            right: 0,
-            bottom: 0,
-        };
-        // SAFETY: sortie locale.
-        unsafe { GetClientRect(self.hwnd, &mut r) };
-        (r.right - r.left, r.bottom - r.top)
-    }
-
     fn relayout(&mut self) {
-        let (w, h) = self.client_size();
-        self.items = layout(&self.cfg, w, h, self.windows.len());
+        // Écran de chaque fenêtre, en numéro de barre (hors barres : barre principale).
+        let window_monitor: Vec<usize> = self
+            .windows
+            .iter()
+            .map(|w| {
+                // SAFETY: renvoie toujours un écran.
+                let m = unsafe { MonitorFromWindow(w.hwnd, MONITOR_DEFAULTTONEAREST) } as isize;
+                self.panels.iter().position(|p| p.monitor == m).unwrap_or(usize::MAX)
+            })
+            .collect();
+        let panel_monitor: Vec<usize> = (0..self.panels.len()).collect();
+        let lists = prism_core::bar::panel_windows(&window_monitor, &panel_monitor, self.cfg.windows_per_monitor);
+        for (p, wins) in self.panels.iter_mut().zip(lists) {
+            let (w, h) = client_size(p.hwnd);
+            p.items = layout(&self.cfg, w, h, wins.len());
+            p.wins = wins;
+        }
     }
 
     fn reload_config_if_changed(&mut self) {
@@ -598,6 +804,9 @@ impl Bar {
 
     fn tick(&mut self) {
         self.reload_config_if_changed();
+        if self.monitors_changed() {
+            self.dock();
+        }
         FX_DEBUG.store(
             prism_core::paths::data_dir().join("fx-debug.log").exists(),
             std::sync::atomic::Ordering::Relaxed,
@@ -614,7 +823,9 @@ impl Bar {
         self.relayout();
         // SAFETY: invalidation de nos propres fenêtres.
         unsafe {
-            InvalidateRect(self.hwnd, null(), 0);
+            for p in &self.panels {
+                InvalidateRect(p.hwnd, null(), 0);
+            }
             for d in &self.desk {
                 InvalidateRect(d.hwnd, null(), 0);
             }
@@ -674,14 +885,14 @@ impl Bar {
         }
     }
 
-    fn click(&mut self, x: i32, y: i32) {
-        let Some(p) = self.items.iter().find(|p| p.rect.contains(x, y)).cloned() else {
+    fn click(&mut self, panel: HWND, x: i32, y: i32) {
+        let Some((widget, win)) = self.hit(panel, x, y) else {
             return;
         };
-        match p.widget {
+        match widget {
             Widget::Start => press_win_key(),
             Widget::Windows => {
-                if let Some(h) = p.index.and_then(|i| self.windows.get(i)).map(|w| w.hwnd) {
+                if let Some(h) = win {
                     if !self.fx_click(h, "clic barre") {
                         activate(h);
                     }
@@ -748,13 +959,29 @@ impl Bar {
             right: 0,
             bottom: 0,
         };
-        // SAFETY: sortie locale.
-        unsafe { GetWindowRect(self.hwnd, &mut br) };
+        // La barre qui montre la fenêtre, de préférence celle de son écran.
         let idx = self.windows.iter().position(|w| w.hwnd == hwnd);
-        let item = self
+        // SAFETY: renvoie toujours un écran.
+        let mon = unsafe { MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST) } as isize;
+        let shows = |p: &&Panel| idx.is_some_and(|i| p.wins.contains(&i));
+        let panel = self
+            .panels
+            .iter()
+            .filter(shows)
+            .find(|p| p.monitor == mon)
+            .or_else(|| self.panels.iter().find(shows))
+            .or_else(|| self.panels.iter().find(|p| p.monitor == mon))
+            .or(self.panels.first());
+        let Some(panel) = panel else {
+            return Rect::default();
+        };
+        // SAFETY: sortie locale.
+        unsafe { GetWindowRect(panel.hwnd, &mut br) };
+        let local = idx.and_then(|i| panel.wins.iter().position(|w| *w == i));
+        let item = panel
             .items
             .iter()
-            .find(|p| p.widget == Widget::Windows && p.index.is_some() && p.index == idx);
+            .find(|p| p.widget == Widget::Windows && p.index.is_some() && p.index == local);
         match item {
             Some(p) => Rect {
                 left: br.left + p.rect.left,
@@ -850,15 +1077,8 @@ impl Bar {
     /// Appui sur un bouton de fenêtre : on copie la fenêtre pendant que le doigt
     /// est encore sur le bouton (un clic dure environ 100 ms), l'effet de réduction
     /// démarre alors sans attente au relâchement.
-    fn prepare_click(&mut self, x: i32, y: i32) {
-        let Some(h) = self
-            .items
-            .iter()
-            .find(|p| p.rect.contains(x, y) && p.widget == Widget::Windows)
-            .and_then(|p| p.index)
-            .and_then(|i| self.windows.get(i))
-            .map(|w| w.hwnd)
-        else {
+    fn prepare_click(&mut self, panel: HWND, x: i32, y: i32) {
+        let Some((Widget::Windows, Some(h))) = self.hit(panel, x, y) else {
             return;
         };
         // SAFETY: lectures d'état.
@@ -1429,8 +1649,12 @@ impl Bar {
         self.cfg.fx = saved;
     }
 
-    fn paint(&self, hdc: HDC) {
-        let (w, h) = self.client_size();
+    fn paint(&self, hwnd: HWND, hdc: HDC) {
+        let Some(panel) = self.panel(hwnd) else {
+            return;
+        };
+        let (w, h) = client_size(hwnd);
+        let scaled = |v: u32| (v as f32 * panel.scale).round() as i32;
         // SAFETY: double tampon GDI local, objets créés puis détruits ici.
         unsafe {
             let mem = CreateCompatibleDC(hdc);
@@ -1448,18 +1672,22 @@ impl Bar {
             );
             SetBkMode(mem, TRANSPARENT as i32);
             let horizontal = self.cfg.edge.horizontal();
-            let font = make_font(self.scaled(13), 400);
-            let bold = make_font(self.scaled(15), 600);
-            let small = make_font(self.scaled(11), 400);
+            let font = make_font(scaled(13), 400);
+            let bold = make_font(scaled(15), 600);
+            let small = make_font(scaled(11), 400);
             let fg = GetForegroundWindow();
-            for p in &self.items {
+            for p in &panel.items {
                 let r = inset(p.rect, 3);
                 match p.widget {
                     Widget::Start => {
                         text(mem, bold, ACCENT, r, "◆", DT_CENTER);
                     }
                     Widget::Windows => {
-                        if let Some(win) = p.index.and_then(|i| self.windows.get(i)) {
+                        if let Some(win) = p
+                            .index
+                            .and_then(|i| panel.wins.get(i))
+                            .and_then(|i| self.windows.get(*i))
+                        {
                             fill(mem, r, if win.hwnd == fg { ITEM_ACTIVE } else { ITEM });
                             if win.hwnd == fg {
                                 let line = if horizontal {
@@ -1972,7 +2200,7 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) 
         WM_PAINT => {
             let mut ps: PAINTSTRUCT = std::mem::zeroed();
             let hdc = BeginPaint(hwnd, &mut ps);
-            with_bar(|b| b.paint(hdc));
+            with_bar(|b| b.paint(hwnd, hdc));
             EndPaint(hwnd, &ps);
             0
         }
@@ -1980,13 +2208,13 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) 
         WM_LBUTTONDOWN => {
             let x = (lp & 0xffff) as i16 as i32;
             let y = ((lp >> 16) & 0xffff) as i16 as i32;
-            with_bar(|b| b.prepare_click(x, y));
+            with_bar(|b| b.prepare_click(hwnd, x, y));
             0
         }
         WM_LBUTTONUP => {
             let x = (lp & 0xffff) as i16 as i32;
             let y = ((lp >> 16) & 0xffff) as i16 as i32;
-            with_bar(|b| b.click(x, y));
+            with_bar(|b| b.click(hwnd, x, y));
             0
         }
         WM_APPBAR => {
@@ -1995,27 +2223,15 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) 
                     with_bar(|b| b.dock());
                 }
                 ABN_FULLSCREENAPP => {
-                    // Un jeu ou une vidéo passe en plein écran : la barre s'efface.
-                    with_bar(|b| {
-                        if b.cfg.hide_in_fullscreen {
-                            b.hidden_for_fullscreen = lp != 0;
-                            let show = if lp != 0 { SW_HIDE } else { SW_SHOWNOACTIVATE };
-                            ShowWindow(hwnd, show);
-                            for d in &b.desk {
-                                ShowWindow(d.hwnd, show);
-                            }
-                        }
-                    });
+                    // Un jeu ou une vidéo passe en plein écran : la barre de son écran s'efface.
+                    with_bar(|b| b.fullscreen_changed(hwnd, lp != 0));
                 }
                 _ => {}
             }
             0
         }
         WM_DPICHANGED => {
-            with_bar(|b| {
-                b.scale = GetDpiForWindow(hwnd) as f32 / 96.0;
-                b.dock();
-            });
+            with_bar(|b| b.dock());
             0
         }
         WM_DISPLAYCHANGE | WM_SETTINGCHANGE => {
@@ -2023,9 +2239,13 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) 
             DefWindowProcW(hwnd, msg, wp, lp)
         }
         WM_CLOSE | WM_ENDSESSION => {
-            DestroyWindow(hwnd);
+            // Quelle que soit la barre visée, c'est toute la Prism Bar qui s'arrête.
+            let main = BAR_HWND.with(|b| b.get());
+            DestroyWindow(if main != 0 { main as HWND } else { hwnd });
             0
         }
+        // Barre d'un écran débranché : rien d'autre à faire.
+        WM_DESTROY if BAR_HWND.with(|b| b.get()) != hwnd as isize => 0,
         WM_DESTROY => {
             with_bar(|b| {
                 b.drag_end();
@@ -2033,8 +2253,13 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) 
                 for d in b.desk.drain(..) {
                     DestroyWindow(d.hwnd);
                 }
-                let mut d = appbar_data(b.hwnd);
-                SHAppBarMessage(ABM_REMOVE, &mut d);
+                for p in b.panels.drain(..) {
+                    let mut d = appbar_data(p.hwnd);
+                    SHAppBarMessage(ABM_REMOVE, &mut d);
+                    if p.hwnd != b.hwnd {
+                        DestroyWindow(p.hwnd);
+                    }
+                }
                 if b.cfg.hide_windows_taskbar {
                     set_taskbar_autohide(false, b.taskbar_prev);
                 }
@@ -2089,27 +2314,12 @@ pub fn run() -> Result<(), String> {
         if RegisterClassExW(&wc_desk) == 0 {
             return Err("RegisterClassExW (widgets) a échoué".into());
         }
-        let title = wide("Prism Bar");
-        let hwnd = CreateWindowExW(
-            WS_EX_TOOLWINDOW | WS_EX_TOPMOST | WS_EX_LAYERED | WS_EX_NOACTIVATE,
-            class.as_ptr(),
-            title.as_ptr(),
-            WS_POPUP,
-            0,
-            0,
-            100,
-            40,
-            null_mut(),
-            null_mut(),
-            hinst,
-            null(),
-        );
+        let hwnd = create_panel_window();
         if hwnd.is_null() {
             return Err("CreateWindowExW a échoué".into());
         }
+        BAR_HWND.with(|b| b.set(hwnd as isize));
         let cfg = BarConfig::load();
-        let mut d = appbar_data(hwnd);
-        SHAppBarMessage(ABM_NEW, &mut d);
         let taskbar_prev = if cfg.hide_windows_taskbar {
             set_taskbar_autohide(true, None)
         } else {
@@ -2127,9 +2337,17 @@ pub fn run() -> Result<(), String> {
                 ram: History::new(30),
                 gpu: History::new(30),
                 windows: Vec::new(),
-                items: Vec::new(),
+                panels: vec![Panel {
+                    hwnd,
+                    monitor: 0,
+                    rect: Rect::default(),
+                    scale,
+                    items: Vec::new(),
+                    wins: Vec::new(),
+                    hidden: false,
+                }],
                 game: false,
-                hidden_for_fullscreen: false,
+                desk_hidden: false,
                 taskbar_prev,
                 scale,
                 desk: Vec::new(),
@@ -2158,7 +2376,6 @@ pub fn run() -> Result<(), String> {
         ShowWindow(hwnd, SW_SHOWNOACTIVATE);
         SetTimer(hwnd, TIMER_ID, 1000, None);
         use windows_sys::Win32::UI::Accessibility::{SetWinEventHook, UnhookWinEvent};
-        BAR_HWND.with(|b| b.set(hwnd as isize));
         let flags = WINEVENT_OUTOFCONTEXT | WINEVENT_SKIPOWNPROCESS;
         // Apparitions/disparitions (transparence par élément, ouverture/fermeture),
         // premier plan, réduction/restauration (effets).

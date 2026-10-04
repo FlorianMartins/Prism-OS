@@ -252,6 +252,10 @@ pub struct BarConfig {
     pub element_opacity: ElementOpacity,
     /// Effets de fenêtres (génie, gélatine, zoom) joués par la barre.
     pub fx: crate::fx::FxConfig,
+    /// Une barre sur chaque écran (sinon : l'écran principal seulement).
+    pub all_monitors: bool,
+    /// Chaque barre ne montre que les fenêtres de son écran (sinon : toutes).
+    pub windows_per_monitor: bool,
 }
 
 impl Default for BarConfig {
@@ -277,8 +281,31 @@ impl Default for BarConfig {
             opacity_rules: Vec::new(),
             element_opacity: ElementOpacity::default(),
             fx: crate::fx::FxConfig::default(),
+            all_monitors: true,
+            windows_per_monitor: true,
         }
     }
+}
+
+/// Fenêtres montrées par chaque barre. `window_monitor[i]` : écran de la fenêtre i ;
+/// `panel_monitor[p]` : écran de la barre p (la barre 0 est celle de l'écran principal).
+/// Une fenêtre sur un écran sans barre va sur la barre principale : aucune n'est perdue.
+pub fn panel_windows(window_monitor: &[usize], panel_monitor: &[usize], per_monitor: bool) -> Vec<Vec<usize>> {
+    let mut out = vec![Vec::new(); panel_monitor.len()];
+    if out.is_empty() {
+        return out;
+    }
+    for (i, m) in window_monitor.iter().enumerate() {
+        if per_monitor {
+            let p = panel_monitor.iter().position(|pm| pm == m).unwrap_or(0);
+            out[p].push(i);
+        } else {
+            for list in out.iter_mut() {
+                list.push(i);
+            }
+        }
+    }
+    out
 }
 
 pub const THICKNESS_MIN: u32 = 24;
@@ -388,7 +415,7 @@ impl BarConfig {
 }
 
 /// Rectangle en pixels (gauche, haut, droite, bas).
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct Rect {
     pub left: i32,
     pub top: i32,
@@ -812,5 +839,22 @@ mod tests {
         let c = BarConfig::parse(&json).expect("marque UTF-8 acceptée");
         assert!(c.fx.enabled);
         assert_eq!(c.fx.minimize, crate::fx::Effect::FallApart);
+    }
+
+    #[test]
+    fn windows_are_shared_between_monitor_bars() {
+        // Fenêtres sur les écrans 0, 1, 1, 2 ; barres sur les écrans 0 et 1 seulement.
+        let w = [0, 1, 1, 2];
+        assert_eq!(panel_windows(&w, &[0, 1], true), vec![vec![0, 3], vec![1, 2]]);
+        assert_eq!(
+            panel_windows(&w, &[0, 1], false),
+            vec![vec![0, 1, 2, 3], vec![0, 1, 2, 3]]
+        );
+        // Une seule barre : tout y est.
+        assert_eq!(panel_windows(&w, &[0], true), vec![vec![0, 1, 2, 3]]);
+        assert!(panel_windows(&w, &[], true).is_empty());
+        // Anciens réglages sans ces champs : barre partout, fenêtres par écran.
+        let c = BarConfig::parse(br#"{"edge":"top"}"#).unwrap();
+        assert!(c.all_monitors && c.windows_per_monitor);
     }
 }

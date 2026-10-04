@@ -735,6 +735,17 @@ impl PrismApp {
                         ui.checkbox(&mut cfg.hide_windows_taskbar, "Masquer la barre Windows");
                         ui.checkbox(&mut cfg.hide_in_fullscreen, "Se cacher en plein écran");
                     });
+                    field(ui, "Plusieurs écrans");
+                    ui.horizontal_wrapped(|ui| {
+                        ui.checkbox(&mut cfg.all_monitors, "Une barre sur chaque écran");
+                        ui.add_enabled(
+                            cfg.all_monitors,
+                            egui::Checkbox::new(
+                                &mut cfg.windows_per_monitor,
+                                "Chaque barre montre les fenêtres de son écran",
+                            ),
+                        );
+                    });
                     field(ui, "Widgets de la barre");
                     ui.horizontal_wrapped(|ui| {
                         for w in Widget::ALL {

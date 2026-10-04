@@ -166,7 +166,13 @@ Configure it live in **prism-ui → Apparence**:
   rounded corners;
 - hide the Windows taskbar while the bar runs (uses Windows' own auto-hide option and
   restores it on exit);
-- hide during fullscreen games and videos;
+- hide during fullscreen games and videos — only the bar of the screen showing the
+  game or video steps aside;
+- **several screens**: *Une barre sur chaque écran* (a bar on every screen, default) and
+  *Chaque barre montre les fenêtres de son écran* (each bar shows the windows of its own
+  screen, default; off = every bar shows every window). Screens plugged in or unplugged
+  are picked up within a second; a window moved to another screen moves to that
+  screen's bar, and the genie effect follows it there;
 - bar widgets: Start button, open windows (click to switch), CPU, RAM, GPU, network,
   Game Mode indicator, clock;
 - **desktop widgets**: clock, system panel, CPU/RAM/GPU graphs, network speed. Drag them
