@@ -14,11 +14,19 @@ pub enum Page {
     Games,
     Startup,
     Allege,
+    Appearance,
     Tools,
 }
 
 impl Page {
-    const ALL: [Page; 5] = [Page::Dashboard, Page::Games, Page::Startup, Page::Allege, Page::Tools];
+    const ALL: [Page; 6] = [
+        Page::Dashboard,
+        Page::Games,
+        Page::Startup,
+        Page::Allege,
+        Page::Appearance,
+        Page::Tools,
+    ];
 
     fn label(self) -> &'static str {
         match self {
@@ -26,6 +34,7 @@ impl Page {
             Page::Games => "Jeux",
             Page::Startup => "Démarrage",
             Page::Allege => "Allègement",
+            Page::Appearance => "Apparence",
             Page::Tools => "Outils cyber",
         }
     }
@@ -36,6 +45,7 @@ impl Page {
             Page::Games => "🎮",
             Page::Startup => "🚀",
             Page::Allege => "⚡",
+            Page::Appearance => "🖥",
             Page::Tools => "🛡",
         }
     }
@@ -121,6 +131,7 @@ impl PrismApp {
                         Page::Games => self.games_page(ui),
                         Page::Startup => self.startup_page(ui),
                         Page::Allege => self.allege_page(ui),
+                        Page::Appearance => self.appearance_page(ui),
                         Page::Tools => self.tools_page(ui),
                     });
             });
@@ -554,6 +565,78 @@ impl PrismApp {
                                     .small()
                                     .color(MUTED),
                             );
+                            ui.end_row();
+                        }
+                    });
+            });
+        }
+        if let Some(r) = action {
+            self.result(r);
+        }
+    }
+
+    // --- Apparence --------------------------------------------------------------
+
+    fn appearance_page(&mut self, ui: &mut egui::Ui) {
+        let mut action: Option<Result<String, String>> = None;
+        ui.label(
+            RichText::new("Réglages officiels de Windows uniquement, tous réversibles. Les animations libres façon Hyprland demanderaient d'injecter du code dans le compositeur de Windows : exclu pour rester compatible avec les anti-cheats.")
+                .color(MUTED),
+        );
+        ui.add_space(10.0);
+        section(ui, "Préréglages");
+        let presets = self.backend.appearance_presets();
+        let n = presets.len() + 1;
+        row(ui, n, |i, col| {
+            if let Some(p) = presets.get(i) {
+                let resp = card(col, false, |ui| {
+                    ui.label(RichText::new(&p.label).size(17.0).strong());
+                    ui.label(RichText::new(&p.description).small().color(MUTED));
+                });
+                if resp.interact(Sense::click()).clicked() {
+                    action = Some(self.backend.appearance_preset(&p.id));
+                }
+            } else {
+                let resp = card(col, false, |ui| {
+                    ui.label(RichText::new("Réglages d'origine").size(17.0).strong());
+                    ui.label(
+                        RichText::new("Remet exactement ce que Windows avait avant Prism.")
+                            .small()
+                            .color(MUTED),
+                    );
+                });
+                if resp.interact(Sense::click()).clicked() {
+                    action = Some(self.backend.appearance_restore());
+                }
+            }
+        });
+        let rows = self.backend.appearance();
+        let mut groups: Vec<String> = Vec::new();
+        for r in &rows {
+            if !groups.contains(&r.group) {
+                groups.push(r.group.clone());
+            }
+        }
+        for g in groups {
+            ui.add_space(12.0);
+            section(ui, &g);
+            card(ui, false, |ui| {
+                egui::Grid::new(format!("app-{g}"))
+                    .num_columns(2)
+                    .spacing([24.0, 10.0])
+                    .show(ui, |ui| {
+                        for r in rows.iter().filter(|r| r.group == g) {
+                            ui.label(&r.label).on_hover_text(&r.why);
+                            ui.horizontal(|ui| {
+                                for (i, opt) in r.options.iter().enumerate() {
+                                    let selected = r.current == Some(i);
+                                    let text = RichText::new(opt).color(if selected { BG } else { TEXT });
+                                    let b = egui::Button::new(text).fill(if selected { ACCENT } else { CARD_HI });
+                                    if ui.add(b).clicked() && !selected {
+                                        action = Some(self.backend.appearance_set(&r.id, i));
+                                    }
+                                }
+                            });
                             ui.end_row();
                         }
                     });

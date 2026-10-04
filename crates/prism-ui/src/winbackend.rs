@@ -329,6 +329,38 @@ impl Backend for WinBackend {
         Ok(format!("Lancement de {}", game.name))
     }
 
+    fn appearance(&mut self) -> Vec<crate::backend::AppearanceRow> {
+        crate::appearance_common::rows(&mut prism_win::WindowsAppearance)
+    }
+
+    fn appearance_presets(&self) -> Vec<crate::backend::PresetInfo> {
+        crate::appearance_common::presets()
+    }
+
+    fn appearance_set(&mut self, id: &str, option: usize) -> Result<String, String> {
+        let path = data_dir().join("apparence.json");
+        let mut j = prism_core::apparence::AppearanceJournal::load(&path)?;
+        let r = crate::appearance_common::set(&mut prism_win::WindowsAppearance, &mut j, id, option);
+        j.save(&path)?;
+        r
+    }
+
+    fn appearance_preset(&mut self, id: &str) -> Result<String, String> {
+        let path = data_dir().join("apparence.json");
+        let mut j = prism_core::apparence::AppearanceJournal::load(&path)?;
+        let r = crate::appearance_common::preset(&mut prism_win::WindowsAppearance, &mut j, id);
+        j.save(&path)?;
+        r
+    }
+
+    fn appearance_restore(&mut self) -> Result<String, String> {
+        let path = data_dir().join("apparence.json");
+        let mut j = prism_core::apparence::AppearanceJournal::load(&path)?;
+        let r = crate::appearance_common::restore_all(&mut prism_win::WindowsAppearance, &mut j);
+        j.save(&path)?;
+        r
+    }
+
     fn packs(&self) -> Vec<PackInfo> {
         self.cfg
             .packs

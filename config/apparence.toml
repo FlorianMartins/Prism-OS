@@ -1,0 +1,223 @@
+# Prism OS — apparence de Windows (embarqué dans prism.exe / prism-ui.exe).
+#
+# Uniquement des réglages OFFICIELS : SystemParametersInfo (ceux de « Options de
+# performances » de Windows) et des clés de personnalisation documentées. Aucune
+# injection dans l'Explorateur ou le compositeur (DWM) : c'est ce que les anti-cheats
+# surveillent. Les animations « à la Hyprland » (courbes libres, rebonds) demanderaient
+# une injection dans DWM : hors périmètre, par choix.
+#
+# setting :
+#   { spi = { get = 0x…, set = 0x…, ui = false } }  bool via SystemParametersInfo
+#     (ui = true : la valeur passe par uiParam, sinon par pvParam)
+#   "minmax"                                         animation réduire/agrandir
+#   { reg = { hive = "hkcu", key = '…', value = "…" } }  valeur de registre
+# Chaque réglage est journalisé : `prism apparence restore` remet l'origine.
+
+# --- Animations --------------------------------------------------------------
+[[knobs]]
+id = "anim_minmax"
+group = "Animations"
+label = "Réduire / agrandir les fenêtres"
+why = "L'animation quand une fenêtre se réduit dans la barre ou s'agrandit."
+setting = "minmax"
+options = [{ label = "Animée", value = true }, { label = "Instantanée", value = false }]
+
+[[knobs]]
+id = "anim_controls"
+group = "Animations"
+label = "Ouverture, fermeture et contrôles"
+why = "Les animations d'ouverture/fermeture et celles des boutons et contrôles dans les fenêtres."
+setting = { spi = { get = 0x1042, set = 0x1043 } }
+options = [{ label = "Animées", value = true }, { label = "Instantanées", value = false }]
+
+[[knobs]]
+id = "drag_full"
+group = "Animations"
+label = "Contenu des fenêtres pendant le déplacement"
+why = "Afficher la fenêtre entière pendant qu'on la déplace, plutôt qu'un simple cadre."
+setting = { spi = { get = 0x0026, set = 0x0025, ui = true } }
+options = [{ label = "Fenêtre entière", value = true }, { label = "Cadre seul", value = false }]
+
+[[knobs]]
+id = "menu_anim"
+group = "Animations"
+label = "Menus animés"
+why = "Les menus apparaissent en glissant ou en fondu."
+setting = { spi = { get = 0x1002, set = 0x1003 } }
+options = [{ label = "Animés", value = true }, { label = "Instantanés", value = false }]
+
+[[knobs]]
+id = "menu_fade"
+group = "Animations"
+label = "Fondu des menus"
+why = "Fondu plutôt que glissement (nécessite les menus animés)."
+setting = { spi = { get = 0x1012, set = 0x1013 } }
+options = [{ label = "Fondu", value = true }, { label = "Glissement", value = false }]
+
+[[knobs]]
+id = "tooltip_anim"
+group = "Animations"
+label = "Infobulles animées"
+why = "Les infobulles apparaissent progressivement."
+setting = { spi = { get = 0x1016, set = 0x1017 } }
+options = [{ label = "Animées", value = true }, { label = "Instantanées", value = false }]
+
+[[knobs]]
+id = "tooltip_fade"
+group = "Animations"
+label = "Atténuation des infobulles"
+why = "Fondu des infobulles (nécessite les infobulles animées)."
+setting = { spi = { get = 0x1018, set = 0x1019 } }
+options = [{ label = "Fondu", value = true }, { label = "Glissement", value = false }]
+
+[[knobs]]
+id = "selection_fade"
+group = "Animations"
+label = "Fondu des menus après un clic"
+why = "L'élément choisi s'estompe au lieu de disparaître d'un coup."
+setting = { spi = { get = 0x1014, set = 0x1015 } }
+options = [{ label = "Fondu", value = true }, { label = "Instantané", value = false }]
+
+[[knobs]]
+id = "combo_anim"
+group = "Animations"
+label = "Listes déroulantes qui glissent"
+why = "Les listes déroulantes s'ouvrent en glissant."
+setting = { spi = { get = 0x1004, set = 0x1005 } }
+options = [{ label = "Glissement", value = true }, { label = "Instantané", value = false }]
+
+[[knobs]]
+id = "smooth_scroll"
+group = "Animations"
+label = "Défilement fluide des listes"
+why = "Les listes défilent en douceur plutôt que par sauts."
+setting = { spi = { get = 0x1006, set = 0x1007 } }
+options = [{ label = "Fluide", value = true }, { label = "Par sauts", value = false }]
+
+[[knobs]]
+id = "taskbar_anim"
+group = "Animations"
+label = "Animations de la barre des tâches Windows"
+why = "Animations des icônes et miniatures de la barre des tâches de Windows."
+setting = { reg = { hive = "hkcu", key = 'Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced', value = "TaskbarAnimations" } }
+options = [{ label = "Animée", value = 1 }, { label = "Fixe", value = 0 }]
+
+# --- Effets ------------------------------------------------------------------
+[[knobs]]
+id = "transparency"
+group = "Effets"
+label = "Transparence de Windows"
+why = "Effets de transparence et de flou du menu Démarrer, de la barre et des fenêtres système."
+setting = { reg = { hive = "hkcu", key = 'Software\Microsoft\Windows\CurrentVersion\Themes\Personalize', value = "EnableTransparency" } }
+options = [{ label = "Transparent", value = 1 }, { label = "Opaque", value = 0 }]
+
+[[knobs]]
+id = "drop_shadow"
+group = "Effets"
+label = "Ombre sous les fenêtres"
+why = "Ombre portée autour des fenêtres."
+setting = { spi = { get = 0x1024, set = 0x1025 } }
+options = [{ label = "Ombre", value = true }, { label = "Sans", value = false }]
+
+[[knobs]]
+id = "cursor_shadow"
+group = "Effets"
+label = "Ombre du pointeur"
+why = "Petite ombre sous le pointeur de la souris."
+setting = { spi = { get = 0x101A, set = 0x101B } }
+options = [{ label = "Ombre", value = true }, { label = "Sans", value = false }]
+
+[[knobs]]
+id = "font_smoothing"
+group = "Effets"
+label = "Lissage des polices"
+why = "ClearType : le texte reste net. À garder dans presque tous les cas."
+setting = { spi = { get = 0x004A, set = 0x004B, ui = true } }
+options = [{ label = "Lissé", value = true }, { label = "Brut", value = false }]
+
+# --- Thème -------------------------------------------------------------------
+[[knobs]]
+id = "apps_theme"
+group = "Thème"
+label = "Thème des applications"
+why = "Sombre ou clair pour les applications qui suivent Windows."
+setting = { reg = { hive = "hkcu", key = 'Software\Microsoft\Windows\CurrentVersion\Themes\Personalize', value = "AppsUseLightTheme" } }
+options = [{ label = "Sombre", value = 0 }, { label = "Clair", value = 1 }]
+
+[[knobs]]
+id = "system_theme"
+group = "Thème"
+label = "Thème de Windows"
+why = "Sombre ou clair pour la barre des tâches, le menu Démarrer et le centre de notifications."
+setting = { reg = { hive = "hkcu", key = 'Software\Microsoft\Windows\CurrentVersion\Themes\Personalize', value = "SystemUsesLightTheme" } }
+options = [{ label = "Sombre", value = 0 }, { label = "Clair", value = 1 }]
+
+[[knobs]]
+id = "accent_titlebars"
+group = "Thème"
+label = "Couleur d'accent sur les barres de titre"
+why = "Les barres de titre et bordures prennent la couleur d'accent."
+setting = { reg = { hive = "hkcu", key = 'Software\Microsoft\Windows\DWM', value = "ColorPrevalence" } }
+options = [{ label = "Accent", value = 1 }, { label = "Neutre", value = 0 }]
+
+# --- Réactivité et barre Windows ------------------------------------------------
+[[knobs]]
+id = "menu_delay"
+group = "Réactivité"
+label = "Délai d'ouverture des sous-menus"
+why = "Temps avant qu'un sous-menu s'ouvre au survol (400 ms d'usine)."
+setting = { reg = { hive = "hkcu", key = 'Control Panel\Desktop', value = "MenuShowDelay" } }
+options = [{ label = "Immédiat", value = "0" }, { label = "Vif (100 ms)", value = "100" }, { label = "Windows (400 ms)", value = "400" }]
+
+[[knobs]]
+id = "taskbar_align"
+group = "Réactivité"
+label = "Icônes de la barre Windows"
+why = "À gauche (comme Windows 10) ou au centre."
+setting = { reg = { hive = "hkcu", key = 'Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced', value = "TaskbarAl" } }
+options = [{ label = "À gauche", value = 0 }, { label = "Au centre", value = 1 }]
+
+# --- Préréglages ---------------------------------------------------------------
+[[presets]]
+id = "performance"
+label = "Performance max"
+description = "Tout est instantané : aucune animation, aucune ombre, aucune transparence. Le plus léger."
+[presets.values]
+anim_minmax = false
+anim_controls = false
+drag_full = false
+menu_anim = false
+menu_fade = false
+tooltip_anim = false
+tooltip_fade = false
+selection_fade = false
+combo_anim = false
+smooth_scroll = false
+taskbar_anim = 0
+transparency = 0
+drop_shadow = false
+cursor_shadow = false
+font_smoothing = true
+menu_delay = "0"
+
+[[presets]]
+id = "fluide"
+label = "Fluide"
+description = "Toutes les animations et la transparence, avec des menus plus vifs que Windows."
+[presets.values]
+anim_minmax = true
+anim_controls = true
+drag_full = true
+menu_anim = true
+menu_fade = true
+tooltip_anim = true
+tooltip_fade = true
+selection_fade = true
+combo_anim = true
+smooth_scroll = true
+taskbar_anim = 1
+transparency = 1
+drop_shadow = true
+cursor_shadow = true
+font_smoothing = true
+menu_delay = "100"

@@ -367,3 +367,29 @@ fn a_scheduled_task_state_is_read_and_toggled_back() {
     assert_eq!(s.task_enabled(path).unwrap(), Some(before));
     assert_eq!(s.task_enabled(r"\Prism\Tache\Inexistante").unwrap(), None);
 }
+
+#[test]
+fn an_animation_setting_is_toggled_and_restored() {
+    use prism_core::apparence::{apply, restore, AppearanceConfig, AppearanceJournal, Catalog, KnobValue};
+    let c = Catalog::builtin();
+    let mut sys = prism_win::WindowsAppearance;
+    let knob = c.knob("cursor_shadow").unwrap();
+    let before = sys.read(&knob.setting).unwrap();
+    let flipped = match before {
+        Some(KnobValue::Bool(b)) => KnobValue::Bool(!b),
+        ref other => panic!("valeur inattendue {other:?}"),
+    };
+    let mut j = AppearanceJournal::default();
+    let r = apply(
+        &mut sys,
+        &c,
+        &std::collections::BTreeMap::from([("cursor_shadow".to_string(), flipped.clone())]),
+        &mut j,
+    );
+    assert!(r.failed.is_empty(), "{:?}", r.failed);
+    assert_eq!(sys.read(&knob.setting).unwrap(), Some(flipped));
+    restore(&mut sys, &c, &mut j);
+    assert_eq!(sys.read(&knob.setting).unwrap(), before);
+    // Une valeur de registre de la liste d'apparence : lecture sans erreur.
+    sys.read(&c.knob("transparency").unwrap().setting).unwrap();
+}

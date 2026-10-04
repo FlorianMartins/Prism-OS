@@ -57,6 +57,24 @@ pub struct AllegeRow {
 }
 
 #[derive(Clone, Debug)]
+pub struct AppearanceRow {
+    pub id: String,
+    pub group: String,
+    pub label: String,
+    pub why: String,
+    pub options: Vec<String>,
+    /// Option active (None : valeur absente ou hors des options proposées).
+    pub current: Option<usize>,
+}
+
+#[derive(Clone, Debug)]
+pub struct PresetInfo {
+    pub id: String,
+    pub label: String,
+    pub description: String,
+}
+
+#[derive(Clone, Debug)]
 pub struct PackInfo {
     pub id: String,
     pub label: String,
@@ -84,6 +102,12 @@ pub trait Backend {
 
     fn games(&mut self) -> Vec<Game>;
     fn launch(&mut self, game: &Game) -> Result<String, String>;
+
+    fn appearance(&mut self) -> Vec<AppearanceRow>;
+    fn appearance_presets(&self) -> Vec<PresetInfo>;
+    fn appearance_set(&mut self, id: &str, option: usize) -> Result<String, String>;
+    fn appearance_preset(&mut self, id: &str) -> Result<String, String>;
+    fn appearance_restore(&mut self) -> Result<String, String>;
 
     fn packs(&self) -> Vec<PackInfo>;
     fn install_pack(&mut self, pack: &str) -> Result<String, String>;

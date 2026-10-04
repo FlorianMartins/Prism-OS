@@ -5,6 +5,7 @@
 //! L'exécution passe par le trait [`platform::Platform`].
 
 pub mod allege;
+pub mod apparence;
 pub mod classify;
 pub mod config;
 pub mod cores;

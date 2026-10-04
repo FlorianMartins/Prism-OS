@@ -209,42 +209,7 @@ impl SystemConfig for WindowsSystemConfig {
     }
 
     fn policy(&mut self, key: &str, value: &str) -> Result<Option<RegData>, String> {
-        let (root, sub) = split_hive(key)?;
-        let k = wide(sub);
-        let v = wide(value);
-        // SAFETY: chaînes larges terminées par zéro, tampons locaux dimensionnés.
-        unsafe {
-            let mut h: HKEY = null_mut();
-            match RegOpenKeyExW(root, k.as_ptr(), 0, KEY_QUERY_VALUE, &mut h) {
-                0 => {}
-                ERROR_FILE_NOT_FOUND => return Ok(None),
-                code => return Err(win_err(key, code)),
-            }
-            let h = Key(h);
-            let mut kind: REG_VALUE_TYPE = 0;
-            let mut buf = [0u16; 1024];
-            let mut len = (buf.len() * 2) as u32;
-            match RegQueryValueExW(
-                h.0,
-                v.as_ptr(),
-                null(),
-                &mut kind,
-                buf.as_mut_ptr() as *mut u8,
-                &mut len,
-            ) {
-                0 if kind == REG_DWORD && len == 4 => Ok(Some(RegData::Dword(u32::from_le_bytes(
-                    (*(buf.as_ptr() as *const [u8; 4])).to_owned(),
-                )))),
-                0 if kind == REG_SZ => {
-                    let n = (len as usize / 2).min(buf.len());
-                    let text = String::from_utf16_lossy(&buf[..n]);
-                    Ok(Some(RegData::Text(text.trim_end_matches('\0').to_string())))
-                }
-                0 => Err(format!("{key}\\{value} : type de valeur inattendu ({kind})")),
-                ERROR_FILE_NOT_FOUND => Ok(None),
-                code => Err(win_err(value, code)),
-            }
-        }
+        reg_get(key, value)
     }
 
     fn set_policy(&mut self, key: &str, value: &str, data: &RegData) -> Result<(), String> {
@@ -252,69 +217,14 @@ impl SystemConfig for WindowsSystemConfig {
         if !prism_core::allege::registry_allowed(key) {
             return Err(format!("{key} : clé hors de la liste autorisée"));
         }
-        let (root, sub) = split_hive(key)?;
-        let k = wide(sub);
-        let v = wide(value);
-        // SAFETY: chaînes larges terminées par zéro ; données locales de taille exacte.
-        unsafe {
-            let mut h: HKEY = null_mut();
-            let st = RegCreateKeyExW(
-                root,
-                k.as_ptr(),
-                0,
-                null(),
-                REG_OPTION_NON_VOLATILE,
-                KEY_SET_VALUE,
-                null(),
-                &mut h,
-                null_mut(),
-            );
-            if st != 0 {
-                return Err(win_err(key, st));
-            }
-            let h = Key(h);
-            let st = match data {
-                RegData::Dword(d) => {
-                    let bytes = d.to_le_bytes();
-                    RegSetValueExW(h.0, v.as_ptr(), 0, REG_DWORD, bytes.as_ptr(), 4)
-                }
-                RegData::Text(t) => {
-                    let w = wide(t);
-                    RegSetValueExW(
-                        h.0,
-                        v.as_ptr(),
-                        0,
-                        REG_SZ,
-                        w.as_ptr() as *const u8,
-                        (w.len() * 2) as u32,
-                    )
-                }
-            };
-            match st {
-                0 => Ok(()),
-                code => Err(win_err(value, code)),
-            }
-        }
+        reg_set(key, value, data)
     }
 
     fn delete_policy(&mut self, key: &str, value: &str) -> Result<(), String> {
-        let (root, sub) = split_hive(key)?;
-        let k = wide(sub);
-        let v = wide(value);
-        // SAFETY: chaînes larges terminées par zéro.
-        unsafe {
-            let mut h: HKEY = null_mut();
-            match RegOpenKeyExW(root, k.as_ptr(), 0, KEY_SET_VALUE, &mut h) {
-                0 => {}
-                ERROR_FILE_NOT_FOUND => return Ok(()),
-                code => return Err(win_err(key, code)),
-            }
-            let h = Key(h);
-            match RegDeleteValueW(h.0, v.as_ptr()) {
-                0 | ERROR_FILE_NOT_FOUND => Ok(()),
-                code => Err(win_err(value, code)),
-            }
+        if !prism_core::allege::registry_allowed(key) {
+            return Err(format!("{key} : clé hors de la liste autorisée"));
         }
+        reg_delete(key, value)
     }
 }
 
@@ -443,5 +353,112 @@ pub(crate) fn decode_console(bytes: &[u8]) -> String {
             .to_string()
     } else {
         String::from_utf8_lossy(bytes).into_owned()
+    }
+}
+
+/// Lecture / écriture du registre sans contrôle de liste : chaque appelant
+/// (allègement, apparence) applique sa propre liste autorisée.
+pub(crate) fn reg_get(key: &str, value: &str) -> Result<Option<RegData>, String> {
+    let (root, sub) = split_hive(key)?;
+    let k = wide(sub);
+    let v = wide(value);
+    // SAFETY: chaînes larges terminées par zéro, tampons locaux dimensionnés.
+    unsafe {
+        let mut h: HKEY = null_mut();
+        match RegOpenKeyExW(root, k.as_ptr(), 0, KEY_QUERY_VALUE, &mut h) {
+            0 => {}
+            ERROR_FILE_NOT_FOUND => return Ok(None),
+            code => return Err(win_err(key, code)),
+        }
+        let h = Key(h);
+        let mut kind: REG_VALUE_TYPE = 0;
+        let mut buf = [0u16; 1024];
+        let mut len = (buf.len() * 2) as u32;
+        match RegQueryValueExW(
+            h.0,
+            v.as_ptr(),
+            null(),
+            &mut kind,
+            buf.as_mut_ptr() as *mut u8,
+            &mut len,
+        ) {
+            0 if kind == REG_DWORD && len == 4 => Ok(Some(RegData::Dword(u32::from_le_bytes(
+                (*(buf.as_ptr() as *const [u8; 4])).to_owned(),
+            )))),
+            0 if kind == REG_SZ => {
+                let n = (len as usize / 2).min(buf.len());
+                let text = String::from_utf16_lossy(&buf[..n]);
+                Ok(Some(RegData::Text(text.trim_end_matches('\0').to_string())))
+            }
+            0 => Err(format!("{key}\\{value} : type de valeur inattendu ({kind})")),
+            ERROR_FILE_NOT_FOUND => Ok(None),
+            code => Err(win_err(value, code)),
+        }
+    }
+}
+
+pub(crate) fn reg_set(key: &str, value: &str, data: &RegData) -> Result<(), String> {
+    let (root, sub) = split_hive(key)?;
+    let k = wide(sub);
+    let v = wide(value);
+    // SAFETY: chaînes larges terminées par zéro ; données locales de taille exacte.
+    unsafe {
+        let mut h: HKEY = null_mut();
+        let st = RegCreateKeyExW(
+            root,
+            k.as_ptr(),
+            0,
+            null(),
+            REG_OPTION_NON_VOLATILE,
+            KEY_SET_VALUE,
+            null(),
+            &mut h,
+            null_mut(),
+        );
+        if st != 0 {
+            return Err(win_err(key, st));
+        }
+        let h = Key(h);
+        let st = match data {
+            RegData::Dword(d) => {
+                let bytes = d.to_le_bytes();
+                RegSetValueExW(h.0, v.as_ptr(), 0, REG_DWORD, bytes.as_ptr(), 4)
+            }
+            RegData::Text(t) => {
+                let w = wide(t);
+                RegSetValueExW(
+                    h.0,
+                    v.as_ptr(),
+                    0,
+                    REG_SZ,
+                    w.as_ptr() as *const u8,
+                    (w.len() * 2) as u32,
+                )
+            }
+        };
+        match st {
+            0 => Ok(()),
+            code => Err(win_err(value, code)),
+        }
+    }
+}
+
+pub(crate) fn reg_delete(key: &str, value: &str) -> Result<(), String> {
+    let (root, sub) = split_hive(key)?;
+    let k = wide(sub);
+    let v = wide(value);
+    // SAFETY: chaînes larges terminées par zéro.
+    unsafe {
+        let mut h: HKEY = null_mut();
+        match RegOpenKeyExW(root, k.as_ptr(), 0, KEY_SET_VALUE, &mut h) {
+            0 => {}
+            ERROR_FILE_NOT_FOUND => return Ok(()),
+            code => return Err(win_err(key, code)),
+        }
+        let h = Key(h);
+        match RegDeleteValueW(h.0, v.as_ptr()) {
+            0 | ERROR_FILE_NOT_FOUND => Ok(()),
+            code => Err(win_err(value, code)),
+        }
     }
 }

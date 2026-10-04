@@ -36,6 +36,7 @@ fn every_page_renders() {
         ("mode-console", Page::Games, true),
         ("demarrage", Page::Startup, false),
         ("allegement", Page::Allege, false),
+        ("apparence", Page::Appearance, false),
         ("outils", Page::Tools, false),
     ] {
         let img = shot(name, page, console);

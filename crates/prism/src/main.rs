@@ -36,6 +36,8 @@ Utilisation : prism <commande>
   allege                  catalogue d'allègement (services, stratégies) et état
   allege apply [niveaux]  applique : sur (défaut), avance, jeu (admin)
   allege restore          remet toutes les valeurs d'origine (admin)
+  apparence               animations, effets, thème (réglages officiels de Windows)
+  apparence <préréglage>  performance | fluide ; apparence set <id> <option> ; restore
   config init|check|path  copie modifiable de la configuration
   autostart on|off        lance le Mode Jeu à l'ouverture de session (admin)
   demo                    partie simulée de bout en bout (tout système)
@@ -230,7 +232,7 @@ fn tools_install(cfg: &Config, pack: &str) -> Result<(), String> {
 #[cfg(not(windows))]
 fn platform_command(_cfg: &Config, args: &[&str]) -> Result<(), String> {
     match args.first() {
-        Some(&("status" | "watch" | "ram" | "autostart" | "allege" | "top" | "demarrage" | "jeux")) => {
+        Some(&("status" | "watch" | "ram" | "autostart" | "allege" | "top" | "demarrage" | "jeux" | "apparence")) => {
             Err("cette commande agit sur Windows ; ici, essayez `prism demo`".into())
         }
         _ => Err(format!("commande inconnue : {}\n\n{HELP}", args.join(" "))),
@@ -457,6 +459,67 @@ fn platform_command(cfg: &Config, args: &[&str]) -> Result<(), String> {
             print_startup_report(&r);
             Ok(())
         }
+        ["apparence"] => {
+            use prism_core::apparence::{current, Catalog};
+            let c = Catalog::builtin();
+            let cur = current(&mut prism_win::WindowsAppearance, &c);
+            for g in c.groups() {
+                println!("{g}");
+                for k in c.knobs.iter().filter(|k| k.group == g) {
+                    let active = match cur.get(&k.id) {
+                        Some(Ok(Some(v))) => k
+                            .options
+                            .iter()
+                            .find(|o| &o.value == v)
+                            .map(|o| o.label.clone())
+                            .unwrap_or_else(|| format!("{v:?}")),
+                        Some(Ok(None)) => "non défini".into(),
+                        Some(Err(e)) => e.clone(),
+                        None => "-".into(),
+                    };
+                    let opts: Vec<&str> = k.options.iter().map(|o| o.label.as_str()).collect();
+                    println!("  {:<16} {:<44} {:<18} [{}]", k.id, k.label, active, opts.join(" | "));
+                }
+            }
+            let presets: Vec<&str> = c.presets.iter().map(|p| p.id.as_str()).collect();
+            println!(
+                "\nPréréglages : {} · prism apparence <préréglage> · set <id> <option> · restore",
+                presets.join(", ")
+            );
+            Ok(())
+        }
+        ["apparence", "restore"] => {
+            apparence_run(|sys, j| prism_core::apparence::restore(sys, &prism_core::apparence::Catalog::builtin(), j))
+        }
+        ["apparence", "set", id, option @ ..] => {
+            use prism_core::apparence::Catalog;
+            let c = Catalog::builtin();
+            let k = c.knob(id).ok_or_else(|| format!("réglage inconnu « {id} »"))?.clone();
+            let wanted = option.join(" ").to_lowercase();
+            let o = k
+                .options
+                .iter()
+                .find(|o| o.label.to_lowercase() == wanted)
+                .ok_or_else(|| format!("option inconnue « {wanted} » pour {id}"))?
+                .value
+                .clone();
+            apparence_run(move |sys, j| {
+                prism_core::apparence::apply(
+                    sys,
+                    &c,
+                    &std::collections::BTreeMap::from([(k.id.clone(), o.clone())]),
+                    j,
+                )
+            })
+        }
+        ["apparence", preset] => {
+            let c = prism_core::apparence::Catalog::builtin();
+            let p = c
+                .preset(preset)
+                .ok_or_else(|| format!("préréglage inconnu « {preset} »"))?
+                .clone();
+            apparence_run(move |sys, j| prism_core::apparence::apply(sys, &c, &p.values, j))
+        }
         ["allege", "restore"] => {
             use prism_core::allege::{restore, AllegeJournal};
             let path = sys::data_dir().join("allegement.json");
@@ -490,6 +553,36 @@ fn platform_command(cfg: &Config, args: &[&str]) -> Result<(), String> {
         }
         ["autostart", "off"] => schtasks(&["/Delete", "/TN", "Prism OS", "/F"]),
         _ => Err(format!("commande inconnue : {}\n\n{HELP}", args.join(" "))),
+    }
+}
+
+#[cfg(windows)]
+fn apparence_run(
+    f: impl FnOnce(
+        &mut prism_win::WindowsAppearance,
+        &mut prism_core::apparence::AppearanceJournal,
+    ) -> prism_core::apparence::AppearanceReport,
+) -> Result<(), String> {
+    let path = sys::data_dir().join("apparence.json");
+    let mut j = prism_core::apparence::AppearanceJournal::load(&path)?;
+    let r = f(&mut prism_win::WindowsAppearance, &mut j);
+    j.save(&path)?;
+    for d in &r.done {
+        println!("  ✓ {d}");
+    }
+    for f in &r.failed {
+        println!("  ÉCHEC : {f}");
+    }
+    println!(
+        "{} changé(s), {} inchangé(s), {} échec(s) · annuler : prism apparence restore",
+        r.done.len(),
+        r.unchanged.len(),
+        r.failed.len()
+    );
+    if r.failed.is_empty() {
+        Ok(())
+    } else {
+        Err("certains réglages ont échoué".into())
     }
 }
 

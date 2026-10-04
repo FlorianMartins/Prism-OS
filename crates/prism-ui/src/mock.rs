@@ -13,6 +13,8 @@ const GIB: u64 = 1024 * 1024 * 1024;
 const MIB: u64 = 1024 * 1024;
 
 pub struct MockBackend {
+    pub appearance: prism_core::apparence::MockAppearance,
+    pub appearance_journal: prism_core::apparence::AppearanceJournal,
     pub profile: String,
     pub startup: Vec<StartupRow>,
     pub applied: Vec<Tier>,
@@ -31,6 +33,8 @@ impl Default for MockBackend {
             protected,
         };
         MockBackend {
+            appearance: prism_core::apparence::MockAppearance::factory(&prism_core::apparence::Catalog::builtin()),
+            appearance_journal: Default::default(),
             profile: "gaming".into(),
             startup: vec![
                 row(
@@ -329,6 +333,26 @@ impl Backend for MockBackend {
         self.log.push(format!("launch {}", game.name));
         self.in_game = true;
         Ok(format!("Lancement de {}", game.name))
+    }
+
+    fn appearance(&mut self) -> Vec<crate::backend::AppearanceRow> {
+        crate::appearance_common::rows(&mut self.appearance)
+    }
+
+    fn appearance_presets(&self) -> Vec<crate::backend::PresetInfo> {
+        crate::appearance_common::presets()
+    }
+
+    fn appearance_set(&mut self, id: &str, option: usize) -> Result<String, String> {
+        crate::appearance_common::set(&mut self.appearance, &mut self.appearance_journal, id, option)
+    }
+
+    fn appearance_preset(&mut self, id: &str) -> Result<String, String> {
+        crate::appearance_common::preset(&mut self.appearance, &mut self.appearance_journal, id)
+    }
+
+    fn appearance_restore(&mut self) -> Result<String, String> {
+        crate::appearance_common::restore_all(&mut self.appearance, &mut self.appearance_journal)
     }
 
     fn packs(&self) -> Vec<PackInfo> {
