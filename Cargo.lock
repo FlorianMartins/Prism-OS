@@ -1872,7 +1872,7 @@ checksum = "e8cf8e6a8aa66ce33f63993ffc4ea4271eb5b0530a9002db8455ea6050c77bfa"
 
 [[package]]
 name = "prism"
-version = "0.1.0"
+version = "0.7.0"
 dependencies = [
  "prism-core",
  "prism-win",
@@ -1883,7 +1883,7 @@ dependencies = [
 
 [[package]]
 name = "prism-core"
-version = "0.1.0"
+version = "0.7.0"
 dependencies = [
  "serde",
  "serde_json",
@@ -1893,7 +1893,7 @@ dependencies = [
 
 [[package]]
 name = "prism-ui"
-version = "0.1.0"
+version = "0.7.0"
 dependencies = [
  "eframe",
  "egui_kittest",
@@ -1905,7 +1905,7 @@ dependencies = [
 
 [[package]]
 name = "prism-win"
-version = "0.1.0"
+version = "0.7.0"
 dependencies = [
  "prism-core",
  "windows-sys 0.61.2",
