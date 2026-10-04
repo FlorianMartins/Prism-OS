@@ -27,6 +27,9 @@ Utilisation : prism <commande>
   ram clean [--deep]      libère la RAM des programmes en arrière-plan
   tools [pack]            packs d'outils cyber et leurs commandes d'installation
   tools install <pack>    installe un pack (winget, Kali sous WSL)
+  allege                  catalogue d'allègement (services, stratégies) et état
+  allege apply [niveaux]  applique : sur (défaut), avance, sans-xbox (admin)
+  allege restore          remet toutes les valeurs d'origine (admin)
   config init|check|path  copie modifiable de la configuration
   autostart on|off        lance le Mode Jeu à l'ouverture de session (admin)
   demo                    partie simulée de bout en bout (tout système)
@@ -88,6 +91,7 @@ fn run(args: &[&str]) -> Result<(), String> {
             Ok(())
         }
         ["tools", "install", pack] => tools_install(&cfg, pack),
+        ["allege"] => allege_list(),
         ["tools", pack] => {
             for t in resolve_pack(&cfg, pack)? {
                 println!("{}", t.name);
@@ -126,6 +130,66 @@ fn run(args: &[&str]) -> Result<(), String> {
     }
 }
 
+#[cfg_attr(not(windows), allow(dead_code))]
+fn allege_tiers(words: &[&str]) -> Result<Vec<prism_core::allege::Tier>, String> {
+    use prism_core::allege::Tier;
+    if words.is_empty() {
+        return Ok(vec![Tier::Sur]);
+    }
+    words
+        .iter()
+        .map(|w| Tier::parse(w).ok_or_else(|| format!("niveau inconnu « {w} » (sur, avance, sans-xbox)")))
+        .collect()
+}
+
+/// Liste le catalogue ; sous Windows, avec l'état réel de chaque entrée.
+fn allege_list() -> Result<(), String> {
+    use prism_core::allege::{Catalog, SystemConfig};
+    let c = Catalog::builtin();
+    #[cfg(windows)]
+    let mut sys: Option<Box<dyn SystemConfig>> = Some(Box::new(prism_win::WindowsSystemConfig));
+    #[cfg(not(windows))]
+    let mut sys: Option<Box<dyn SystemConfig>> = None;
+    println!("Services");
+    for s in &c.services {
+        let state = match sys.as_mut().map(|x| x.service_start(&s.name)) {
+            Some(Ok(Some(st))) => format!("{st:?}"),
+            Some(Ok(None)) => "absent".into(),
+            Some(Err(e)) => e,
+            None => "-".into(),
+        };
+        println!(
+            "  [{:<9}] {:<20} {:<12} -> {:<9} {}",
+            s.tier.label(),
+            s.name,
+            state,
+            format!("{:?}", s.start),
+            s.label
+        );
+    }
+    println!("Stratégies");
+    for p in &c.policies {
+        let state = match sys.as_mut().map(|x| x.policy(&p.key, &p.value)) {
+            Some(Ok(Some(d))) => d.to_string(),
+            Some(Ok(None)) => "absente".into(),
+            Some(Err(e)) => e,
+            None => "-".into(),
+        };
+        println!(
+            "  [{:<9}] {:<30} {:<8} -> {:<3} {}",
+            p.tier.label(),
+            p.value,
+            state,
+            p.data,
+            p.label
+        );
+    }
+    let protected: usize = c.protected.iter().map(|p| p.services.len()).sum();
+    println!("\n{protected} services protégés (anti-cheats, mises à jour, sécurité) ne sont jamais touchés.");
+    println!("Détail et raisons : config/allegement.toml");
+    Ok(())
+}
+
 fn tools_install(cfg: &Config, pack: &str) -> Result<(), String> {
     for t in resolve_pack(cfg, pack)? {
         println!("== {}", t.name);
@@ -149,7 +213,7 @@ fn tools_install(cfg: &Config, pack: &str) -> Result<(), String> {
 #[cfg(not(windows))]
 fn platform_command(_cfg: &Config, args: &[&str]) -> Result<(), String> {
     match args.first() {
-        Some(&("status" | "watch" | "ram" | "autostart")) => {
+        Some(&("status" | "watch" | "ram" | "autostart" | "allege")) => {
             Err("cette commande agit sur Windows ; ici, essayez `prism demo`".into())
         }
         _ => Err(format!("commande inconnue : {}\n\n{HELP}", args.join(" "))),
@@ -215,6 +279,57 @@ fn platform_command(cfg: &Config, args: &[&str]) -> Result<(), String> {
         }
         ["watch"] => watch(cfg, false),
         ["watch", "--quiet"] => watch(cfg, true),
+        ["allege", "apply", tiers @ ..] => {
+            use prism_core::allege::{apply, plan, AllegeJournal, Catalog};
+            let c = Catalog::builtin();
+            let changes = plan(&c, &allege_tiers(tiers)?);
+            let path = sys::data_dir().join("allegement.json");
+            let mut journal = AllegeJournal::load(&path)?;
+            let mut sysconf = prism_win::WindowsSystemConfig;
+            let r = apply(&mut sysconf, &c, &changes, &mut journal, &mut |j| j.save(&path));
+            for d in &r.done {
+                println!("  ✓ {d}");
+            }
+            println!(
+                "{} appliqué(s), {} déjà fait(s) ou absent(s), {} échec(s)",
+                r.done.len(),
+                r.unchanged.len(),
+                r.failed.len()
+            );
+            for f in &r.failed {
+                println!("  ÉCHEC : {f}");
+            }
+            println!("Annuler : prism allege restore");
+            if r.failed.is_empty() {
+                Ok(())
+            } else {
+                Err("certains changements ont échoué".into())
+            }
+        }
+        ["allege", "restore"] => {
+            use prism_core::allege::{restore, AllegeJournal};
+            let path = sys::data_dir().join("allegement.json");
+            let mut journal = AllegeJournal::load(&path)?;
+            if journal.originals.is_empty() {
+                println!("Rien à restaurer.");
+                return Ok(());
+            }
+            let r = restore(&mut prism_win::WindowsSystemConfig, &mut journal);
+            journal.save(&path)?;
+            println!(
+                "{} valeur(s) d'origine remise(s), {} échec(s)",
+                r.done.len(),
+                r.failed.len()
+            );
+            for f in &r.failed {
+                println!("  ÉCHEC : {f}");
+            }
+            if r.failed.is_empty() {
+                Ok(())
+            } else {
+                Err("restauration incomplète, relancez en administrateur".into())
+            }
+        }
         ["autostart", "on"] => {
             let exe = std::env::current_exe().map_err(|e| e.to_string())?;
             let task = format!("\"{}\" watch --quiet", exe.display());

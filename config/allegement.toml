@@ -1,0 +1,294 @@
+# Prism OS — catalogue d'allègement de Windows (embarqué dans prism.exe).
+#
+# Chaque entrée est réversible : la valeur d'origine est journalisée et
+# `prism allege restore` la remet.
+#
+# tier :
+#   sur        appliqué par `prism allege apply` ; aucune fonction utile à un PC de jeu perdue
+#   avance     sur demande (`prism allege apply avance`) : gain réel, contrepartie expliquée
+#   sans-xbox  seulement si vous n'utilisez ni le Game Pass, ni l'appli Xbox, ni de manette Xbox
+#
+# Règle anti-cheat : aucune entrée ne peut viser un service de la liste `protected`
+# (vérifié par un test). Voir docs/anticheat-rules.md.
+
+# ---------------------------------------------------------------------------
+# Services jamais touchés, avec la raison. La liste fait foi pour toute
+# contribution future.
+# ---------------------------------------------------------------------------
+[[protected]]
+reason = "Mises à jour : les anti-cheats et les jeux exigent un Windows à jour"
+services = ["wuauserv", "UsoSvc", "BITS", "WaaSMedicSvc", "TrustedInstaller", "msiserver", "DoSvc"]
+
+[[protected]]
+reason = "Vérification des signatures : sans elle, les pilotes d'anti-cheat (vgk, EAC, BattlEye) ne se chargent pas"
+services = ["CryptSvc", "KeyIso", "SamSs", "VaultSvc"]
+
+[[protected]]
+reason = "WMI : les anti-cheats y lisent les identifiants matériels"
+services = ["Winmgmt"]
+
+[[protected]]
+reason = "TPM et Secure Boot : exigés par Vanguard et FACEIT"
+services = ["tbs"]
+
+[[protected]]
+reason = "Heure système : l'authentification des anti-cheats et le TLS en dépendent"
+services = ["W32Time"]
+
+[[protected]]
+reason = "Sécurité : Defender, centre de sécurité, pare-feu"
+services = ["WinDefend", "WdNisSvc", "SecurityHealthService", "wscsvc", "mpssvc", "BFE", "Sense"]
+
+[[protected]]
+reason = "Anti-cheats eux-mêmes"
+services = ["vgc", "vgk", "EasyAntiCheat", "EasyAntiCheat_EOS", "BEService", "FACEIT", "FACEITService", "EAAntiCheatService"]
+
+[[protected]]
+reason = "Licences et installation des jeux du Store / Game Pass"
+services = ["ClipSVC", "LicenseManager", "AppXSvc", "GamingServices", "GamingServicesNet", "InstallService", "TokenBroker", "wlidsvc"]
+
+[[protected]]
+reason = "Cœur du système"
+services = [
+  "RpcSs", "RpcEptMapper", "DcomLaunch", "PlugPlay", "Power", "ProfSvc", "LSM", "gpsvc",
+  "EventLog", "Schedule", "SystemEventsBroker", "BrokerInfrastructure", "CoreMessagingRegistrar",
+  "StateRepository", "UserManager", "Themes", "FontCache", "TextInputManagementService",
+]
+
+[[protected]]
+reason = "Réseau, son, périphériques"
+services = [
+  "Dhcp", "Dnscache", "NlaSvc", "nsi", "netprofm", "WinHttpAutoProxySvc", "iphlpsvc",
+  "Audiosrv", "AudioEndpointBuilder", "bthserv", "BthAvctpSvc", "hidserv", "WpnService",
+]
+
+[[protected]]
+reason = "WSL et virtualisation (VBS/HVCI exigés par certains anti-cheats)"
+services = ["vmcompute", "HvHost", "LxssManager", "vmms"]
+
+# ---------------------------------------------------------------------------
+# Services
+# start = disabled | manual
+# ---------------------------------------------------------------------------
+[[services]]
+name = "DiagTrack"
+label = "Télémétrie (Expériences des utilisateurs connectés)"
+tier = "sur"
+start = "disabled"
+why = "Envoie les données de diagnostic à Microsoft ; tourne en permanence."
+
+[[services]]
+name = "dmwappushservice"
+label = "Routage des messages push WAP (télémétrie)"
+tier = "sur"
+start = "disabled"
+why = "Relais de la télémétrie, inutile hors gestion d'entreprise."
+
+[[services]]
+name = "MapsBroker"
+label = "Gestionnaire des cartes téléchargées"
+tier = "sur"
+start = "disabled"
+why = "Ne sert qu'à l'application Cartes hors connexion."
+
+[[services]]
+name = "RetailDemo"
+label = "Mode démonstration magasin"
+tier = "sur"
+start = "disabled"
+why = "Ne sert qu'aux PC d'exposition en magasin."
+
+[[services]]
+name = "Fax"
+label = "Télécopie"
+tier = "sur"
+start = "disabled"
+why = "Fax."
+
+[[services]]
+name = "RemoteRegistry"
+label = "Registre à distance"
+tier = "sur"
+start = "disabled"
+why = "Permet de modifier le registre depuis le réseau : surface d'attaque inutile."
+
+[[services]]
+name = "TrkWks"
+label = "Suivi des liens distribués"
+tier = "sur"
+start = "disabled"
+why = "Suit les fichiers déplacés sur des partages NTFS d'entreprise."
+
+[[services]]
+name = "WpcMonSvc"
+label = "Contrôle parental"
+tier = "sur"
+start = "disabled"
+why = "Inutile sans compte enfant Microsoft Family."
+
+[[services]]
+name = "wisvc"
+label = "Programme Windows Insider"
+tier = "sur"
+start = "disabled"
+why = "Ne sert qu'aux versions de test Insider."
+
+[[services]]
+name = "WMPNetworkSvc"
+label = "Partage réseau du Lecteur Windows Media"
+tier = "sur"
+start = "disabled"
+why = "Partage de médiathèque, absent sur beaucoup d'installations."
+
+[[services]]
+name = "SysMain"
+label = "SysMain (Superfetch)"
+tier = "avance"
+start = "disabled"
+why = "Précharge en RAM les applis fréquentes et occupe le disque en tâche de fond. Contrepartie : applis un peu plus lentes à ouvrir, surtout sur disque dur."
+
+[[services]]
+name = "WSearch"
+label = "Recherche Windows (indexation)"
+tier = "avance"
+start = "disabled"
+why = "L'indexation consomme CPU et disque. Contrepartie : la recherche de fichiers devient lente (les applis restent trouvables)."
+
+[[services]]
+name = "Spooler"
+label = "Spouleur d'impression"
+tier = "avance"
+start = "disabled"
+why = "Inutile sans imprimante, et historique de failles (PrintNightmare). Contrepartie : plus d'impression ni d'export PDF par imprimante virtuelle."
+
+[[services]]
+name = "PcaSvc"
+label = "Assistant compatibilité des programmes"
+tier = "avance"
+start = "disabled"
+why = "Surveille les vieux installateurs. Contrepartie : plus de proposition de mode compatibilité automatique."
+
+[[services]]
+name = "lfsvc"
+label = "Géolocalisation"
+tier = "avance"
+start = "disabled"
+why = "Contrepartie : plus de localisation pour Météo, Cartes et le fuseau horaire automatique."
+
+[[services]]
+name = "CDPSvc"
+label = "Plateforme des appareils connectés"
+tier = "avance"
+start = "disabled"
+why = "Partage de proximité, Phone Link, continuité entre appareils. Contrepartie : ces fonctions cessent."
+
+[[services]]
+name = "WerSvc"
+label = "Rapports d'erreurs Windows"
+tier = "avance"
+start = "disabled"
+why = "Envoie les rapports de plantage à Microsoft. Contrepartie : moins de diagnostic en cas de plantage système (les rapporteurs propres aux jeux continuent)."
+
+[[services]]
+name = "XblAuthManager"
+label = "Authentification Xbox Live"
+tier = "sans-xbox"
+start = "manual"
+why = "Démarre à la demande au lieu de tourner : sans effet si vous n'utilisez pas Xbox / Game Pass."
+
+[[services]]
+name = "XblGameSave"
+label = "Sauvegardes de jeux Xbox Live"
+tier = "sans-xbox"
+start = "manual"
+why = "Synchronisation des sauvegardes Xbox ; démarre à la demande."
+
+[[services]]
+name = "XboxNetApiSvc"
+label = "Réseau Xbox Live"
+tier = "sans-xbox"
+start = "manual"
+why = "Réseau Xbox Live ; démarre à la demande."
+
+# ---------------------------------------------------------------------------
+# Stratégies officielles (HKLM\SOFTWARE\Policies, valeurs DWORD)
+# ---------------------------------------------------------------------------
+[[policies]]
+key = 'SOFTWARE\Policies\Microsoft\Windows\DataCollection'
+value = "AllowTelemetry"
+data = 0
+label = "Télémétrie au minimum autorisé"
+tier = "sur"
+why = "0 coupe la télémétrie sur Entreprise/Éducation ; sur Famille/Pro, Windows la ramène au niveau « obligatoire », le plus bas permis."
+
+[[policies]]
+key = 'SOFTWARE\Policies\Microsoft\Dsh'
+value = "AllowNewsAndInterests"
+data = 0
+label = "Widgets désactivés"
+tier = "sur"
+why = "Supprime le panneau Widgets et ses processus d'arrière-plan (actualités, météo)."
+
+[[policies]]
+key = 'SOFTWARE\Policies\Microsoft\Edge'
+value = "StartupBoostEnabled"
+data = 0
+label = "Edge : pas de préchargement au démarrage"
+tier = "sur"
+why = "Edge lance sinon des processus cachés dès l'ouverture de session."
+
+[[policies]]
+key = 'SOFTWARE\Policies\Microsoft\Edge'
+value = "BackgroundModeEnabled"
+data = 0
+label = "Edge : pas d'exécution en arrière-plan"
+tier = "sur"
+why = "Edge garde sinon des processus actifs après fermeture de la dernière fenêtre."
+
+[[policies]]
+key = 'SOFTWARE\Policies\Microsoft\Windows\AdvertisingInfo'
+value = "DisabledByGroupPolicy"
+data = 1
+label = "Identifiant publicitaire désactivé"
+tier = "sur"
+why = "Empêche le suivi publicitaire entre applications."
+
+[[policies]]
+key = 'SOFTWARE\Policies\Microsoft\Windows\System'
+value = "PublishUserActivities"
+data = 0
+label = "Historique d'activité non enregistré"
+tier = "sur"
+why = "Windows n'enregistre plus les activités (fichiers ouverts, sites) pour la chronologie."
+
+[[policies]]
+key = 'SOFTWARE\Policies\Microsoft\Windows\System'
+value = "UploadUserActivities"
+data = 0
+label = "Historique d'activité non envoyé"
+tier = "sur"
+why = "Pas d'envoi de l'historique d'activité vers le cloud."
+
+[[policies]]
+key = 'SOFTWARE\Policies\Microsoft\Windows\CloudContent'
+value = "DisableWindowsConsumerFeatures"
+data = 1
+label = "Pas d'applis suggérées installées d'office"
+tier = "sur"
+why = "Empêche l'installation automatique d'applis promues (effet complet sur Entreprise/Éducation)."
+
+[[policies]]
+key = 'SOFTWARE\Policies\Microsoft\Windows\GameDVR'
+value = "AllowGameDVR"
+data = 0
+label = "Capture de la Game Bar désactivée"
+tier = "avance"
+why = "Supprime l'enregistrement en arrière-plan qui coûte des FPS. Contrepartie : plus de clips ni de captures via Win+G (OBS, ShadowPlay, ReLive restent utilisables)."
+
+[[policies]]
+key = 'SOFTWARE\Policies\Microsoft\Windows\OneDrive'
+value = "DisableFileSyncNGSC"
+data = 1
+label = "OneDrive désactivé"
+tier = "avance"
+why = "OneDrive ne démarre plus ni ne synchronise. Contrepartie : plus de sauvegarde cloud des dossiers."

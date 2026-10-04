@@ -4,6 +4,7 @@
 //! RAM, journal de restauration, catalogue d'outils) sans jamais appeler Windows.
 //! L'exécution passe par le trait [`platform::Platform`].
 
+pub mod allege;
 pub mod classify;
 pub mod config;
 pub mod engine;

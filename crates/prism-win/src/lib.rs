@@ -9,7 +9,12 @@
 //!   peut déjà ouvrir.
 
 #[cfg(windows)]
+mod sysconfig;
+#[cfg(windows)]
 mod win;
+
+#[cfg(windows)]
+pub use sysconfig::WindowsSystemConfig;
 
 #[cfg(windows)]
 pub use win::{active_power_plan, memory_lists, proc_id, process_state, MemoryLists, WindowsPlatform};

@@ -6,6 +6,7 @@
 //!   memlab trim <pid>            rogne sa mémoire de travail
 //!   memlab purge low|all         purge du cache en attente
 //!   memlab ws <pid>              mémoire de travail et état d'un processus
+//!   memlab cachefile <chemin> <Mo>  écrit puis relit un fichier (remplit le cache normal)
 
 #[cfg(windows)]
 fn main() {
@@ -61,6 +62,21 @@ fn main() {
         ["trim", pid] => show(w.apply(&Action::TrimWorkingSet { target: target(pid) })),
         ["purge", "low"] => show(w.apply(&Action::PurgeStandby { scope: PurgeScope::Low })),
         ["purge", "all"] => show(w.apply(&Action::PurgeStandby { scope: PurgeScope::All })),
+        ["cachefile", path, mb] => {
+            use std::io::{Read, Write};
+            let n: usize = mb.parse::<usize>().expect("Mo");
+            let chunk: Vec<u8> = (0..1usize << 20).map(|i| (i * 7 % 256) as u8).collect();
+            let mut f = std::fs::File::create(path).expect("création");
+            for _ in 0..n {
+                f.write_all(&chunk).expect("écriture");
+            }
+            f.sync_all().expect("sync");
+            drop(f);
+            let mut buf = vec![0u8; 1 << 20];
+            let mut f = std::fs::File::open(path).expect("ouverture");
+            while f.read(&mut buf).expect("lecture") > 0 {}
+            println!("{n} Mo écrits puis relus");
+        }
         ["ws", pid] => {
             let t = target(pid);
             let snap = w.snapshot().expect("relevé");
