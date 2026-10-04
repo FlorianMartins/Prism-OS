@@ -107,6 +107,15 @@ struct Bar {
     ram: History,
     gpu: History,
     windows: Vec<TaskWin>,
+    /// Ordre d'apparition des fenêtres : les boutons ne bougent pas quand on change de
+    /// fenêtre active (l'ordre d'empilement de Windows les remélangeait à chaque clic).
+    win_order: Vec<isize>,
+    /// Rang d'empilement de chaque fenêtre (0 = la plus haute).
+    z_rank: HashMap<isize, usize>,
+    /// Dernière fois où chaque fenêtre a été active : « les plus récentes » quand elles
+    /// ne tiennent pas toutes. Réduire une fenêtre ne change pas ce moment (l'ordre
+    /// d'empilement, lui, la faisait passer dans « +N »).
+    last_active: HashMap<isize, Instant>,
     /// Une barre par écran ; la première (fenêtre principale `hwnd`) est sur l'écran
     /// principal.
     panels: Vec<Panel>,
@@ -954,9 +963,32 @@ impl Bar {
             .collect();
         let panel_monitor: Vec<usize> = (0..self.panels.len()).collect();
         let lists = prism_core::bar::panel_windows(&window_monitor, &panel_monitor, self.cfg.windows_per_monitor);
-        for (p, wins) in self.panels.iter_mut().zip(lists) {
+        for (p, mut wins) in self.panels.iter_mut().zip(lists) {
             let (w, h) = client_size(p.hwnd);
             p.items = layout(&self.cfg, w, h, wins.len());
+            // Trop de fenêtres : les boutons visibles sont les plus récemment utilisées
+            // (gardées dans leur ordre stable), les autres vont dans « +N ».
+            if let Some(k) = p
+                .items
+                .iter()
+                .find(|i| i.widget == Widget::Overflow)
+                .and_then(|i| i.index)
+            {
+                // Activées le plus récemment d'abord ; jamais activées depuis le démarrage
+                // de la barre : par ordre d'empilement.
+                let rank = |i: &usize| {
+                    let h = self.windows.get(*i).map(|w| w.hwnd as isize).unwrap_or(0);
+                    (
+                        std::cmp::Reverse(self.last_active.get(&h).copied()),
+                        self.z_rank.get(&h).copied().unwrap_or(usize::MAX),
+                    )
+                };
+                let mut by_recent = wins.clone();
+                by_recent.sort_by_key(rank);
+                let keep: std::collections::HashSet<usize> = by_recent.into_iter().take(k).collect();
+                let (shown, rest): (Vec<usize>, Vec<usize>) = wins.into_iter().partition(|i| keep.contains(i));
+                wins = shown.into_iter().chain(rest).collect();
+            }
             p.wins = wins;
         }
     }
@@ -980,6 +1012,17 @@ impl Bar {
             self.cfg = new;
             self.dock();
         }
+    }
+
+    /// Fenêtres ouvertes, dans leur ordre d'apparition.
+    fn refresh_windows(&mut self) {
+        let mut wins = list_windows(self.hwnd);
+        let now: Vec<isize> = wins.iter().map(|w| w.hwnd as isize).collect();
+        self.z_rank = now.iter().enumerate().map(|(i, h)| (*h, i)).collect();
+        self.last_active.retain(|h, _| self.z_rank.contains_key(h));
+        self.win_order = prism_core::tiling::keep_order(&self.win_order, &now);
+        wins.sort_by_key(|w| self.win_order.iter().position(|h| *h == w.hwnd as isize));
+        self.windows = wins;
     }
 
     fn invalidate_all(&self) {
@@ -1062,7 +1105,7 @@ impl Bar {
         lap(1, &mut costs);
         self.game = Etat::load().is_some_and(|e| !e.game.is_empty());
         lap(2, &mut costs);
-        self.windows = list_windows(self.hwnd);
+        self.refresh_windows();
         lap(3, &mut costs);
         self.apply_opacity_rules();
         lap(4, &mut costs);
@@ -1216,7 +1259,7 @@ impl Bar {
             Widget::Windows => {
                 if let Some(h) = win {
                     if !self.fx_click(h, "clic barre") {
-                        activate(h);
+                        toggle_window(h);
                     }
                 }
             }
@@ -1622,6 +1665,7 @@ impl Bar {
     /// position de ses fenêtres (seulement si la glisse est activée).
     fn follow_foreground(&mut self, h: HWND) {
         self.invalidate_all();
+        self.last_active.insert(h as isize, Instant::now());
         use windows_sys::Win32::UI::Accessibility::{SetWinEventHook, UnhookWinEvent};
         // SAFETY: lecture d'état.
         if unsafe { IsIconic(h) } == 0 {
@@ -1826,7 +1870,7 @@ impl Bar {
         if structural && self.cfg.tiling.enabled {
             // Fenêtre ouverte, fermée, réduite ou rendue : les tuiles se réorganisent
             // tout de suite (sans attendre la seconde suivante).
-            self.windows = list_windows(self.hwnd);
+            self.refresh_windows();
             self.retile();
         }
         for (ev, key, at) in events {
@@ -2008,7 +2052,7 @@ impl Bar {
         if let Some(t) = target {
             self.tiler.swap(h, t as HWND);
         }
-        self.windows = list_windows(self.hwnd);
+        self.refresh_windows();
         self.retile();
     }
 
@@ -2065,7 +2109,7 @@ impl Bar {
         if matches!(id, 1 | 2 | 6 | 7) {
             self.save_cfg();
         }
-        self.windows = list_windows(self.hwnd);
+        self.refresh_windows();
         self.retile();
     }
 
@@ -2649,6 +2693,68 @@ fn activate(hwnd: HWND) {
     }
 }
 
+/// Clic sur le bouton d'une fenêtre, comme la barre de Windows : la fenêtre active se
+/// réduit, une autre passe au premier plan. (Pas dans `activate`, que l'effet de
+/// restauration appelle juste après avoir restauré la fenêtre : elle était re-réduite.)
+fn toggle_window(hwnd: HWND) {
+    // SAFETY: lectures d'état puis réduction d'une fenêtre d'un autre processus.
+    let active = unsafe { IsIconic(hwnd) == 0 && GetForegroundWindow() == hwnd };
+    if active {
+        unsafe { ShowWindow(hwnd, SW_MINIMIZE) };
+    } else {
+        activate(hwnd);
+    }
+}
+
+/// Clic du milieu (fermer) ou clic droit (menu de la fenêtre) sur un bouton de fenêtre.
+fn window_menu(owner: HWND, hwnd: HWND, middle: bool) {
+    use windows_sys::Win32::UI::WindowsAndMessaging::{
+        AppendMenuW, CreatePopupMenu, DestroyMenu, PostMessageW, TrackPopupMenu, MF_SEPARATOR, MF_STRING, SW_MAXIMIZE,
+        TPM_RETURNCMD, TPM_RIGHTBUTTON, WM_CLOSE,
+    };
+    // SAFETY: menu créé, affiché puis détruit ici ; messages standard à une fenêtre.
+    unsafe {
+        if middle {
+            PostMessageW(hwnd, WM_CLOSE, 0, 0);
+            return;
+        }
+        let menu = CreatePopupMenu();
+        if menu.is_null() {
+            return;
+        }
+        let iconic = IsIconic(hwnd) != 0;
+        for (id, label) in [(1usize, if iconic { "Restaurer" } else { "Réduire" }), (2, "Agrandir")] {
+            let w = wide(label);
+            AppendMenuW(menu, MF_STRING, id, w.as_ptr());
+        }
+        AppendMenuW(menu, MF_SEPARATOR, 0, null());
+        let close = wide("Fermer");
+        AppendMenuW(menu, MF_STRING, 3, close.as_ptr());
+        let mut pt = POINT { x: 0, y: 0 };
+        GetCursorPos(&mut pt);
+        SetForegroundWindow(owner);
+        let cmd = TrackPopupMenu(menu, TPM_RETURNCMD | TPM_RIGHTBUTTON, pt.x, pt.y, 0, owner, null());
+        DestroyMenu(menu);
+        match cmd {
+            1 if iconic => {
+                ShowWindow(hwnd, SW_RESTORE);
+                SetForegroundWindow(hwnd);
+            }
+            1 => {
+                ShowWindow(hwnd, SW_MINIMIZE);
+            }
+            2 => {
+                ShowWindow(hwnd, SW_MAXIMIZE);
+                SetForegroundWindow(hwnd);
+            }
+            3 => {
+                PostMessageW(hwnd, WM_CLOSE, 0, 0);
+            }
+            _ => {}
+        }
+    }
+}
+
 /// Win + une touche (raccourci de Windows, sans hook : une simple frappe simulée).
 fn press_win_combo(vk: u16) {
     let key = |vk, flags| INPUT {
@@ -2876,6 +2982,21 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) 
             });
             0
         }
+        WM_MBUTTONUP | WM_RBUTTONUP => {
+            let x = (lp & 0xffff) as i16 as i32;
+            let y = ((lp >> 16) & 0xffff) as i16 as i32;
+            let target = BAR.with(|b| {
+                b.borrow()
+                    .as_ref()
+                    .and_then(|bar| bar.hit(hwnd, x, y))
+                    .and_then(|(w, win)| (w == Widget::Windows).then_some(win).flatten())
+            });
+            if let Some(h) = target {
+                window_menu(hwnd, h, msg == WM_MBUTTONUP);
+                with_bar(|b| b.invalidate_all());
+            }
+            0
+        }
         WM_APPBAR => {
             match wp as u32 {
                 ABN_POSCHANGED => {
@@ -3002,6 +3123,9 @@ pub fn run() -> Result<(), String> {
                 ram: History::new(30),
                 gpu: History::new(30),
                 windows: Vec::new(),
+                win_order: Vec::new(),
+                z_rank: HashMap::new(),
+                last_active: HashMap::new(),
                 panels: vec![Panel {
                     hwnd,
                     monitor: 0,

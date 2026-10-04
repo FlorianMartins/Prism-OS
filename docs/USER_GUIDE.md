@@ -393,8 +393,11 @@ Settings are stored in `%ProgramData%\Prism\bar.json` and applied within a secon
 ### Open windows
 
 Each open window has a button with its app icon (and its title when there is room);
-the active one is underlined. With more windows than fit, the most recent ones are
-shown and a **+N** button lists all the others (click one to bring it to the front).
+the active one is underlined. Buttons keep the order windows were opened in. Like the
+Windows taskbar: click a window to bring it to the front, click the active one to
+minimize it, middle-click to close it, right-click for *Restaurer / Réduire / Agrandir /
+Fermer*. With more windows than fit, the most recently used ones are shown and a **+N**
+button lists all the others (click one to bring it to the front).
 
 ### Prism Start menu
 
