@@ -251,3 +251,99 @@ fn full_game_session_on_real_processes() {
     let (p, _, m) = process_state(&bg).unwrap();
     assert_eq!((p, m), (Priority::Normal, MemPriority::Normal));
 }
+
+#[test]
+fn topology_is_read() {
+    let cpus = prism_win::cpu_topology();
+    assert!(!cpus.is_empty(), "au moins un CPU set");
+    eprintln!(
+        "cpus={} split={:?}",
+        cpus.len(),
+        prism_core::cores::split(&cpus).map(|s| s.describe())
+    );
+}
+
+#[test]
+fn cpu_sets_are_applied_and_given_back() {
+    let mut w = WindowsPlatform::new();
+    let (_kid, t) = spawn(&ping());
+    let first = prism_win::cpu_topology()[0].id;
+    let undo = done_undo(w.apply(&Action::CpuSets {
+        target: t.clone(),
+        cpus: vec![first],
+    }));
+    // Déjà restreint : on respecte le choix existant.
+    assert!(matches!(
+        w.apply(&Action::CpuSets {
+            target: t.clone(),
+            cpus: vec![first]
+        }),
+        Outcome::Skipped(_)
+    ));
+    assert_eq!(w.undo(&undo), Outcome::Done(None));
+    let again = w.apply(&Action::CpuSets {
+        target: t,
+        cpus: vec![first],
+    });
+    assert!(
+        matches!(again, Outcome::Done(Some(_))),
+        "rendu à tous les cœurs : de nouveau modifiable ({again:?})"
+    );
+}
+
+#[test]
+fn suspend_and_resume_a_child() {
+    let mut w = WindowsPlatform::new();
+    let (_kid, t) = spawn(&ping());
+    let undo = done_undo(w.apply(&Action::Suspend { target: t.clone() }));
+    assert_eq!(w.undo(&undo), Outcome::Done(None));
+}
+
+#[test]
+fn startup_entries_can_be_listed() {
+    use prism_core::demarrage::StartupConfig;
+    let entries = prism_win::WindowsStartup.entries().expect("liste des entrées");
+    eprintln!("{} entrée(s) de démarrage", entries.len());
+}
+
+#[test]
+fn hkcu_text_value_round_trip_is_exact() {
+    use prism_core::allege::{RegData, SystemConfig};
+    let mut s = prism_win::WindowsSystemConfig;
+    let key = r"HKCU\Control Panel\Mouse";
+    let before = s.policy(key, "MouseThreshold1").unwrap();
+    s.set_policy(key, "MouseThreshold1", &RegData::Text("0".into()))
+        .unwrap();
+    assert_eq!(
+        s.policy(key, "MouseThreshold1").unwrap(),
+        Some(RegData::Text("0".into()))
+    );
+    match &before {
+        Some(d) => s.set_policy(key, "MouseThreshold1", d).unwrap(),
+        None => s.delete_policy(key, "MouseThreshold1").unwrap(),
+    }
+    assert_eq!(s.policy(key, "MouseThreshold1").unwrap(), before);
+    // Hors liste autorisée : refusé avant tout appel au registre.
+    assert!(s
+        .set_policy(
+            r"HKCU\Software\Microsoft\Windows\CurrentVersion\Run",
+            "x",
+            &RegData::Dword(1)
+        )
+        .is_err());
+}
+
+#[test]
+fn a_running_service_is_paused_and_restarted() {
+    let mut w = WindowsPlatform::new();
+    for name in ["Spooler", "WSearch", "SysMain"] {
+        match w.apply(&Action::PauseService { name: name.into() }) {
+            Outcome::Done(Some(undo)) => {
+                assert_eq!(w.undo(&undo), Outcome::Done(None), "{name} relancé");
+                return;
+            }
+            other => eprintln!("{name} : {other:?}"),
+        }
+    }
+    eprintln!("aucun service candidat actif sur cette machine");
+}

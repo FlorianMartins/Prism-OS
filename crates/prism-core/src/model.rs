@@ -21,6 +21,19 @@ pub struct ProcInfo {
     pub session: u32,
     /// Mémoire de travail en octets (0 si illisible).
     pub working_set: u64,
+    /// Temps processeur cumulé (noyau + utilisateur), en unités de 100 ns.
+    pub cpu_time: u64,
+}
+
+/// Un processeur logique tel que Windows le décrit (CPU set).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct CpuInfo {
+    /// Identifiant de CPU set (ce que prend `SetProcessDefaultCpuSets`).
+    pub id: u32,
+    /// Plus elle est haute, plus le cœur est performant (P > E).
+    pub efficiency_class: u8,
+    /// Taille du cache de dernier niveau partagé par ce cœur (0 si inconnue).
+    pub llc_bytes: u64,
 }
 
 /// État de la mémoire physique, en octets.
@@ -54,6 +67,10 @@ pub struct Snapshot {
     /// Session interactive de l'utilisateur : seuls ses processus sont concernés.
     pub user_session: u32,
     pub self_pid: u32,
+    /// Topologie du processeur (vide si inconnue).
+    pub cpus: Vec<CpuInfo>,
+    /// Processus de la fenêtre au premier plan (celle que l'utilisateur regarde).
+    pub foreground_pid: Option<u32>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]

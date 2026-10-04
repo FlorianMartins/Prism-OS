@@ -4,14 +4,15 @@ use std::ffi::c_void;
 use std::mem::size_of;
 use std::ptr::{null, null_mut};
 
-use prism_core::allege::{StartType, SystemConfig};
+use prism_core::allege::{RegData, StartType, SystemConfig};
 
 use windows_sys::Win32::Foundation::{
     GetLastError, ERROR_ACCESS_DENIED, ERROR_FILE_NOT_FOUND, ERROR_INSUFFICIENT_BUFFER, ERROR_SERVICE_DOES_NOT_EXIST,
 };
 use windows_sys::Win32::System::Registry::{
     RegCloseKey, RegCreateKeyExW, RegDeleteValueW, RegOpenKeyExW, RegQueryValueExW, RegSetValueExW, HKEY,
-    HKEY_LOCAL_MACHINE, KEY_QUERY_VALUE, KEY_SET_VALUE, REG_DWORD, REG_OPTION_NON_VOLATILE, REG_VALUE_TYPE,
+    HKEY_CURRENT_USER, HKEY_LOCAL_MACHINE, KEY_QUERY_VALUE, KEY_SET_VALUE, REG_DWORD, REG_OPTION_NON_VOLATILE, REG_SZ,
+    REG_VALUE_TYPE,
 };
 use windows_sys::Win32::System::Services::{
     ChangeServiceConfig2W, ChangeServiceConfigW, CloseServiceHandle, ControlService, OpenSCManagerW, OpenServiceW,
@@ -31,6 +32,19 @@ fn win_err(what: &str, code: u32) -> String {
     } else {
         format!("{what} : erreur Windows {code}")
     }
+}
+
+/// Sépare `HKLM\\…` / `HKCU\\…` en (racine, sous-clé).
+fn split_hive(full: &str) -> Result<(HKEY, &str), String> {
+    let (hive, sub) = full
+        .split_once('\\')
+        .ok_or_else(|| format!("{full} : chemin sans ruche"))?;
+    let root = match hive.to_ascii_uppercase().as_str() {
+        "HKLM" => HKEY_LOCAL_MACHINE,
+        "HKCU" => HKEY_CURRENT_USER,
+        other => return Err(format!("ruche inconnue {other}")),
+    };
+    Ok((root, sub))
 }
 
 struct Sc(SC_HANDLE);
@@ -175,45 +189,58 @@ impl SystemConfig for WindowsSystemConfig {
         Ok(())
     }
 
-    fn policy(&mut self, key: &str, value: &str) -> Result<Option<u32>, String> {
-        let k = wide(key);
+    fn policy(&mut self, key: &str, value: &str) -> Result<Option<RegData>, String> {
+        let (root, sub) = split_hive(key)?;
+        let k = wide(sub);
         let v = wide(value);
-        // SAFETY: chaînes larges terminées par zéro, sorties locales dimensionnées.
+        // SAFETY: chaînes larges terminées par zéro, tampons locaux dimensionnés.
         unsafe {
             let mut h: HKEY = null_mut();
-            match RegOpenKeyExW(HKEY_LOCAL_MACHINE, k.as_ptr(), 0, KEY_QUERY_VALUE, &mut h) {
+            match RegOpenKeyExW(root, k.as_ptr(), 0, KEY_QUERY_VALUE, &mut h) {
                 0 => {}
                 ERROR_FILE_NOT_FOUND => return Ok(None),
                 code => return Err(win_err(key, code)),
             }
             let h = Key(h);
             let mut kind: REG_VALUE_TYPE = 0;
-            let mut data = 0u32;
-            let mut len = size_of::<u32>() as u32;
+            let mut buf = [0u16; 1024];
+            let mut len = (buf.len() * 2) as u32;
             match RegQueryValueExW(
                 h.0,
                 v.as_ptr(),
                 null(),
                 &mut kind,
-                &mut data as *mut u32 as *mut u8,
+                buf.as_mut_ptr() as *mut u8,
                 &mut len,
             ) {
-                0 if kind == REG_DWORD => Ok(Some(data)),
-                0 => Err(format!("{key}\\{value} : valeur non DWORD")),
+                0 if kind == REG_DWORD && len == 4 => Ok(Some(RegData::Dword(u32::from_le_bytes(
+                    (*(buf.as_ptr() as *const [u8; 4])).to_owned(),
+                )))),
+                0 if kind == REG_SZ => {
+                    let n = (len as usize / 2).min(buf.len());
+                    let text = String::from_utf16_lossy(&buf[..n]);
+                    Ok(Some(RegData::Text(text.trim_end_matches('\0').to_string())))
+                }
+                0 => Err(format!("{key}\\{value} : type de valeur inattendu ({kind})")),
                 ERROR_FILE_NOT_FOUND => Ok(None),
                 code => Err(win_err(value, code)),
             }
         }
     }
 
-    fn set_policy(&mut self, key: &str, value: &str, data: u32) -> Result<(), String> {
-        let k = wide(key);
+    fn set_policy(&mut self, key: &str, value: &str, data: &RegData) -> Result<(), String> {
+        // Dernière barrière : hors liste autorisée, rien n'est écrit.
+        if !prism_core::allege::registry_allowed(key) {
+            return Err(format!("{key} : clé hors de la liste autorisée"));
+        }
+        let (root, sub) = split_hive(key)?;
+        let k = wide(sub);
         let v = wide(value);
-        // SAFETY: chaînes larges terminées par zéro ; la donnée est un u32 local.
+        // SAFETY: chaînes larges terminées par zéro ; données locales de taille exacte.
         unsafe {
             let mut h: HKEY = null_mut();
             let st = RegCreateKeyExW(
-                HKEY_LOCAL_MACHINE,
+                root,
                 k.as_ptr(),
                 0,
                 null(),
@@ -227,8 +254,24 @@ impl SystemConfig for WindowsSystemConfig {
                 return Err(win_err(key, st));
             }
             let h = Key(h);
-            let bytes = data.to_le_bytes();
-            match RegSetValueExW(h.0, v.as_ptr(), 0, REG_DWORD, bytes.as_ptr(), 4) {
+            let st = match data {
+                RegData::Dword(d) => {
+                    let bytes = d.to_le_bytes();
+                    RegSetValueExW(h.0, v.as_ptr(), 0, REG_DWORD, bytes.as_ptr(), 4)
+                }
+                RegData::Text(t) => {
+                    let w = wide(t);
+                    RegSetValueExW(
+                        h.0,
+                        v.as_ptr(),
+                        0,
+                        REG_SZ,
+                        w.as_ptr() as *const u8,
+                        (w.len() * 2) as u32,
+                    )
+                }
+            };
+            match st {
                 0 => Ok(()),
                 code => Err(win_err(value, code)),
             }
@@ -236,12 +279,13 @@ impl SystemConfig for WindowsSystemConfig {
     }
 
     fn delete_policy(&mut self, key: &str, value: &str) -> Result<(), String> {
-        let k = wide(key);
+        let (root, sub) = split_hive(key)?;
+        let k = wide(sub);
         let v = wide(value);
         // SAFETY: chaînes larges terminées par zéro.
         unsafe {
             let mut h: HKEY = null_mut();
-            match RegOpenKeyExW(HKEY_LOCAL_MACHINE, k.as_ptr(), 0, KEY_SET_VALUE, &mut h) {
+            match RegOpenKeyExW(root, k.as_ptr(), 0, KEY_SET_VALUE, &mut h) {
                 0 => {}
                 ERROR_FILE_NOT_FOUND => return Ok(()),
                 code => return Err(win_err(key, code)),
@@ -253,4 +297,51 @@ impl SystemConfig for WindowsSystemConfig {
             }
         }
     }
+}
+
+/// Arrête un service en cours d'exécution ; rend de quoi le relancer.
+pub(crate) fn pause_service(name: &str) -> prism_core::platform::Outcome {
+    use prism_core::journal::Undo;
+    use prism_core::platform::Outcome;
+    use windows_sys::Win32::System::Services::{QueryServiceStatus, SERVICE_QUERY_STATUS, SERVICE_RUNNING};
+    let svc = match open_service(name, SERVICE_QUERY_STATUS | SERVICE_STOP) {
+        Ok(Some((svc, _scm))) => svc,
+        Ok(None) => return Outcome::Skipped("service absent".into()),
+        Err(e) => return Outcome::Skipped(e),
+    };
+    // SAFETY: handle vérifié, structure de sortie locale.
+    unsafe {
+        let mut status: SERVICE_STATUS = std::mem::zeroed();
+        if QueryServiceStatus(svc.0, &mut status) == 0 {
+            return Outcome::Failed(win_err(name, GetLastError()));
+        }
+        if status.dwCurrentState != SERVICE_RUNNING {
+            return Outcome::Skipped("déjà arrêté".into());
+        }
+        if ControlService(svc.0, SERVICE_CONTROL_STOP, &mut status) == 0 {
+            return Outcome::Skipped(win_err(name, GetLastError()));
+        }
+    }
+    Outcome::Done(Some(Undo::Service { name: name.to_string() }))
+}
+
+/// Relance un service mis en pause par Prism.
+pub(crate) fn resume_service(name: &str) -> prism_core::platform::Outcome {
+    use prism_core::platform::Outcome;
+    use windows_sys::Win32::Foundation::ERROR_SERVICE_ALREADY_RUNNING;
+    let svc = match open_service(name, SERVICE_START) {
+        Ok(Some((svc, _scm))) => svc,
+        Ok(None) => return Outcome::Skipped("service absent".into()),
+        Err(e) => return Outcome::Failed(e),
+    };
+    // SAFETY: handle vérifié.
+    unsafe {
+        if StartServiceW(svc.0, 0, std::ptr::null()) == 0 {
+            let code = GetLastError();
+            if code != ERROR_SERVICE_ALREADY_RUNNING {
+                return Outcome::Failed(win_err(name, code));
+            }
+        }
+    }
+    Outcome::Done(None)
 }

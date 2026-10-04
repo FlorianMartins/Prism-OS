@@ -3,7 +3,7 @@
 
 use crate::classify::games_running;
 use crate::config::{Config, Profile};
-use crate::engine::{engage, restore, GameSession, Report};
+use crate::engine::{engage, restore, watch_ram, GameSession, Report};
 use crate::journal::JournalStore;
 use crate::model::Snapshot;
 use crate::platform::Platform;
@@ -33,7 +33,12 @@ pub enum Event {
 pub struct Watcher {
     pub session: Option<GameSession>,
     quiet_polls: u32,
+    /// Passages depuis la dernière purge de surveillance (limite la cadence).
+    since_watch_purge: u32,
 }
+
+/// Au plus une purge de surveillance toutes les N passes (≈ 20 s à 2 s par passe).
+pub const WATCH_EVERY_POLLS: u32 = 10;
 
 impl Watcher {
     pub fn engaged(&self) -> bool {
@@ -66,6 +71,13 @@ impl Watcher {
                     conflicts: conflicts(snap, cfg),
                 }
             } else if report.done.is_empty() && report.failed.is_empty() {
+                self.since_watch_purge += 1;
+                if self.since_watch_purge >= WATCH_EVERY_POLLS {
+                    if let Some(r) = watch_ram(platform, profile, snap) {
+                        self.since_watch_purge = 0;
+                        return Event::Updated { report: r };
+                    }
+                }
                 Event::Idle
             } else {
                 Event::Updated { report }

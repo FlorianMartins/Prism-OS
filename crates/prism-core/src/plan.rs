@@ -7,18 +7,45 @@ use serde::{Deserialize, Serialize};
 
 use crate::classify::{classify_all, Class};
 use crate::config::{Config, Profile};
+use crate::cores;
+use crate::glob::any_matches;
 use crate::model::{MemPriority, PowerPlan, Priority, ProcId, PurgeScope, Snapshot, Target};
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "action", rename_all = "snake_case")]
 pub enum Action {
-    Priority { target: Target, to: Priority },
-    EcoQos { target: Target },
-    MemoryPriority { target: Target, to: MemPriority },
-    TrimWorkingSet { target: Target },
-    PurgeStandby { scope: PurgeScope },
+    Priority {
+        target: Target,
+        to: Priority,
+    },
+    EcoQos {
+        target: Target,
+    },
+    MemoryPriority {
+        target: Target,
+        to: MemPriority,
+    },
+    TrimWorkingSet {
+        target: Target,
+    },
+    PurgeStandby {
+        scope: PurgeScope,
+    },
     HighPerformancePower,
     ShutdownWsl,
+    /// Restreint le processus à ces CPU sets (cœurs économes / puce sans cache 3D).
+    CpuSets {
+        target: Target,
+        cpus: Vec<u32>,
+    },
+    /// Arrête un service bruyant pendant la partie ; relancé à la fin.
+    PauseService {
+        name: String,
+    },
+    /// Gèle le processus pendant la partie ; dégelé à la fin.
+    Suspend {
+        target: Target,
+    },
 }
 
 impl Action {
@@ -31,6 +58,9 @@ impl Action {
             Action::PurgeStandby { scope } => format!("purge du cache en attente ({scope:?})"),
             Action::HighPerformancePower => "plan d'alimentation -> performances élevées".into(),
             Action::ShutdownWsl => "arrêt de WSL (libère vmmem)".into(),
+            Action::CpuSets { target, cpus } => format!("{} : limité à {} cœurs logiques", target.name, cpus.len()),
+            Action::PauseService { name } => format!("service {name} mis en pause"),
+            Action::Suspend { target } => format!("{} : gelé pendant la partie", target.name),
         }
     }
 }
@@ -56,6 +86,11 @@ pub fn plan_engage(
         .map(|(p, _)| Target::of(p))
         .collect();
 
+    let split = if profile.background_cpu_sets {
+        cores::split(&snap.cpus)
+    } else {
+        None
+    };
     let mut actions = Vec::new();
     // 1. Réglages réversibles d'abord, priorité mémoire comprise : elle doit être en
     //    place AVANT le rognage pour que les pages rognées tombent dans le cache basse
@@ -76,9 +111,25 @@ pub fn plan_engage(
                 to: profile.background_memory_priority,
             });
         }
+        if let Some(s) = &split {
+            actions.push(Action::CpuSets {
+                target: t.clone(),
+                cpus: s.background.clone(),
+            });
+        }
+    }
+    // Gel des applications désignées par l'utilisateur (liste vide par défaut).
+    for t in background
+        .iter()
+        .filter(|t| any_matches(&cfg.lists.suspend_in_game, &t.name))
+    {
+        actions.push(Action::Suspend { target: t.clone() });
     }
     if !first {
         return actions;
+    }
+    for name in &profile.pause_services {
+        actions.push(Action::PauseService { name: name.clone() });
     }
     // 2. Rognage.
     if profile.trim_background {
@@ -157,6 +208,8 @@ mod tests {
             },
             user_session: 1,
             self_pid: 999,
+            cpus: Vec::new(),
+            foreground_pid: None,
         }
     }
 

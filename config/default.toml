@@ -25,6 +25,15 @@ purge_standby = "low"                    # off | low | all
 purge_when_free_below_percent = 25
 power_plan = "high_performance"          # unchanged | high_performance
 shutdown_wsl = true
+background_cpu_sets = true               # arrière-plan sur cœurs E / puce sans cache 3D
+pause_services = ["WSearch"]             # indexation en pause pendant la partie
+watch_ram = true                         # purge du cache priorité 0 si la RAM se tend
+# Mode Quotidien (hors jeu aussi) : une appli d'arrière-plan inactive est allégée,
+# puis sa RAM rendue ; tout est annulé dès qu'on y revient.
+daily = true
+daily_eco_after_minutes = 5
+daily_trim_after_minutes = 30
+daily_purge_below_percent = 15
 tool_packs = []
 
 [profiles.balanced]
@@ -39,6 +48,11 @@ purge_standby = "off"
 purge_when_free_below_percent = 0
 power_plan = "unchanged"
 shutdown_wsl = false
+background_cpu_sets = true
+daily = true
+daily_eco_after_minutes = 10
+daily_trim_after_minutes = 60
+daily_purge_below_percent = 10
 tool_packs = []
 
 [profiles.cyber]
@@ -53,6 +67,11 @@ purge_standby = "off"
 purge_when_free_below_percent = 0
 power_plan = "unchanged"
 shutdown_wsl = false
+# Poste de travail : allègement quotidien plus patient, outils lourds jamais gênés.
+daily = true
+daily_eco_after_minutes = 15
+daily_trim_after_minutes = 90
+daily_purge_below_percent = 10
 tool_packs = ["reseau", "web", "reverse", "kali"]
 
 # ---------------------------------------------------------------------------
@@ -106,6 +125,11 @@ game_roots = [
   "\\ubisoft game launcher\\games\\",
   "\\battle.net\\games\\",
 ]
+
+# Applications GELÉES pendant la partie, dégelées à la fin (vide par défaut).
+# Exemple : ["onedrive.exe", "teams.exe"]. Un programme gelé ne répond plus du tout
+# jusqu'à la fin de la partie : n'y mettez ni votre messagerie vocale ni votre musique.
+suspend_in_game = []
 
 # Processus annexes installés sous une racine de jeu mais qui ne sont pas le jeu.
 game_helpers = [

@@ -19,7 +19,7 @@ pub struct Report {
 }
 
 impl Report {
-    fn record(&mut self, what: String, outcome: &Outcome) {
+    pub(crate) fn record(&mut self, what: String, outcome: &Outcome) {
         match outcome {
             Outcome::Done(_) => self.done.push(what),
             Outcome::Skipped(why) => self.skipped.push(format!("{what} — {why}")),
@@ -48,7 +48,9 @@ fn action_target(a: &Action) -> Option<ProcId> {
         Action::Priority { target, .. }
         | Action::EcoQos { target }
         | Action::MemoryPriority { target, .. }
-        | Action::TrimWorkingSet { target } => Some(target.id),
+        | Action::TrimWorkingSet { target }
+        | Action::CpuSets { target, .. }
+        | Action::Suspend { target } => Some(target.id),
         _ => None,
     }
 }
@@ -155,6 +157,49 @@ pub fn journal_touches(journal: &Journal, id: ProcId) -> bool {
         Undo::Priority { target, .. } | Undo::EcoQos { target, .. } | Undo::MemoryPriority { target, .. } => {
             target.id == id
         }
-        Undo::PowerPlan { .. } => false,
+        Undo::CpuSets { target, .. } | Undo::Resume { target } => target.id == id,
+        Undo::PowerPlan { .. } | Undo::Service { .. } => false,
     })
+}
+
+/// Seuil de cache libérable en dessous duquel la surveillance ne purge pas (le gain
+/// ne vaut pas l'appel).
+pub const WATCH_MIN_PURGEABLE: u64 = 256 * 1024 * 1024;
+
+/// Surveillance de la RAM en pleine partie (Mode Jeu, seuil du profil).
+pub fn watch_ram(platform: &mut dyn Platform, profile: &Profile, snap: &Snapshot) -> Option<Report> {
+    if !profile.watch_ram || profile.purge_standby == crate::model::PurgeScope::Off {
+        return None;
+    }
+    watch_ram_below(platform, profile.purge_when_free_below_percent, snap, false)
+}
+
+/// Si la RAM libre est sous `threshold_percent` et qu'il y a du cache de priorité 0 à
+/// reprendre, on le purge. Seule la priorité 0 est visée : le cache des fichiers des
+/// applis et du jeu n'est jamais touché. `just_trimmed` : des pages viennent d'être
+/// rognées et attendent encore dans la liste modifiée (le relevé ne les montre pas
+/// dans le cache) ; la purge Windows les écrit d'abord.
+pub fn watch_ram_below(
+    platform: &mut dyn Platform,
+    threshold_percent: u64,
+    snap: &Snapshot,
+    just_trimmed: bool,
+) -> Option<Report> {
+    if snap.mem.free_percent() >= threshold_percent {
+        return None;
+    }
+    if !just_trimmed && snap.mem.standby_low < WATCH_MIN_PURGEABLE {
+        return None;
+    }
+    let action = Action::PurgeStandby {
+        scope: crate::model::PurgeScope::Low,
+    };
+    let mut report = Report {
+        mem_before: Some(snap.mem),
+        ..Default::default()
+    };
+    let outcome = platform.apply(&action);
+    report.record(format!("surveillance RAM : {}", action.describe()), &outcome);
+    report.mem_after = platform.snapshot().ok().map(|s| s.mem);
+    Some(report)
 }

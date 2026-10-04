@@ -1,0 +1,102 @@
+# Prism OS — applications lancées au démarrage (embarqué dans prism.exe).
+#
+# Prism désactive une entrée exactement comme le bouton « Désactiver » du
+# Gestionnaire des tâches (clés StartupApproved) : l'application n'est ni supprimée ni
+# modifiée, et `prism demarrage restore` la remet.
+#
+# Motifs : en minuscules, `*` = n'importe quelle suite ; comparés au NOM de l'entrée
+# et à sa COMMANDE.
+#
+# advice :
+#   desactiver  appliqué par `prism demarrage recommande`
+#   optionnel   affiché avec la raison, jamais appliqué sans demande explicite
+#   garder      affiché comme utile
+
+# Jamais désactivés, même à la demande : sécurité et anti-cheats.
+[[protected]]
+reason = "Sécurité Windows"
+patterns = ["securityhealth*", "*securityhealthsystray*", "*windowsdefender*", "*msmpeng*"]
+
+[[protected]]
+reason = "Anti-cheat : son absence au démarrage peut empêcher les jeux de se lancer"
+patterns = ["*vgtray*", "*riot vanguard*", "*easyanticheat*", "*battleye*", "*faceit*", "*eaanticheat*"]
+
+[[rules]]
+patterns = ["microsoftedgeautolaunch_*", "*msedge.exe*--no-startup-window*"]
+advice = "desactiver"
+why = "Précharge Edge à l'ouverture de session pour qu'il s'ouvre plus vite : des processus cachés en permanence."
+
+[[rules]]
+patterns = ["*teams*", "com.squirrel.teams.teams"]
+advice = "desactiver"
+why = "Teams démarre tout seul et reste en mémoire ; il se lance en une seconde à la demande."
+
+[[rules]]
+patterns = ["spotify*", "*spotify.exe*"]
+advice = "desactiver"
+why = "Spotify n'a pas besoin de tourner avant que vous lanciez la musique."
+
+[[rules]]
+patterns = ["*copilot*"]
+advice = "desactiver"
+why = "Copilot n'a pas besoin de tourner en permanence pour s'ouvrir à la demande."
+
+[[rules]]
+patterns = ["*adobegcinvoker*", "*adobe*updat*", "*acrotray*", "*adobe creative cloud*"]
+advice = "desactiver"
+why = "Vérificateurs et mises à jour Adobe : elles se font à l'ouverture des logiciels Adobe."
+
+[[rules]]
+patterns = ["*jusched*", "*sunjavaupdatesched*", "*java*update*"]
+advice = "desactiver"
+why = "Vérificateur de mises à jour Java."
+
+[[rules]]
+patterns = ["*ituneshelper*", "*quicktime*", "*applemobiledeviceservice*"]
+advice = "desactiver"
+why = "Assistants Apple, utiles seulement pour synchroniser un iPhone avec iTunes."
+
+[[rules]]
+patterns = ["*ccleaner*", "*cortana*", "*skype*", "*zoom*"]
+advice = "desactiver"
+why = "Démarrage automatique sans utilité tant que vous ne les ouvrez pas."
+
+[[rules]]
+patterns = ["onedrive*", "*onedrive.exe*"]
+advice = "optionnel"
+why = "Sans OneDrive au démarrage, vos dossiers ne se synchronisent plus tant que vous ne l'ouvrez pas."
+
+[[rules]]
+patterns = ["*dropbox*", "*googledrivefs*", "*google drive*"]
+advice = "optionnel"
+why = "Synchronisation de fichiers : à garder si vous voulez une synchronisation continue."
+
+[[rules]]
+patterns = ["steam", "*steam.exe*"]
+advice = "optionnel"
+why = "Steam au démarrage : amis en ligne et mises à jour de jeux en arrière-plan. Sinon il se lance avec vos jeux."
+
+[[rules]]
+patterns = ["*epicgameslauncher*", "*eadm*", "*ea desktop*", "*eabackgroundservice*", "*origin*", "*ubisoft*connect*", "*upc.exe*", "*battle.net*", "*gog galaxy*"]
+advice = "optionnel"
+why = "Lanceur de jeux : utile pour les mises à jour en arrière-plan, sinon il se lance quand vous jouez."
+
+[[rules]]
+patterns = ["*discord*"]
+advice = "optionnel"
+why = "Discord au démarrage : pratique pour être joignable, sinon il se lance en quelques secondes."
+
+[[rules]]
+patterns = ["*rtkaud*", "*realtek*", "*nahimic*", "*waves*maxx*", "*dolby*"]
+advice = "garder"
+why = "Pilote ou réglages audio : sans eux, le son ou ses effets peuvent ne plus fonctionner."
+
+[[rules]]
+patterns = ["*lghub*", "*icue*", "*razer*", "*steelseries*", "*armoury*", "*corsair*", "*wooting*"]
+advice = "garder"
+why = "Logiciel de périphériques : profils de souris/clavier, macros et éclairage."
+
+[[rules]]
+patterns = ["*synaptics*", "*elantech*", "*etdctrl*", "*igfx*", "*nvidia*", "*amd*"]
+advice = "garder"
+why = "Pilote matériel (pavé tactile, carte graphique)."

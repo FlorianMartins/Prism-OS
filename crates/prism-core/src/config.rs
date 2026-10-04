@@ -37,6 +37,27 @@ pub struct Profile {
     pub purge_when_free_below_percent: u64,
     pub power_plan: PowerPlan,
     pub shutdown_wsl: bool,
+    /// Relègue l'arrière-plan sur les cœurs économes / la puce sans cache 3D.
+    #[serde(default)]
+    pub background_cpu_sets: bool,
+    /// Services arrêtés pendant la partie et relancés ensuite (jamais un protégé).
+    #[serde(default)]
+    pub pause_services: Vec<String>,
+    /// Purge du cache de priorité 0 en pleine partie quand la RAM se tend.
+    #[serde(default)]
+    pub watch_ram: bool,
+    /// Mode Quotidien : allègement permanent des applis inactives, hors jeu aussi.
+    #[serde(default)]
+    pub daily: bool,
+    /// Inactive depuis ce délai : EcoQoS, priorité mémoire basse, cœurs économes.
+    #[serde(default = "default_eco_minutes")]
+    pub daily_eco_after_minutes: u64,
+    /// Inactive depuis ce délai : sa mémoire de travail est rendue.
+    #[serde(default = "default_trim_minutes")]
+    pub daily_trim_after_minutes: u64,
+    /// Purge du cache de priorité 0 quand la RAM libre passe sous ce seuil (0 = jamais).
+    #[serde(default = "default_daily_purge")]
+    pub daily_purge_below_percent: u64,
     #[serde(default)]
     pub tool_packs: Vec<String>,
 }
@@ -51,6 +72,10 @@ pub struct Lists {
     pub game_roots: Vec<String>,
     #[serde(default)]
     pub game_helpers: Vec<String>,
+    /// Applications gelées pendant la partie (vide par défaut : c'est à l'utilisateur
+    /// de les désigner, un programme gelé ne répond plus).
+    #[serde(default)]
+    pub suspend_in_game: Vec<String>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -91,6 +116,16 @@ pub struct Tool {
     pub requires: Vec<String>,
 }
 
+fn default_eco_minutes() -> u64 {
+    5
+}
+fn default_trim_minutes() -> u64 {
+    30
+}
+fn default_daily_purge() -> u64 {
+    15
+}
+
 impl Config {
     pub fn parse(text: &str) -> Result<Config, String> {
         let cfg: Config = toml::from_str(text).map_err(|e| format!("configuration illisible : {e}"))?;
@@ -126,8 +161,24 @@ impl Config {
             errors.push("release_after_polls doit valoir au moins 1".into());
         }
         for (name, p) in &self.profiles {
+            if p.daily && p.daily_trim_after_minutes < p.daily_eco_after_minutes {
+                errors.push(format!(
+                    "profil {name} : daily_trim_after_minutes doit suivre daily_eco_after_minutes"
+                ));
+            }
+            if p.daily && p.daily_eco_after_minutes == 0 {
+                errors.push(format!(
+                    "profil {name} : daily_eco_after_minutes doit valoir au moins 1"
+                ));
+            }
             if p.purge_when_free_below_percent > 100 {
                 errors.push(format!("profil {name} : purge_when_free_below_percent > 100"));
+            }
+            let catalog = crate::allege::Catalog::builtin();
+            for svc in &p.pause_services {
+                if let Some(reason) = catalog.protection(svc) {
+                    errors.push(format!("profil {name} : le service {svc} est protégé ({reason})"));
+                }
             }
             for pack in &p.tool_packs {
                 if !self.packs.contains_key(pack) {
@@ -141,6 +192,7 @@ impl Config {
             ("games", &self.lists.games),
             ("game_roots", &self.lists.game_roots),
             ("game_helpers", &self.lists.game_helpers),
+            ("suspend_in_game", &self.lists.suspend_in_game),
         ];
         for (list, items) in lists {
             for item in items {

@@ -23,6 +23,9 @@ pub struct MockProc {
     pub mem_priority: MemPriority,
     /// Processus qu'on ne peut pas ouvrir (autre utilisateur, élevé…).
     pub denied: bool,
+    /// CPU sets imposés (vide = tous les cœurs).
+    pub cpu_sets: Vec<u32>,
+    pub suspended: bool,
 }
 
 #[derive(Clone, Debug)]
@@ -37,6 +40,10 @@ pub struct MockPlatform {
     pub self_pid: u32,
     /// Journal lisible de tout ce que la plateforme a fait.
     pub log: Vec<String>,
+    pub cpus: Vec<crate::model::CpuInfo>,
+    /// Services connus : nom (minuscules) -> en cours d'exécution.
+    pub services: std::collections::BTreeMap<String, bool>,
+    pub foreground: Option<u32>,
 }
 
 impl MockPlatform {
@@ -50,6 +57,9 @@ impl MockPlatform {
             user_session: 1,
             self_pid: 1,
             log: Vec::new(),
+            cpus: Vec::new(),
+            services: std::collections::BTreeMap::new(),
+            foreground: None,
         }
     }
 
@@ -67,13 +77,23 @@ impl MockPlatform {
                 path: path.map(|p| p.to_lowercase()),
                 session: self.user_session,
                 working_set,
+                cpu_time: 0,
             },
             priority: Priority::Normal,
             eco: EcoState::SystemManaged,
             mem_priority: MemPriority::Normal,
             denied: false,
+            cpu_sets: Vec::new(),
+            suspended: false,
         });
         id
+    }
+
+    /// Le processus consomme `ms` millisecondes de processeur.
+    pub fn work(&mut self, id: ProcId, ms: u64) {
+        if let Some(p) = self.procs.iter_mut().find(|p| p.info.id == id) {
+            p.info.cpu_time += ms * 10_000;
+        }
     }
 
     pub fn kill(&mut self, id: ProcId) {
@@ -94,11 +114,14 @@ impl MockPlatform {
                 path: None,
                 session: self.user_session,
                 working_set: 0,
+                cpu_time: 0,
             },
             priority: Priority::Normal,
             eco: EcoState::SystemManaged,
             mem_priority: MemPriority::Normal,
             denied: false,
+            cpu_sets: Vec::new(),
+            suspended: false,
         });
         id
     }
@@ -142,6 +165,7 @@ impl Platform for MockPlatform {
                 path: None,
                 session: 0,
                 working_set: 0,
+                cpu_time: 0,
             });
         }
         Ok(Snapshot {
@@ -149,6 +173,8 @@ impl Platform for MockPlatform {
             mem: self.mem(),
             user_session: self.user_session,
             self_pid: self.self_pid,
+            cpus: self.cpus.clone(),
+            foreground_pid: self.foreground,
         })
     }
 
@@ -214,6 +240,34 @@ impl Platform for MockPlatform {
                 self.wsl_running = false;
                 Outcome::Done(None)
             }
+            Action::CpuSets { target, cpus } => match self.find(target) {
+                Err(o) => o,
+                // Un choix déjà fait (par l'utilisateur ou un autre outil) est respecté.
+                Ok(p) if !p.cpu_sets.is_empty() => Outcome::Skipped("cœurs déjà choisis".into()),
+                Ok(p) => {
+                    let previous = std::mem::replace(&mut p.cpu_sets, cpus.clone());
+                    Outcome::Done(Some(Undo::CpuSets {
+                        target: target.clone(),
+                        previous,
+                    }))
+                }
+            },
+            Action::PauseService { name } => match self.services.get_mut(&name.to_lowercase()) {
+                None => Outcome::Skipped("service absent".into()),
+                Some(running) if !*running => Outcome::Skipped("déjà arrêté".into()),
+                Some(running) => {
+                    *running = false;
+                    Outcome::Done(Some(Undo::Service { name: name.clone() }))
+                }
+            },
+            Action::Suspend { target } => match self.find(target) {
+                Err(o) => o,
+                Ok(p) if p.suspended => Outcome::Skipped("déjà gelé".into()),
+                Ok(p) => {
+                    p.suspended = true;
+                    Outcome::Done(Some(Undo::Resume { target: target.clone() }))
+                }
+            },
         }
     }
 
@@ -245,6 +299,24 @@ impl Platform for MockPlatform {
                 self.power_plan = previous.clone();
                 Outcome::Done(None)
             }
+            Undo::CpuSets { target, previous } => match self.find(target) {
+                Err(o) => o,
+                Ok(p) => {
+                    p.cpu_sets = previous.clone();
+                    Outcome::Done(None)
+                }
+            },
+            Undo::Service { name } => {
+                self.services.insert(name.to_lowercase(), true);
+                Outcome::Done(None)
+            }
+            Undo::Resume { target } => match self.find(target) {
+                Err(o) => o,
+                Ok(p) => {
+                    p.suspended = false;
+                    Outcome::Done(None)
+                }
+            },
         }
     }
 }

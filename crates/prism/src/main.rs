@@ -22,13 +22,17 @@ Utilisation : prism <commande>
 
   status                  profil, mémoire, jeux détectés, conflits anti-cheat
   profile [nom]           affiche ou change le profil (gaming, balanced, cyber)
-  watch [--quiet]         Mode Jeu automatique ; Ctrl-C restaure tout
+  watch [--quiet]         Mode Quotidien permanent + Mode Jeu automatique ; Ctrl-C restaure tout
+  top                     qui consomme le processeur et la RAM en ce moment
   ram                     état détaillé de la mémoire
   ram clean [--deep]      libère la RAM des programmes en arrière-plan
   tools [pack]            packs d'outils cyber et leurs commandes d'installation
   tools install <pack>    installe un pack (winget, Kali sous WSL)
+  demarrage               applis lancées au démarrage, avec conseils
+  demarrage recommande    désactive les applis conseillées (réversible)
+  demarrage off|on <nom>  désactive / réactive une entrée ; demarrage restore annule
   allege                  catalogue d'allègement (services, stratégies) et état
-  allege apply [niveaux]  applique : sur (défaut), avance (admin)
+  allege apply [niveaux]  applique : sur (défaut), avance, jeu (admin)
   allege restore          remet toutes les valeurs d'origine (admin)
   config init|check|path  copie modifiable de la configuration
   autostart on|off        lance le Mode Jeu à l'ouverture de session (admin)
@@ -138,7 +142,7 @@ fn allege_tiers(words: &[&str]) -> Result<Vec<prism_core::allege::Tier>, String>
     }
     words
         .iter()
-        .map(|w| Tier::parse(w).ok_or_else(|| format!("niveau inconnu « {w} » (sur, avance)")))
+        .map(|w| Tier::parse(w).ok_or_else(|| format!("niveau inconnu « {w} » (sur, avance, jeu)")))
         .collect()
 }
 
@@ -167,9 +171,9 @@ fn allege_list() -> Result<(), String> {
             s.label
         );
     }
-    println!("Stratégies");
+    println!("Registre (stratégies et réglages)");
     for p in &c.policies {
-        let state = match sys.as_mut().map(|x| x.policy(&p.key, &p.value)) {
+        let state = match sys.as_mut().map(|x| x.policy(&p.full_key(), &p.value)) {
             Some(Ok(Some(d))) => d.to_string(),
             Some(Ok(None)) => "absente".into(),
             Some(Err(e)) => e,
@@ -213,7 +217,7 @@ fn tools_install(cfg: &Config, pack: &str) -> Result<(), String> {
 #[cfg(not(windows))]
 fn platform_command(_cfg: &Config, args: &[&str]) -> Result<(), String> {
     match args.first() {
-        Some(&("status" | "watch" | "ram" | "autostart" | "allege")) => {
+        Some(&("status" | "watch" | "ram" | "autostart" | "allege" | "top" | "demarrage")) => {
             Err("cette commande agit sur Windows ; ici, essayez `prism demo`".into())
         }
         _ => Err(format!("commande inconnue : {}\n\n{HELP}", args.join(" "))),
@@ -235,6 +239,13 @@ fn platform_command(cfg: &Config, args: &[&str]) -> Result<(), String> {
                 cfg.profile(&profile)?.label,
                 render::memory(&snap.mem)
             );
+            match prism_core::cores::split(&snap.cpus) {
+                Some(s) => println!("Cœurs : {}", s.describe()),
+                None => println!(
+                    "Cœurs : {} cœurs logiques homogènes (pas de répartition)",
+                    snap.cpus.len()
+                ),
+            }
             if !w.can_purge {
                 println!("(sans droits administrateur : purge du cache indisponible, RAM libre approximative)");
             }
@@ -261,6 +272,33 @@ fn platform_command(cfg: &Config, args: &[&str]) -> Result<(), String> {
                 println!("  {:<32} {}", p.name, human_bytes(p.working_set));
             }
             render::conflicts(&prism_core::tools::conflicts(&snap, cfg));
+            Ok(())
+        }
+        ["top"] => {
+            let mut w = WindowsPlatform::new();
+            let a = w.snapshot()?;
+            let t0 = std::time::Instant::now();
+            std::thread::sleep(Duration::from_millis(1500));
+            let b = w.snapshot()?;
+            let elapsed = t0.elapsed().as_secs_f64() * 1e7; // en unités de 100 ns
+            let ncpu = w.cpus.len().max(1) as f64;
+            let classes: std::collections::HashMap<_, _> =
+                classify_all(&b, cfg).into_iter().map(|(p, c)| (p.id, c)).collect();
+            let mut rows: Vec<(f64, &prism_core::model::ProcInfo)> = b
+                .procs
+                .iter()
+                .filter_map(|p| {
+                    let before = a.procs.iter().find(|q| q.id == p.id)?;
+                    let d = p.cpu_time.saturating_sub(before.cpu_time) as f64;
+                    Some((d / elapsed / ncpu * 100.0, p))
+                })
+                .collect();
+            rows.sort_by(|x, y| y.0.total_cmp(&x.0));
+            println!("{:<34} {:>6} {:>9}  classe", "processus", "CPU %", "RAM");
+            for (cpu, p) in rows.iter().take(15) {
+                let class = classes.get(&p.id).map(|c| c.label()).unwrap_or("-");
+                println!("{:<34} {:>6.1} {:>9}  {class}", p.name, cpu, human_bytes(p.working_set));
+            }
             Ok(())
         }
         ["ram"] => {
@@ -306,6 +344,79 @@ fn platform_command(cfg: &Config, args: &[&str]) -> Result<(), String> {
                 Err("certains changements ont échoué".into())
             }
         }
+        ["demarrage"] => {
+            use prism_core::demarrage::{is_enabled, Catalog, StartupConfig};
+            let c = Catalog::builtin();
+            let mut entries = prism_win::WindowsStartup.entries()?;
+            entries.sort_by_key(|e| e.name.to_lowercase());
+            for e in &entries {
+                let state = if is_enabled(&e.approval) {
+                    "activé   "
+                } else {
+                    "désactivé"
+                };
+                let (advice, why) = match (c.protection(e), c.advice(e)) {
+                    (Some(reason), _) => ("protégé".to_string(), reason.to_string()),
+                    (None, Some(r)) => (r.advice.label().to_string(), r.why.clone()),
+                    (None, None) => ("inconnu".to_string(), String::new()),
+                };
+                println!(
+                    "{state}  {:<34} [{:<12}] {:<15} {why}",
+                    e.name,
+                    advice,
+                    e.source.label()
+                );
+            }
+            println!(
+                "\n{} entrée(s). « prism demarrage recommande » désactive celles marquées « à désactiver ».",
+                entries.len()
+            );
+            Ok(())
+        }
+        ["demarrage", "recommande"] => {
+            use prism_core::demarrage::{apply_recommended, Catalog, StartupJournal};
+            let path = sys::data_dir().join("demarrage.json");
+            let mut journal = StartupJournal::load(&path)?;
+            let r = apply_recommended(&mut prism_win::WindowsStartup, &Catalog::builtin(), &mut journal)?;
+            journal.save(&path)?;
+            print_startup_report(&r);
+            Ok(())
+        }
+        ["demarrage", verb @ ("off" | "on"), name] => {
+            use prism_core::demarrage::{disable, enable, Catalog, StartupConfig, StartupJournal, StartupReport};
+            let path = sys::data_dir().join("demarrage.json");
+            let mut journal = StartupJournal::load(&path)?;
+            let c = Catalog::builtin();
+            let mut w = prism_win::WindowsStartup;
+            let matching: Vec<_> = w
+                .entries()?
+                .into_iter()
+                .filter(|e| e.name.eq_ignore_ascii_case(name))
+                .collect();
+            if matching.is_empty() {
+                return Err(format!("aucune entrée « {name} » (voir prism demarrage)"));
+            }
+            let mut r = StartupReport::default();
+            for e in &matching {
+                if *verb == "off" {
+                    disable(&mut w, &c, e, &mut journal, &mut r);
+                } else {
+                    enable(&mut w, e, &mut journal, &mut r);
+                }
+            }
+            journal.save(&path)?;
+            print_startup_report(&r);
+            Ok(())
+        }
+        ["demarrage", "restore"] => {
+            use prism_core::demarrage::{restore, StartupJournal};
+            let path = sys::data_dir().join("demarrage.json");
+            let mut journal = StartupJournal::load(&path)?;
+            let r = restore(&mut prism_win::WindowsStartup, &mut journal);
+            journal.save(&path)?;
+            print_startup_report(&r);
+            Ok(())
+        }
         ["allege", "restore"] => {
             use prism_core::allege::{restore, AllegeJournal};
             let path = sys::data_dir().join("allegement.json");
@@ -343,6 +454,25 @@ fn platform_command(cfg: &Config, args: &[&str]) -> Result<(), String> {
 }
 
 #[cfg(windows)]
+fn print_startup_report(r: &prism_core::demarrage::StartupReport) {
+    for d in &r.done {
+        println!("  ✓ {d}");
+    }
+    for u in &r.unchanged {
+        println!("  = {u}");
+    }
+    for f in &r.failed {
+        println!("  ÉCHEC : {f}");
+    }
+    println!(
+        "{} changement(s), {} inchangé(s), {} échec(s) · annuler : prism demarrage restore",
+        r.done.len(),
+        r.unchanged.len(),
+        r.failed.len()
+    );
+}
+
+#[cfg(windows)]
 fn schtasks(args: &[&str]) -> Result<(), String> {
     let status = Command::new("schtasks.exe")
         .args(args)
@@ -357,6 +487,7 @@ fn schtasks(args: &[&str]) -> Result<(), String> {
 
 #[cfg(windows)]
 fn watch(cfg: &Config, quiet: bool) -> Result<(), String> {
+    use prism_core::daily::Daily;
     use prism_core::engine::recover;
     use prism_core::journal::FileStore;
     use prism_core::platform::Platform;
@@ -373,50 +504,87 @@ fn watch(cfg: &Config, quiet: bool) -> Result<(), String> {
         path: sys::journal_path(),
     };
 
-    if let Some(report) = recover(&mut w, &mut store)? {
-        out.line(&format!(
-            "Reprise après arrêt brutal : {} réglage(s) restauré(s), {} ignoré(s)",
-            report.done.len(),
-            report.skipped.len()
-        ));
+    let mut daily_store = FileStore {
+        path: sys::data_dir().join("quotidien.json"),
+    };
+    for s in [&mut store, &mut daily_store] {
+        if let Some(report) = recover(&mut w, s)? {
+            out.line(&format!(
+                "Reprise après arrêt brutal : {} réglage(s) restauré(s), {} ignoré(s)",
+                report.done.len(),
+                report.skipped.len()
+            ));
+        }
     }
     let mut watcher = Watcher::default();
+    let mut daily = Daily::default();
     out.line(&format!(
-        "Mode Jeu automatique en marche (profil {}).",
+        "Prism en marche (profil {}) : Mode Quotidien permanent, Mode Jeu automatique.",
         sys::active_profile(cfg)
     ));
+    if let Some(split) = prism_core::cores::split(&w.cpus) {
+        out.line(&format!("Cœurs : {}", split.describe()));
+    }
 
     while !sys::stop_requested() {
         // Le profil peut changer pendant la surveillance (`prism profile cyber`).
         let profile_name = sys::active_profile(cfg);
         let profile = cfg.profile(&profile_name)?.clone();
         match w.snapshot() {
-            Ok(snap) => match watcher.tick(&mut w, &mut store, cfg, &profile_name, &profile, &snap) {
-                Event::Engaged {
-                    games,
-                    report,
-                    conflicts,
-                } => {
-                    out.line(&format!("Mode Jeu : {}", games.join(", ")));
-                    log_report(&out, &report);
-                    for c in conflicts {
-                        out.line(&format!("⚠ {} ouvert ({}) : {}", c.tool, c.process, c.reason));
+            Ok(snap) => {
+                let event = watcher.tick(&mut w, &mut store, cfg, &profile_name, &profile, &snap);
+                let r = daily.tick(
+                    &mut w,
+                    &mut daily_store,
+                    cfg,
+                    &profile,
+                    &snap,
+                    cfg.poll_seconds,
+                    watcher.engaged(),
+                );
+                if !r.done.is_empty() || !r.failed.is_empty() {
+                    out.line(&format!("Quotidien ({} appli(s) allégée(s)) :", daily.eased()));
+                    for d in &r.done {
+                        out.line(&format!("  {d}"));
+                    }
+                    for f in &r.failed {
+                        out.line(&format!("  ÉCHEC : {f}"));
                     }
                 }
-                Event::Updated { report } => log_report(&out, &report),
-                Event::Released { report } => {
-                    out.line("Fin du Mode Jeu, réglages restaurés.");
-                    log_report(&out, &report);
+                match event {
+                    Event::Engaged {
+                        games,
+                        report,
+                        conflicts,
+                    } => {
+                        out.line(&format!("Mode Jeu : {}", games.join(", ")));
+                        log_report(&out, &report);
+                        for c in conflicts {
+                            out.line(&format!("⚠ {} ouvert ({}) : {}", c.tool, c.process, c.reason));
+                        }
+                    }
+                    Event::Updated { report } => log_report(&out, &report),
+                    Event::Released { report } => {
+                        out.line("Fin du Mode Jeu, réglages restaurés.");
+                        log_report(&out, &report);
+                    }
+                    Event::Idle | Event::Cooling { .. } => {}
                 }
-                Event::Idle | Event::Cooling { .. } => {}
-            },
+            }
             Err(e) => out.line(&format!("relevé impossible : {e}")),
         }
         sys::sleep_interruptible(Duration::from_secs(cfg.poll_seconds));
     }
     if let Event::Released { report } = watcher.release(&mut w, &mut store) {
-        out.line("Arrêt : réglages restaurés.");
+        out.line("Arrêt : réglages du Mode Jeu restaurés.");
         log_report(&out, &report);
+    }
+    let r = daily.release(&mut w, &mut daily_store);
+    if !r.done.is_empty() {
+        out.line(&format!(
+            "Arrêt : {} réglage(s) du Mode Quotidien rendus.",
+            r.done.len()
+        ));
     }
     Ok(())
 }

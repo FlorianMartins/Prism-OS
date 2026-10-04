@@ -17,6 +17,8 @@ pub const ALLEGEMENT_TOML: &str = include_str!("../../../config/allegement.toml"
 pub enum Tier {
     Sur,
     Avance,
+    /// Réglages orientés jeu (Mode Jeu Windows, GPU, souris…).
+    Jeu,
 }
 
 impl Tier {
@@ -24,6 +26,7 @@ impl Tier {
         match s {
             "sur" | "sûr" => Some(Tier::Sur),
             "avance" | "avancé" => Some(Tier::Avance),
+            "jeu" => Some(Tier::Jeu),
             _ => None,
         }
     }
@@ -32,6 +35,7 @@ impl Tier {
         match self {
             Tier::Sur => "sûr",
             Tier::Avance => "avancé",
+            Tier::Jeu => "jeu",
         }
     }
 }
@@ -65,13 +69,70 @@ pub struct ServiceEntry {
     pub why: String,
 }
 
+/// Ruche du registre.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Hive {
+    #[default]
+    Hklm,
+    Hkcu,
+}
+
+impl Hive {
+    pub fn prefix(self) -> &'static str {
+        match self {
+            Hive::Hklm => "HKLM",
+            Hive::Hkcu => "HKCU",
+        }
+    }
+}
+
+/// Donnée d'une valeur de registre : DWORD ou chaîne.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum RegData {
+    Dword(u32),
+    Text(String),
+}
+
+impl std::fmt::Display for RegData {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            RegData::Dword(d) => write!(f, "{d}"),
+            RegData::Text(t) => write!(f, "\"{t}\""),
+        }
+    }
+}
+
+/// Seules ces clés (chemin complet, en minuscules) peuvent être écrites : les
+/// stratégies officielles et quelques réglages utilisateur documentés. Tout le reste
+/// du registre est hors de portée, même avec un catalogue modifié à la main.
+pub const REGISTRY_ALLOWLIST: [&str; 6] = [
+    "hklm\\software\\policies\\",
+    "hkcu\\software\\policies\\",
+    "hklm\\system\\currentcontrolset\\control\\graphicsdrivers",
+    "hkcu\\software\\microsoft\\gamebar",
+    "hkcu\\software\\microsoft\\directx\\usergpupreferences",
+    "hkcu\\control panel\\mouse",
+];
+
+pub fn registry_allowed(full_key: &str) -> bool {
+    let k = full_key.to_ascii_lowercase();
+    REGISTRY_ALLOWLIST.iter().any(|a| k.starts_with(a))
+}
+
 #[derive(Clone, Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct PolicyEntry {
-    /// Sous-clé de HKLM.
+    #[serde(default)]
+    pub hive: Hive,
+    /// Sous-clé dans la ruche.
     pub key: String,
     pub value: String,
-    pub data: u32,
+    pub data: RegData,
+    /// Prise en compte au prochain redémarrage ou à la prochaine ouverture de session.
+    #[serde(default)]
+    pub reboot: bool,
     pub label: String,
     pub tier: Tier,
     pub why: String,
@@ -83,8 +144,14 @@ pub struct Catalog {
     pub protected: Vec<Protected>,
     #[serde(default)]
     pub services: Vec<ServiceEntry>,
-    #[serde(default)]
+    #[serde(default, rename = "registry")]
     pub policies: Vec<PolicyEntry>,
+}
+
+impl PolicyEntry {
+    pub fn full_key(&self) -> String {
+        format!("{}\\{}", self.hive.prefix(), self.key)
+    }
 }
 
 impl Catalog {
@@ -126,10 +193,11 @@ impl Catalog {
         }
         let mut seen = HashSet::new();
         for p in &self.policies {
-            if !p.key.starts_with("SOFTWARE\\Policies\\") {
+            if !registry_allowed(&p.full_key()) {
                 errors.push(format!(
-                    "stratégie {} : seules les clés SOFTWARE\\Policies\\ sont permises",
-                    p.value
+                    "réglage {} : clé {} hors de la liste autorisée",
+                    p.value,
+                    p.full_key()
                 ));
             }
             if !seen.insert((p.key.to_ascii_lowercase(), p.value.to_ascii_lowercase())) {
@@ -151,8 +219,16 @@ impl Catalog {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "do", rename_all = "snake_case")]
 pub enum Change {
-    ServiceStart { name: String, to: StartType },
-    Policy { key: String, value: String, data: u32 },
+    ServiceStart {
+        name: String,
+        to: StartType,
+    },
+    /// `key` : chemin complet, ruche comprise (`HKCU\\Software\\…`).
+    Policy {
+        key: String,
+        value: String,
+        data: RegData,
+    },
 }
 
 impl Change {
@@ -185,7 +261,7 @@ pub enum Original {
     Policy {
         key: String,
         value: String,
-        was: Option<u32>,
+        was: Option<RegData>,
     },
 }
 
@@ -217,8 +293,9 @@ pub trait SystemConfig {
     /// `Ok(None)` : le service n'existe pas sur cette machine.
     fn service_start(&mut self, name: &str) -> Result<Option<StartType>, String>;
     fn set_service_start(&mut self, name: &str, to: StartType) -> Result<(), String>;
-    fn policy(&mut self, key: &str, value: &str) -> Result<Option<u32>, String>;
-    fn set_policy(&mut self, key: &str, value: &str, data: u32) -> Result<(), String>;
+    /// `key` : chemin complet, ruche comprise (`HKLM\\…` ou `HKCU\\…`).
+    fn policy(&mut self, key: &str, value: &str) -> Result<Option<RegData>, String>;
+    fn set_policy(&mut self, key: &str, value: &str, data: &RegData) -> Result<(), String>;
     fn delete_policy(&mut self, key: &str, value: &str) -> Result<(), String>;
 }
 
@@ -236,9 +313,9 @@ pub fn plan(catalog: &Catalog, tiers: &[Tier]) -> Vec<Change> {
         .iter()
         .filter(|p| tiers.contains(&p.tier))
         .map(|p| Change::Policy {
-            key: p.key.clone(),
+            key: p.full_key(),
             value: p.value.clone(),
-            data: p.data,
+            data: p.data.clone(),
         });
     services.chain(policies).collect()
 }
@@ -322,7 +399,7 @@ pub fn apply(
                     r.unchanged.push(format!("{what} — déjà fait"));
                     continue;
                 }
-                Ok(was) => sys.set_policy(key, value, *data).map(|()| Original::Policy {
+                Ok(was) => sys.set_policy(key, value, data).map(|()| Original::Policy {
                     key: key.clone(),
                     value: value.clone(),
                     was,
@@ -357,7 +434,7 @@ pub fn restore(sys: &mut dyn SystemConfig, journal: &mut AllegeJournal) -> Alleg
                 key,
                 value,
                 was: Some(d),
-            } => sys.set_policy(key, value, *d),
+            } => sys.set_policy(key, value, d),
             Original::Policy { key, value, was: None } => sys.delete_policy(key, value),
         };
         match res {
@@ -377,7 +454,7 @@ pub fn restore(sys: &mut dyn SystemConfig, journal: &mut AllegeJournal) -> Alleg
 #[derive(Clone, Debug, Default)]
 pub struct MockSystem {
     pub services: std::collections::BTreeMap<String, StartType>,
-    pub policies: std::collections::BTreeMap<(String, String), u32>,
+    pub policies: std::collections::BTreeMap<(String, String), RegData>,
     pub writes: usize,
 }
 
@@ -390,16 +467,16 @@ impl SystemConfig for MockSystem {
         self.services.insert(name.to_ascii_lowercase(), to);
         Ok(())
     }
-    fn policy(&mut self, key: &str, value: &str) -> Result<Option<u32>, String> {
+    fn policy(&mut self, key: &str, value: &str) -> Result<Option<RegData>, String> {
         Ok(self
             .policies
             .get(&(key.to_ascii_lowercase(), value.to_ascii_lowercase()))
-            .copied())
+            .cloned())
     }
-    fn set_policy(&mut self, key: &str, value: &str, data: u32) -> Result<(), String> {
+    fn set_policy(&mut self, key: &str, value: &str, data: &RegData) -> Result<(), String> {
         self.writes += 1;
         self.policies
-            .insert((key.to_ascii_lowercase(), value.to_ascii_lowercase()), data);
+            .insert((key.to_ascii_lowercase(), value.to_ascii_lowercase()), data.clone());
         Ok(())
     }
     fn delete_policy(&mut self, key: &str, value: &str) -> Result<(), String> {
@@ -429,8 +506,11 @@ mod tests {
         }
         m.services.remove("wmpnetworksvc"); // absent de cette installation
         m.policies.insert(
-            (r"software\policies\microsoft\edge".into(), "startupboostenabled".into()),
-            1,
+            (
+                r"hklm\software\policies\microsoft\edge".into(),
+                "startupboostenabled".into(),
+            ),
+            RegData::Dword(1),
         );
         m
     }
@@ -516,8 +596,14 @@ mod tests {
         let factory = stock_windows(&c);
         let mut m = factory.clone();
         let mut j = AllegeJournal::default();
-        run(&mut m, &c, &[Tier::Sur, Tier::Avance], &mut j);
+        run(&mut m, &c, &[Tier::Sur, Tier::Avance, Tier::Jeu], &mut j);
         assert_ne!(m.services, factory.services);
+        assert_eq!(
+            m.policies
+                .get(&(r"hkcu\control panel\mouse".into(), "mousespeed".into())),
+            Some(&RegData::Text("0".into())),
+            "valeur texte écrite"
+        );
         let r = restore(&mut m, &mut j);
         assert!(r.failed.is_empty());
         assert_eq!(m.services, factory.services, "services, y compris démarrage différé");
@@ -556,6 +642,25 @@ mod tests {
         });
         assert_eq!(saves, r.done.len());
         assert_eq!(j.originals.len(), r.done.len());
+    }
+
+    #[test]
+    fn registry_outside_the_allowlist_is_rejected() {
+        let bad = ALLEGEMENT_TOML.replace(
+            r"key = 'Software\Microsoft\GameBar'",
+            r"key = 'Software\Microsoft\Windows\CurrentVersion\Run'",
+        );
+        assert!(Catalog::parse(&bad).unwrap_err().contains("hors de la liste"));
+        assert!(registry_allowed(r"HKCU\Control Panel\Mouse"));
+        assert!(!registry_allowed(r"HKLM\SYSTEM\CurrentControlSet\Services\vgk"));
+    }
+
+    #[test]
+    fn game_tier_is_separate_from_the_default_one() {
+        let c = Catalog::builtin();
+        let jeu = plan(&c, &[Tier::Jeu]);
+        assert!(jeu.len() >= 5);
+        assert!(plan(&c, &[Tier::Sur]).iter().all(|ch| !jeu.contains(ch)));
     }
 
     #[test]

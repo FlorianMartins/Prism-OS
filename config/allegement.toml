@@ -6,6 +6,7 @@
 # tier :
 #   sur        appliqué par `prism allege apply` ; aucune fonction utile à un PC de jeu perdue
 #   avance     sur demande (`prism allege apply avance`) : gain réel, contrepartie expliquée
+#   jeu        réglages orientés jeu (`prism allege apply jeu`)
 #
 # (Les services Xbox Live ne figurent pas ici : ils sont déjà en démarrage manuel
 #  d'usine sur Windows 11, vérifié en VM le 2026-10-04.)
@@ -192,9 +193,12 @@ start = "disabled"
 why = "Envoie les rapports de plantage à Microsoft. Contrepartie : moins de diagnostic en cas de plantage système (les rapporteurs propres aux jeux continuent)."
 
 # ---------------------------------------------------------------------------
-# Stratégies officielles (HKLM\SOFTWARE\Policies, valeurs DWORD)
+# Registre : stratégies officielles et réglages documentés.
+# hive = hklm (défaut) | hkcu ; data = nombre (DWORD) ou "texte" (REG_SZ) ;
+# reboot = true si la prise en compte demande un redémarrage / une reconnexion.
+# Seules les clés de REGISTRY_ALLOWLIST (prism-core/src/allege.rs) sont permises.
 # ---------------------------------------------------------------------------
-[[policies]]
+[[registry]]
 key = 'SOFTWARE\Policies\Microsoft\Windows\DataCollection'
 value = "AllowTelemetry"
 data = 0
@@ -207,7 +211,7 @@ why = "0 coupe la télémétrie sur Entreprise/Éducation ; sur Famille/Pro, Win
 # contourne pas une protection de Windows : désactiver les Widgets dans
 # Paramètres > Personnalisation > Barre des tâches.
 
-[[policies]]
+[[registry]]
 key = 'SOFTWARE\Policies\Microsoft\Edge'
 value = "StartupBoostEnabled"
 data = 0
@@ -215,7 +219,7 @@ label = "Edge : pas de préchargement au démarrage"
 tier = "sur"
 why = "Edge lance sinon des processus cachés dès l'ouverture de session."
 
-[[policies]]
+[[registry]]
 key = 'SOFTWARE\Policies\Microsoft\Edge'
 value = "BackgroundModeEnabled"
 data = 0
@@ -223,7 +227,7 @@ label = "Edge : pas d'exécution en arrière-plan"
 tier = "sur"
 why = "Edge garde sinon des processus actifs après fermeture de la dernière fenêtre."
 
-[[policies]]
+[[registry]]
 key = 'SOFTWARE\Policies\Microsoft\Windows\AdvertisingInfo'
 value = "DisabledByGroupPolicy"
 data = 1
@@ -231,7 +235,7 @@ label = "Identifiant publicitaire désactivé"
 tier = "sur"
 why = "Empêche le suivi publicitaire entre applications."
 
-[[policies]]
+[[registry]]
 key = 'SOFTWARE\Policies\Microsoft\Windows\System'
 value = "PublishUserActivities"
 data = 0
@@ -239,7 +243,7 @@ label = "Historique d'activité non enregistré"
 tier = "sur"
 why = "Windows n'enregistre plus les activités (fichiers ouverts, sites) pour la chronologie."
 
-[[policies]]
+[[registry]]
 key = 'SOFTWARE\Policies\Microsoft\Windows\System'
 value = "UploadUserActivities"
 data = 0
@@ -247,7 +251,7 @@ label = "Historique d'activité non envoyé"
 tier = "sur"
 why = "Pas d'envoi de l'historique d'activité vers le cloud."
 
-[[policies]]
+[[registry]]
 key = 'SOFTWARE\Policies\Microsoft\Windows\CloudContent'
 value = "DisableWindowsConsumerFeatures"
 data = 1
@@ -255,7 +259,7 @@ label = "Pas d'applis suggérées installées d'office"
 tier = "sur"
 why = "Empêche l'installation automatique d'applis promues (effet complet sur Entreprise/Éducation)."
 
-[[policies]]
+[[registry]]
 key = 'SOFTWARE\Policies\Microsoft\Windows\GameDVR'
 value = "AllowGameDVR"
 data = 0
@@ -263,10 +267,70 @@ label = "Capture de la Game Bar désactivée"
 tier = "avance"
 why = "Supprime l'enregistrement en arrière-plan qui coûte des FPS. Contrepartie : plus de clips ni de captures via Win+G (OBS, ShadowPlay, ReLive restent utilisables)."
 
-[[policies]]
+[[registry]]
 key = 'SOFTWARE\Policies\Microsoft\Windows\OneDrive'
 value = "DisableFileSyncNGSC"
 data = 1
 label = "OneDrive désactivé"
 tier = "avance"
 why = "OneDrive ne démarre plus ni ne synchronise. Contrepartie : plus de sauvegarde cloud des dossiers."
+
+# ---------------------------------------------------------------------------
+# Réglages jeu (tier = "jeu")
+# ---------------------------------------------------------------------------
+[[registry]]
+hive = "hkcu"
+key = 'Software\Microsoft\GameBar'
+value = "AutoGameModeEnabled"
+data = 1
+label = "Mode Jeu de Windows activé"
+tier = "jeu"
+why = "Windows donne la priorité au jeu et diffère Windows Update pendant la partie. Activé d'usine sur la plupart des PC : on s'en assure."
+
+[[registry]]
+key = 'SYSTEM\CurrentControlSet\Control\GraphicsDrivers'
+value = "HwSchMode"
+data = 2
+reboot = true
+label = "Planification GPU accélérée par le matériel"
+tier = "jeu"
+why = "Requise pour la génération d'images (DLSS 3, FSR 3) et réduit le travail du processeur pour le GPU. Sans effet sur une carte qui ne la gère pas. Redémarrage nécessaire."
+
+[[registry]]
+hive = "hkcu"
+key = 'Software\Microsoft\DirectX\UserGpuPreferences'
+value = "DirectXUserGlobalSettings"
+data = "SwapEffectUpgradeEnable=1;"
+label = "Optimisations pour les jeux en fenêtre"
+tier = "jeu"
+why = "Les jeux DirectX 10/11 en fenêtre ou plein écran fenêtré profitent de la latence et du VRR du plein écran."
+
+[[registry]]
+hive = "hkcu"
+key = 'Control Panel\Mouse'
+value = "MouseSpeed"
+data = "0"
+reboot = true
+label = "Précision du pointeur améliorée désactivée"
+tier = "jeu"
+why = "Supprime l'accélération de la souris : le même geste donne toujours le même déplacement, ce qu'attend la visée. Prise en compte à la prochaine ouverture de session."
+
+[[registry]]
+hive = "hkcu"
+key = 'Control Panel\Mouse'
+value = "MouseThreshold1"
+data = "0"
+reboot = true
+label = "Accélération souris : seuil 1 à zéro"
+tier = "jeu"
+why = "Complète la désactivation de l'accélération (même effet que la case de Windows)."
+
+[[registry]]
+hive = "hkcu"
+key = 'Control Panel\Mouse'
+value = "MouseThreshold2"
+data = "0"
+reboot = true
+label = "Accélération souris : seuil 2 à zéro"
+tier = "jeu"
+why = "Complète la désactivation de l'accélération (même effet que la case de Windows)."

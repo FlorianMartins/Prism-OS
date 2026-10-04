@@ -9,12 +9,20 @@
 //!   peut déjà ouvrir.
 
 #[cfg(windows)]
+mod startup;
+#[cfg(windows)]
 mod sysconfig;
+#[cfg(windows)]
+mod topology;
 #[cfg(windows)]
 mod win;
 
 #[cfg(windows)]
+pub use startup::WindowsStartup;
+#[cfg(windows)]
 pub use sysconfig::WindowsSystemConfig;
+#[cfg(windows)]
+pub use topology::cpus as cpu_topology;
 
 #[cfg(windows)]
 pub use win::{

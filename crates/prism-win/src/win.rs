@@ -29,12 +29,14 @@ use windows_sys::Win32::System::ProcessStatus::{K32EmptyWorkingSet, K32GetProces
 use windows_sys::Win32::System::RemoteDesktop::ProcessIdToSessionId;
 use windows_sys::Win32::System::SystemInformation::{GlobalMemoryStatusEx, MEMORYSTATUSEX};
 use windows_sys::Win32::System::Threading::{
-    GetCurrentProcess, GetCurrentProcessId, GetPriorityClass, GetProcessInformation, GetProcessTimes, OpenProcess,
-    OpenProcessToken, ProcessMemoryPriority, ProcessPowerThrottling, QueryFullProcessImageNameW, SetPriorityClass,
-    SetProcessInformation, ABOVE_NORMAL_PRIORITY_CLASS, BELOW_NORMAL_PRIORITY_CLASS, HIGH_PRIORITY_CLASS,
-    IDLE_PRIORITY_CLASS, MEMORY_PRIORITY_INFORMATION, NORMAL_PRIORITY_CLASS, PROCESS_ACCESS_RIGHTS, PROCESS_NAME_WIN32,
+    GetCurrentProcess, GetCurrentProcessId, GetPriorityClass, GetProcessDefaultCpuSets, GetProcessInformation,
+    GetProcessTimes, OpenProcess, OpenProcessToken, ProcessMemoryPriority, ProcessPowerThrottling,
+    QueryFullProcessImageNameW, SetPriorityClass, SetProcessDefaultCpuSets, SetProcessInformation,
+    ABOVE_NORMAL_PRIORITY_CLASS, BELOW_NORMAL_PRIORITY_CLASS, HIGH_PRIORITY_CLASS, IDLE_PRIORITY_CLASS,
+    MEMORY_PRIORITY_INFORMATION, NORMAL_PRIORITY_CLASS, PROCESS_ACCESS_RIGHTS, PROCESS_NAME_WIN32,
     PROCESS_POWER_THROTTLING_CURRENT_VERSION, PROCESS_POWER_THROTTLING_EXECUTION_SPEED, PROCESS_POWER_THROTTLING_STATE,
-    PROCESS_QUERY_LIMITED_INFORMATION, PROCESS_SET_INFORMATION, PROCESS_SET_QUOTA, REALTIME_PRIORITY_CLASS,
+    PROCESS_QUERY_LIMITED_INFORMATION, PROCESS_SET_INFORMATION, PROCESS_SET_LIMITED_INFORMATION, PROCESS_SET_QUOTA,
+    REALTIME_PRIORITY_CLASS,
 };
 
 use crate::{format_guid, parse_guid};
@@ -68,6 +70,32 @@ struct SystemMemoryListInformation {
 extern "system" {
     fn NtQuerySystemInformation(class: i32, info: *mut c_void, len: u32, ret_len: *mut u32) -> i32;
     fn NtSetSystemInformation(class: i32, info: *mut c_void, len: u32) -> i32;
+    // Gel / dégel : ce qu'utilisent le Moniteur de ressources et Process Explorer.
+    fn NtSuspendProcess(process: HANDLE) -> i32;
+    fn NtResumeProcess(process: HANDLE) -> i32;
+}
+
+/// Droit d'accès PROCESS_SUSPEND_RESUME.
+const PROCESS_SUSPEND_RESUME: PROCESS_ACCESS_RIGHTS = 0x0800;
+
+/// CPU sets imposés au processus (vide = aucun) ; `None` si illisible.
+fn get_cpu_sets(h: HANDLE) -> Option<Vec<u32>> {
+    let mut ids = [0u32; 256];
+    let mut n = 0u32;
+    // SAFETY: tampon local de capacité annoncée.
+    let ok = unsafe { GetProcessDefaultCpuSets(h, ids.as_mut_ptr(), ids.len() as u32, &mut n) };
+    (ok != 0).then(|| ids[..n as usize].to_vec())
+}
+
+fn set_cpu_sets(h: HANDLE, ids: &[u32]) -> bool {
+    // SAFETY: liste locale ; vide = on retire toute restriction (pointeur nul, 0).
+    unsafe {
+        if ids.is_empty() {
+            SetProcessDefaultCpuSets(h, null(), 0) != 0
+        } else {
+            SetProcessDefaultCpuSets(h, ids.as_ptr(), ids.len() as u32) != 0
+        }
+    }
 }
 
 const PAGE: u64 = 4096;
@@ -96,6 +124,34 @@ impl Drop for Owned {
 
 fn filetime_u64(ft: FILETIME) -> u64 {
     ((ft.dwHighDateTime as u64) << 32) | ft.dwLowDateTime as u64
+}
+
+/// Temps processeur cumulé (noyau + utilisateur), en unités de 100 ns.
+fn cpu_time(h: HANDLE) -> u64 {
+    // SAFETY: sorties locales correctement dimensionnées.
+    unsafe {
+        let (mut c, mut e, mut k, mut u): (FILETIME, FILETIME, FILETIME, FILETIME) =
+            (zeroed(), zeroed(), zeroed(), zeroed());
+        if GetProcessTimes(h, &mut c, &mut e, &mut k, &mut u) != 0 {
+            filetime_u64(k) + filetime_u64(u)
+        } else {
+            0
+        }
+    }
+}
+
+fn foreground_pid() -> Option<u32> {
+    use windows_sys::Win32::UI::WindowsAndMessaging::{GetForegroundWindow, GetWindowThreadProcessId};
+    // SAFETY: lecture de la fenêtre au premier plan ; nulle hors session interactive.
+    unsafe {
+        let w = GetForegroundWindow();
+        if w.is_null() {
+            return None;
+        }
+        let mut pid = 0u32;
+        GetWindowThreadProcessId(w, &mut pid);
+        (pid != 0).then_some(pid)
+    }
 }
 
 fn creation_time(h: HANDLE) -> Option<u64> {
@@ -433,6 +489,8 @@ pub struct WindowsPlatform {
     user_session: u32,
     /// Vrai si le privilège de purge du cache a pu être activé (administrateur).
     pub can_purge: bool,
+    /// Topologie lue une fois au démarrage (elle ne change pas à chaud).
+    pub cpus: Vec<prism_core::model::CpuInfo>,
 }
 
 impl WindowsPlatform {
@@ -444,6 +502,7 @@ impl WindowsPlatform {
             self_pid,
             user_session: session_of(self_pid),
             can_purge,
+            cpus: crate::topology::cpus(),
         }
     }
 }
@@ -480,9 +539,14 @@ impl Platform for WindowsPlatform {
                     .unwrap_or(entry.szExeFile.len());
                 let name = String::from_utf16_lossy(&entry.szExeFile[..len]).to_lowercase();
                 let session = session_of(pid);
-                let (created, path, ws) = match Owned::open(pid, PROCESS_QUERY_LIMITED_INFORMATION) {
-                    Ok(h) => (creation_time(h.0).unwrap_or(0), image_path(h.0), working_set(h.0)),
-                    Err(_) => (0, None, 0),
+                let (created, path, ws, cpu) = match Owned::open(pid, PROCESS_QUERY_LIMITED_INFORMATION) {
+                    Ok(h) => (
+                        creation_time(h.0).unwrap_or(0),
+                        image_path(h.0),
+                        working_set(h.0),
+                        cpu_time(h.0),
+                    ),
+                    Err(_) => (0, None, 0, 0),
                 };
                 procs.push(ProcInfo {
                     id: ProcId { pid, created },
@@ -490,6 +554,7 @@ impl Platform for WindowsPlatform {
                     path,
                     session,
                     working_set: ws,
+                    cpu_time: cpu,
                 });
                 more = Process32NextW(snap.0, &mut entry) != 0;
             }
@@ -500,6 +565,8 @@ impl Platform for WindowsPlatform {
             mem: memory_status(),
             user_session: self.user_session,
             self_pid: self.self_pid,
+            cpus: self.cpus.clone(),
+            foreground_pid: foreground_pid(),
         })
     }
 
@@ -594,6 +661,39 @@ impl Platform for WindowsPlatform {
                     code => Outcome::Skipped(format!("plan performances élevées indisponible (erreur {code})")),
                 }
             }
+            Action::CpuSets { target, cpus } => {
+                let h = match open_target(target, PROCESS_SET_LIMITED_INFORMATION) {
+                    Ok(h) => h,
+                    Err(o) => return o,
+                };
+                let previous = match get_cpu_sets(h.0) {
+                    Some(p) => p,
+                    None => return last_error_outcome("lecture des cœurs"),
+                };
+                // Un choix déjà fait (par l'utilisateur ou un autre outil) est respecté.
+                if !previous.is_empty() {
+                    return Outcome::Skipped("cœurs déjà choisis".into());
+                }
+                if !set_cpu_sets(h.0, cpus) {
+                    return last_error_outcome("SetProcessDefaultCpuSets");
+                }
+                Outcome::Done(Some(Undo::CpuSets {
+                    target: target.clone(),
+                    previous,
+                }))
+            }
+            Action::PauseService { name } => crate::sysconfig::pause_service(name),
+            Action::Suspend { target } => {
+                let h = match open_target(target, PROCESS_SUSPEND_RESUME) {
+                    Ok(h) => h,
+                    Err(o) => return o,
+                };
+                // SAFETY: handle vérifié avec PROCESS_SUSPEND_RESUME.
+                match unsafe { NtSuspendProcess(h.0) } {
+                    s if s >= 0 => Outcome::Done(Some(Undo::Resume { target: target.clone() })),
+                    s => Outcome::Failed(format!("gel refusé (NTSTATUS {:#x})", s as u32)),
+                }
+            }
             Action::ShutdownWsl => match Command::new("wsl.exe")
                 .arg("--shutdown")
                 .creation_flags(CREATE_NO_WINDOW)
@@ -623,6 +723,20 @@ impl Platform for WindowsPlatform {
                 Err(o) => o,
                 Ok(h) if set_memory_priority(h.0, *previous) => Outcome::Done(None),
                 Ok(_) => last_error_outcome("priorité mémoire"),
+            },
+            Undo::CpuSets { target, previous } => match open_target(target, PROCESS_SET_LIMITED_INFORMATION) {
+                Err(o) => o,
+                Ok(h) if set_cpu_sets(h.0, previous) => Outcome::Done(None),
+                Ok(_) => last_error_outcome("SetProcessDefaultCpuSets"),
+            },
+            Undo::Service { name } => crate::sysconfig::resume_service(name),
+            Undo::Resume { target } => match open_target(target, PROCESS_SUSPEND_RESUME) {
+                Err(o) => o,
+                // SAFETY: handle vérifié avec PROCESS_SUSPEND_RESUME.
+                Ok(h) => match unsafe { NtResumeProcess(h.0) } {
+                    s if s >= 0 => Outcome::Done(None),
+                    s => Outcome::Failed(format!("dégel refusé (NTSTATUS {:#x})", s as u32)),
+                },
             },
             Undo::PowerPlan { previous } => {
                 let Some((d1, d2, d3, d4)) = parse_guid(previous) else {

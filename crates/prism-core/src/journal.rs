@@ -28,6 +28,19 @@ pub enum Undo {
     PowerPlan {
         previous: String,
     },
+    /// CPU sets d'origine ; vide = aucun (Windows choisit librement).
+    CpuSets {
+        target: Target,
+        previous: Vec<u32>,
+    },
+    /// Service mis en pause, à relancer.
+    Service {
+        name: String,
+    },
+    /// Processus gelé, à dégeler.
+    Resume {
+        target: Target,
+    },
 }
 
 impl Undo {
@@ -39,6 +52,12 @@ impl Undo {
                 format!("{} : priorité mémoire <- {previous:?}", target.name)
             }
             Undo::PowerPlan { previous } => format!("plan d'alimentation <- {previous}"),
+            Undo::CpuSets { target, previous } if previous.is_empty() => {
+                format!("{} : tous les cœurs rendus", target.name)
+            }
+            Undo::CpuSets { target, previous } => format!("{} : {} cœurs d'origine", target.name, previous.len()),
+            Undo::Service { name } => format!("service {name} relancé"),
+            Undo::Resume { target } => format!("{} : dégelé", target.name),
         }
     }
 }

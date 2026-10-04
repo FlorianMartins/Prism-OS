@@ -7,6 +7,9 @@
 pub mod allege;
 pub mod classify;
 pub mod config;
+pub mod cores;
+pub mod daily;
+pub mod demarrage;
 pub mod engine;
 pub mod glob;
 pub mod journal;

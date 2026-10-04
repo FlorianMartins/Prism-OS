@@ -100,6 +100,7 @@ pub(crate) mod tests {
             path: path.map(Into::into),
             session: 1,
             working_set: 100 << 20,
+            cpu_time: 0,
         }
     }
 
