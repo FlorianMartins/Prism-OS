@@ -190,6 +190,17 @@ fn allege_list() -> Result<(), String> {
             p.label
         );
     }
+    println!("Tâches planifiées");
+    for t in &c.tasks {
+        let state = match sys.as_mut().map(|x| x.task_enabled(&t.path)) {
+            Some(Ok(Some(true))) => "active".to_string(),
+            Some(Ok(Some(false))) => "désactivée".to_string(),
+            Some(Ok(None)) => "absente".to_string(),
+            Some(Err(e)) => e,
+            None => "-".into(),
+        };
+        println!("  [{:<9}] {:<11} {}", t.tier.label(), state, t.label);
+    }
     let protected: usize = c.protected.iter().map(|p| p.services.len()).sum();
     println!("\n{protected} services protégés (anti-cheats, mises à jour, sécurité) ne sont jamais touchés.");
     println!("Détail et raisons : config/allegement.toml");

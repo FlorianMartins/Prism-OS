@@ -159,6 +159,21 @@ pub struct Catalog {
     pub services: Vec<ServiceEntry>,
     #[serde(default, rename = "registry")]
     pub policies: Vec<PolicyEntry>,
+    #[serde(default)]
+    pub tasks: Vec<TaskEntry>,
+    /// Dossiers de tâches planifiées jamais touchés.
+    #[serde(default)]
+    pub protected_tasks: Vec<String>,
+}
+
+/// Tâche planifiée à désactiver (chemin complet du Planificateur : `\Microsoft\…`).
+#[derive(Clone, Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct TaskEntry {
+    pub path: String,
+    pub label: String,
+    pub tier: Tier,
+    pub why: String,
 }
 
 impl PolicyEntry {
@@ -168,6 +183,15 @@ impl PolicyEntry {
 }
 
 impl Catalog {
+    /// Raison de protection d'une tâche planifiée (dossier protégé), insensible à la casse.
+    pub fn task_protection(&self, path: &str) -> Option<&'static str> {
+        let p = path.to_ascii_lowercase();
+        self.protected_tasks
+            .iter()
+            .any(|prefix| p.starts_with(&prefix.to_ascii_lowercase()))
+            .then_some("dossier de tâches protégé (mises à jour, sécurité, TPM, heure…)")
+    }
+
     pub fn parse(text: &str) -> Result<Catalog, String> {
         let c: Catalog = toml::from_str(text).map_err(|e| format!("catalogue d'allègement illisible : {e}"))?;
         c.validate()?;
@@ -220,6 +244,18 @@ impl Catalog {
                 errors.push(format!("stratégie {} : dire pourquoi (why)", p.value));
             }
         }
+        let mut seen = HashSet::new();
+        for t in &self.tasks {
+            if !t.path.starts_with('\\') {
+                errors.push(format!("tâche {} : chemin complet attendu (\\Microsoft\\…)", t.path));
+            }
+            if self.task_protection(&t.path).is_some() {
+                errors.push(format!("tâche {} : dossier protégé, interdite au catalogue", t.path));
+            }
+            if !seen.insert(t.path.to_ascii_lowercase()) {
+                errors.push(format!("tâche en double : {}", t.path));
+            }
+        }
         if errors.is_empty() {
             Ok(())
         } else {
@@ -242,6 +278,11 @@ pub enum Change {
         value: String,
         data: RegData,
     },
+    /// Active (`true`) ou désactive une tâche planifiée.
+    Task {
+        path: String,
+        enabled: bool,
+    },
 }
 
 impl Change {
@@ -249,12 +290,16 @@ impl Change {
         match self {
             Change::ServiceStart { name, to } => format!("service {name} -> {to:?}"),
             Change::Policy { key, value, data } => format!("stratégie {key}\\{value} = {data}"),
+            Change::Task { path, enabled } => {
+                format!("tâche {path} {}", if *enabled { "activée" } else { "désactivée" })
+            }
         }
     }
 
     fn key(&self) -> String {
         match self {
             Change::ServiceStart { name, .. } => format!("svc:{}", name.to_ascii_lowercase()),
+            Change::Task { path, .. } => format!("task:{}", path.to_ascii_lowercase()),
             Change::Policy { key, value, .. } => {
                 format!("pol:{}\\{}", key.to_ascii_lowercase(), value.to_ascii_lowercase())
             }
@@ -276,12 +321,17 @@ pub enum Original {
         value: String,
         was: Option<RegData>,
     },
+    Task {
+        path: String,
+        was: bool,
+    },
 }
 
 impl Original {
     fn key(&self) -> String {
         match self {
             Original::ServiceStart { name, .. } => format!("svc:{}", name.to_ascii_lowercase()),
+            Original::Task { path, .. } => format!("task:{}", path.to_ascii_lowercase()),
             Original::Policy { key, value, .. } => {
                 format!("pol:{}\\{}", key.to_ascii_lowercase(), value.to_ascii_lowercase())
             }
@@ -297,6 +347,9 @@ impl Original {
                 was: Some(d),
             } => format!("stratégie {key}\\{value} <- {d}"),
             Original::Policy { key, value, was: None } => format!("stratégie {key}\\{value} supprimée"),
+            Original::Task { path, was } => {
+                format!("tâche {path} <- {}", if *was { "activée" } else { "désactivée" })
+            }
         }
     }
 }
@@ -310,6 +363,9 @@ pub trait SystemConfig {
     fn policy(&mut self, key: &str, value: &str) -> Result<Option<RegData>, String>;
     fn set_policy(&mut self, key: &str, value: &str, data: &RegData) -> Result<(), String>;
     fn delete_policy(&mut self, key: &str, value: &str) -> Result<(), String>;
+    /// `Ok(None)` : la tâche n'existe pas sur cette machine.
+    fn task_enabled(&mut self, path: &str) -> Result<Option<bool>, String>;
+    fn set_task_enabled(&mut self, path: &str, enabled: bool) -> Result<(), String>;
 }
 
 pub fn plan(catalog: &Catalog, tiers: &[Tier]) -> Vec<Change> {
@@ -330,7 +386,15 @@ pub fn plan(catalog: &Catalog, tiers: &[Tier]) -> Vec<Change> {
             value: p.value.clone(),
             data: p.data.clone(),
         });
-    services.chain(policies).collect()
+    let tasks = catalog
+        .tasks
+        .iter()
+        .filter(|t| tiers.contains(&t.tier))
+        .map(|t| Change::Task {
+            path: t.path.clone(),
+            enabled: false,
+        });
+    services.chain(policies).chain(tasks).collect()
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -418,6 +482,27 @@ pub fn apply(
                     was,
                 }),
             },
+            Change::Task { path, enabled } => {
+                if let Some(reason) = catalog.task_protection(path) {
+                    r.failed.push(format!("{what} — refusé, tâche protégée : {reason}"));
+                    continue;
+                }
+                match sys.task_enabled(path) {
+                    Err(e) => Err(e),
+                    Ok(None) => {
+                        r.unchanged.push(format!("{what} — absente de cette machine"));
+                        continue;
+                    }
+                    Ok(Some(was)) if was == *enabled => {
+                        r.unchanged.push(format!("{what} — déjà fait"));
+                        continue;
+                    }
+                    Ok(Some(was)) => sys.set_task_enabled(path, *enabled).map(|()| Original::Task {
+                        path: path.clone(),
+                        was,
+                    }),
+                }
+            }
         };
         match original {
             Ok(o) => {
@@ -449,6 +534,7 @@ pub fn restore(sys: &mut dyn SystemConfig, journal: &mut AllegeJournal) -> Alleg
                 was: Some(d),
             } => sys.set_policy(key, value, d),
             Original::Policy { key, value, was: None } => sys.delete_policy(key, value),
+            Original::Task { path, was } => sys.set_task_enabled(path, *was),
         };
         match res {
             Ok(()) => r.done.push(o.describe()),
@@ -468,10 +554,20 @@ pub fn restore(sys: &mut dyn SystemConfig, journal: &mut AllegeJournal) -> Alleg
 pub struct MockSystem {
     pub services: std::collections::BTreeMap<String, StartType>,
     pub policies: std::collections::BTreeMap<(String, String), RegData>,
+    /// Tâches connues : chemin (minuscules) -> activée.
+    pub tasks: std::collections::BTreeMap<String, bool>,
     pub writes: usize,
 }
 
 impl SystemConfig for MockSystem {
+    fn task_enabled(&mut self, path: &str) -> Result<Option<bool>, String> {
+        Ok(self.tasks.get(&path.to_ascii_lowercase()).copied())
+    }
+    fn set_task_enabled(&mut self, path: &str, enabled: bool) -> Result<(), String> {
+        self.writes += 1;
+        self.tasks.insert(path.to_ascii_lowercase(), enabled);
+        Ok(())
+    }
     fn service_start(&mut self, name: &str) -> Result<Option<StartType>, String> {
         Ok(self.services.get(&name.to_ascii_lowercase()).copied())
     }
@@ -674,6 +770,43 @@ mod tests {
         let jeu = plan(&c, &[Tier::Jeu]);
         assert!(jeu.len() >= 5);
         assert!(plan(&c, &[Tier::Sur]).iter().all(|ch| !jeu.contains(ch)));
+    }
+
+    #[test]
+    fn telemetry_tasks_are_disabled_then_restored_and_protected_folders_refused() {
+        let c = Catalog::builtin();
+        assert!(c.tasks.len() >= 10);
+        for t in &c.tasks {
+            assert!(c.task_protection(&t.path).is_none(), "{}", t.path);
+        }
+        assert!(c.task_protection(r"\Microsoft\Windows\TPM\Tpm-Maintenance").is_some());
+        assert!(c
+            .task_protection(r"\microsoft\windows\windowsupdate\Scheduled Start")
+            .is_some());
+
+        let mut m = MockSystem::default();
+        for t in &c.tasks {
+            m.tasks.insert(t.path.to_ascii_lowercase(), true);
+        }
+        m.tasks.remove(&c.tasks[1].path.to_ascii_lowercase()); // absente sur ce Windows
+        let before = m.tasks.clone();
+        let mut j = AllegeJournal::default();
+        let r = apply(&mut m, &c, &plan(&c, &[Tier::Sur]), &mut j, &mut |_| Ok(()));
+        assert!(r.failed.is_empty(), "{:?}", r.failed);
+        let appraiser = r"\microsoft\windows\application experience\microsoft compatibility appraiser";
+        assert_eq!(m.tasks.get(appraiser), Some(&false));
+        assert!(r.unchanged.iter().any(|u| u.contains("absente")));
+        restore(&mut m, &mut j);
+        assert_eq!(m.tasks, before);
+    }
+
+    #[test]
+    fn a_catalog_task_in_a_protected_folder_is_rejected() {
+        let bad = ALLEGEMENT_TOML.replace(
+            r"path = '\Microsoft\Windows\Maps\MapsToastTask'",
+            r"path = '\Microsoft\Windows\TPM\Tpm-Maintenance'",
+        );
+        assert!(Catalog::parse(&bad).unwrap_err().contains("protégé"));
     }
 
     #[test]

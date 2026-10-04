@@ -260,6 +260,24 @@ impl Backend for WinBackend {
                 why: p.why.clone(),
             }
         }));
+        rows.extend(c.tasks.iter().map(|t| {
+            let cur = sys.task_enabled(&t.path);
+            let current = match &cur {
+                Ok(Some(true)) => "active".into(),
+                Ok(Some(false)) => "désactivée".into(),
+                Ok(None) => "absente".into(),
+                Err(e) => e.clone(),
+            };
+            let done = matches!(cur, Ok(Some(false)) | Ok(None));
+            AllegeRow {
+                tier: t.tier,
+                label: format!("Tâche : {}", t.label),
+                current,
+                target: "désactivée".into(),
+                done,
+                why: t.why.clone(),
+            }
+        }));
         rows
     }
 

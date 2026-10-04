@@ -263,6 +263,18 @@ impl Backend for MockBackend {
             done: self.applied.contains(&p.tier),
             why: p.why.clone(),
         }));
+        rows.extend(c.tasks.iter().map(|t| AllegeRow {
+            tier: t.tier,
+            label: format!("Tâche : {}", t.label),
+            current: if self.applied.contains(&t.tier) {
+                "désactivée".into()
+            } else {
+                "active".into()
+            },
+            target: "désactivée".into(),
+            done: self.applied.contains(&t.tier),
+            why: t.why.clone(),
+        }));
         rows
     }
 

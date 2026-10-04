@@ -18,6 +18,21 @@
 # Services jamais touchés, avec la raison. La liste fait foi pour toute
 # contribution future.
 # ---------------------------------------------------------------------------
+# Dossiers de tâches planifiées jamais touchés (clé de premier niveau : elle doit
+# précéder toutes les tables du fichier).
+protected_tasks = [
+  '\Microsoft\Windows\WindowsUpdate\',
+  '\Microsoft\Windows\UpdateOrchestrator\',
+  '\Microsoft\Windows\WaaSMedic\',
+  '\Microsoft\Windows\Windows Defender\',
+  '\Microsoft\Windows\TPM\',
+  '\Microsoft\Windows\Time Synchronization\',
+  '\Microsoft\Windows\BitLocker\',
+  '\Microsoft\Windows\InstallService\',
+  '\Microsoft\Windows\Plug and Play\',
+  '\Microsoft\XblGameSave\',
+]
+
 [[protected]]
 reason = "Mises à jour : les anti-cheats et les jeux exigent un Windows à jour"
 services = ["wuauserv", "UsoSvc", "BITS", "WaaSMedicSvc", "TrustedInstaller", "msiserver", "DoSvc"]
@@ -334,3 +349,115 @@ reboot = true
 label = "Accélération souris : seuil 2 à zéro"
 tier = "jeu"
 why = "Complète la désactivation de l'accélération (même effet que la case de Windows)."
+
+# ---------------------------------------------------------------------------
+# Stratégies supplémentaires (2026-10-04)
+# ---------------------------------------------------------------------------
+[[registry]]
+key = 'SOFTWARE\Policies\Microsoft\Windows\DeliveryOptimization'
+value = "DODownloadMode"
+data = 0
+label = "Mises à jour : pas d'envoi vers d'autres PC"
+tier = "sur"
+why = "Windows cesse de partager les mises à jour avec d'autres PC sur Internet : votre débit montant reste libre pendant le jeu. Les mises à jour continuent normalement."
+
+[[registry]]
+key = 'SOFTWARE\Policies\Microsoft\Windows\WindowsAI'
+value = "DisableAIDataAnalysis"
+data = 1
+label = "Recall désactivé"
+tier = "sur"
+why = "Recall capture l'écran en continu pour l'IA (PC Copilot+) : coût en disque et en processeur, et sensible pour la vie privée."
+
+[[registry]]
+hive = "hkcu"
+key = 'Software\Policies\Microsoft\Windows\Explorer'
+value = "DisableSearchBoxSuggestions"
+data = 1
+label = "Recherche du menu Démarrer sans Bing"
+tier = "sur"
+why = "Plus de résultats web ni de suggestions en ligne : la recherche reste locale et plus rapide."
+
+[[registry]]
+key = 'SOFTWARE\Policies\Microsoft\Windows\AppPrivacy'
+value = "LetAppsRunInBackground"
+data = 2
+label = "Applis du Store bloquées en arrière-plan"
+tier = "avance"
+why = "Les applis du Store ne tournent plus quand elles sont fermées. Contrepartie : leurs notifications (Teams, WhatsApp du Store…) n'arrivent qu'à l'ouverture."
+
+# ---------------------------------------------------------------------------
+# Tâches planifiées (chemin complet du Planificateur de tâches)
+# ---------------------------------------------------------------------------
+
+[[tasks]]
+path = '\Microsoft\Windows\Application Experience\Microsoft Compatibility Appraiser'
+label = "Évaluateur de compatibilité (CompatTelRunner)"
+tier = "sur"
+why = "Analyse les programmes installés pour la télémétrie ; connu pour ses pics de processeur et de disque."
+
+[[tasks]]
+path = '\Microsoft\Windows\Application Experience\ProgramDataUpdater'
+label = "Collecte de données de programmes"
+tier = "sur"
+why = "Télémétrie sur les programmes utilisés."
+
+[[tasks]]
+path = '\Microsoft\Windows\Customer Experience Improvement Program\Consolidator'
+label = "Programme d'amélioration (CEIP)"
+tier = "sur"
+why = "Regroupe et envoie les données d'usage."
+
+[[tasks]]
+path = '\Microsoft\Windows\Customer Experience Improvement Program\UsbCeip'
+label = "Programme d'amélioration USB"
+tier = "sur"
+why = "Données d'usage des périphériques USB."
+
+[[tasks]]
+path = '\Microsoft\Windows\Autochk\Proxy'
+label = "Collecte SQM (Autochk)"
+tier = "sur"
+why = "Collecte de données de qualité de service."
+
+[[tasks]]
+path = '\Microsoft\Windows\DiskDiagnostic\Microsoft-Windows-DiskDiagnosticDataCollector'
+label = "Collecte de diagnostic disque"
+tier = "sur"
+why = "Envoie des informations de diagnostic des disques."
+
+[[tasks]]
+path = '\Microsoft\Windows\Feedback\Siuf\DmClient'
+label = "Retours utilisateur (Siuf)"
+tier = "sur"
+why = "Demandes de retour et télémétrie associée."
+
+[[tasks]]
+path = '\Microsoft\Windows\Feedback\Siuf\DmClientOnScenarioDownload'
+label = "Retours utilisateur (scénarios)"
+tier = "sur"
+why = "Téléchargement de scénarios de retour."
+
+[[tasks]]
+path = '\Microsoft\Windows\Maps\MapsUpdateTask'
+label = "Mise à jour des cartes hors ligne"
+tier = "sur"
+why = "Ne sert qu'à l'application Cartes hors connexion."
+
+[[tasks]]
+path = '\Microsoft\Windows\Maps\MapsToastTask'
+label = "Notifications des cartes"
+tier = "sur"
+why = "Notifications de l'application Cartes."
+
+[[tasks]]
+path = '\Microsoft\Windows\Windows Error Reporting\QueueReporting'
+label = "Envoi des rapports d'erreurs en attente"
+tier = "avance"
+why = "Envoie les rapports de plantage à Microsoft (va avec le service WerSvc du niveau avancé)."
+
+[[tasks]]
+path = '\Microsoft\Windows\Application Experience\StartupAppTask'
+label = "Mesure de l'impact des applis au démarrage"
+tier = "avance"
+why = "Analyse le démarrage pour le Gestionnaire des tâches. Contrepartie : la colonne « Impact » n'y est plus mise à jour (Prism a ses propres conseils)."

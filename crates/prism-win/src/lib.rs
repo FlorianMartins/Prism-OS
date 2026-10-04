@@ -33,6 +33,16 @@ pub use win::{
     active_power_plan, flush_modified_list, memory_lists, proc_id, process_state, MemoryLists, WindowsPlatform,
 };
 
+/// Une tâche planifiée est active sauf si sa section `<Settings>` dit le contraire.
+/// (Copie testable sous Linux de la logique utilisée par `sysconfig`.)
+pub fn task_xml_enabled(xml: &str) -> bool {
+    let settings = match (xml.find("<Settings>"), xml.find("</Settings>")) {
+        (Some(a), Some(b)) if a < b => &xml[a..b],
+        _ => return true,
+    };
+    !settings.contains("<Enabled>false</Enabled>")
+}
+
 /// Format canonique d'un GUID (`8c5e7fda-e8bf-4a96-9a85-a6e23a8c635c`).
 pub fn format_guid(data1: u32, data2: u16, data3: u16, data4: [u8; 8]) -> String {
     format!(
@@ -65,6 +75,17 @@ pub fn parse_guid(s: &str) -> Option<(u32, u16, u16, [u8; 8])> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn task_state_is_read_from_settings_only() {
+        let disabled = "<Task><Triggers><LogonTrigger><Enabled>true</Enabled></LogonTrigger></Triggers><Settings><Enabled>false</Enabled></Settings></Task>";
+        let enabled_trigger_off = "<Task><Triggers><TimeTrigger><Enabled>false</Enabled></TimeTrigger></Triggers><Settings><Priority>7</Priority></Settings></Task>";
+        assert!(!task_xml_enabled(disabled));
+        assert!(
+            task_xml_enabled(enabled_trigger_off),
+            "un déclencheur coupé ne coupe pas la tâche"
+        );
+    }
 
     #[test]
     fn guid_round_trip() {

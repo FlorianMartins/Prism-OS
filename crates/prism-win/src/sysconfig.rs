@@ -130,6 +130,25 @@ fn read_start(svc: &Sc) -> Result<StartType, String> {
 pub struct WindowsSystemConfig;
 
 impl SystemConfig for WindowsSystemConfig {
+    fn task_enabled(&mut self, path: &str) -> Result<Option<bool>, String> {
+        let out = schtasks(&["/Query", "/TN", path, "/XML"])?;
+        if !out.status.success() {
+            // Tâche inconnue : schtasks échoue (message traduit, on ne le lit pas).
+            return Ok(None);
+        }
+        Ok(Some(crate::task_xml_enabled(&decode_console(&out.stdout))))
+    }
+
+    fn set_task_enabled(&mut self, path: &str, enabled: bool) -> Result<(), String> {
+        let flag = if enabled { "/ENABLE" } else { "/DISABLE" };
+        let out = schtasks(&["/Change", "/TN", path, flag])?;
+        if out.status.success() {
+            Ok(())
+        } else {
+            Err(format!("{path} : schtasks a refusé (droits administrateur ?)"))
+        }
+    }
+
     fn service_start(&mut self, name: &str) -> Result<Option<StartType>, String> {
         match open_service(name, SERVICE_QUERY_CONFIG)? {
             None => Ok(None),
@@ -398,5 +417,31 @@ pub fn relaunch_elevated() -> Result<(), String> {
         Ok(())
     } else {
         Err("élévation refusée ou impossible".into())
+    }
+}
+
+fn schtasks(args: &[&str]) -> Result<std::process::Output, String> {
+    use std::os::windows::process::CommandExt;
+    const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+    std::process::Command::new("schtasks.exe")
+        .args(args)
+        .creation_flags(CREATE_NO_WINDOW)
+        .output()
+        .map_err(|e| format!("schtasks.exe : {e}"))
+}
+
+/// Sortie console : UTF-16 (avec ou sans marque) ou UTF-8 selon les cas.
+pub(crate) fn decode_console(bytes: &[u8]) -> String {
+    let utf16 = bytes.len() >= 2 && (bytes.starts_with(&[0xff, 0xfe]) || bytes[1] == 0);
+    if utf16 {
+        let units: Vec<u16> = bytes
+            .chunks_exact(2)
+            .map(|c| u16::from_le_bytes([c[0], c[1]]))
+            .collect();
+        String::from_utf16_lossy(&units)
+            .trim_start_matches('\u{feff}')
+            .to_string()
+    } else {
+        String::from_utf8_lossy(bytes).into_owned()
     }
 }

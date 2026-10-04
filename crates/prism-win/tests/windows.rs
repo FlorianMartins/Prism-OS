@@ -347,3 +347,23 @@ fn a_running_service_is_paused_and_restarted() {
     }
     eprintln!("aucun service candidat actif sur cette machine");
 }
+
+#[test]
+fn a_scheduled_task_state_is_read_and_toggled_back() {
+    use prism_core::allege::SystemConfig;
+    let mut s = prism_win::WindowsSystemConfig;
+    // Une tâche présente sur tout Windows récent, sans effet sur le runner.
+    let path = r"\Microsoft\Windows\Maps\MapsToastTask";
+    let before = match s.task_enabled(path).unwrap() {
+        Some(b) => b,
+        None => {
+            eprintln!("{path} absente sur cette machine");
+            return;
+        }
+    };
+    s.set_task_enabled(path, !before).unwrap();
+    assert_eq!(s.task_enabled(path).unwrap(), Some(!before));
+    s.set_task_enabled(path, before).unwrap();
+    assert_eq!(s.task_enabled(path).unwrap(), Some(before));
+    assert_eq!(s.task_enabled(r"\Prism\Tache\Inexistante").unwrap(), None);
+}
