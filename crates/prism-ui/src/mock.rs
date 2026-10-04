@@ -22,6 +22,8 @@ pub struct MockBackend {
     pub applied: Vec<Tier>,
     pub in_game: bool,
     pub log: Vec<String>,
+    pub privacy: prism_core::privacy::MockPrivacy,
+    pub privacy_journal: prism_core::privacy::Journal,
 }
 
 impl Default for MockBackend {
@@ -114,6 +116,14 @@ impl Default for MockBackend {
             ],
             applied: vec![Tier::Sur],
             in_game: false,
+            privacy: {
+                // Machine simulée : l'allègement « sûr » est déjà en place.
+                let mut p = prism_core::privacy::MockPrivacy::default();
+                p.services
+                    .insert("DiagTrack".into(), prism_core::allege::StartType::Disabled);
+                p
+            },
+            privacy_journal: prism_core::privacy::Journal::default(),
             log: Vec::new(),
         }
     }
@@ -297,6 +307,50 @@ impl Backend for MockBackend {
             self.applied.push(tier);
         }
         Ok(format!("Niveau {} appliqué", tier.label()))
+    }
+
+    fn privacy(
+        &mut self,
+    ) -> (
+        Vec<prism_core::privacy::Row>,
+        Vec<prism_core::privacy::TelemetryConnection>,
+    ) {
+        let c = prism_core::privacy::Catalog::builtin();
+        let rows = prism_core::privacy::status(&mut self.privacy, &c);
+        // Sans règle de pare-feu, la simulation montre la télémétrie qui parle.
+        let conns = if self.privacy.rules.is_empty() {
+            vec![
+                prism_core::privacy::TelemetryConnection {
+                    component: "service DiagTrack".into(),
+                    remote: "20.42.65.92:443".into(),
+                    state: "établie".into(),
+                },
+                prism_core::privacy::TelemetryConnection {
+                    component: "CompatTelRunner.exe".into(),
+                    remote: "13.89.179.10:443".into(),
+                    state: "en attente de réponse".into(),
+                },
+            ]
+        } else {
+            Vec::new()
+        };
+        (rows, conns)
+    }
+
+    fn privacy_apply(&mut self, level: prism_core::privacy::Level) -> Result<String, String> {
+        let c = prism_core::privacy::Catalog::builtin();
+        let r = prism_core::privacy::apply(
+            &mut self.privacy,
+            &prism_core::privacy::plan(&c, level),
+            &mut self.privacy_journal,
+            &mut |_| Ok(()),
+        );
+        Ok(format!("Niveau « {} » : {} appliqué(s)", level.label(), r.done.len()))
+    }
+
+    fn privacy_restore(&mut self) -> Result<String, String> {
+        let r = prism_core::privacy::restore(&mut self.privacy, &mut self.privacy_journal);
+        Ok(format!("{} élément(s) remis comme avant", r.done.len()))
     }
 
     fn allege_restore(&mut self) -> Result<String, String> {

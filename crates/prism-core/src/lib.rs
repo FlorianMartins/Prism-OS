@@ -24,6 +24,7 @@ pub mod model;
 pub mod paths;
 pub mod plan;
 pub mod platform;
+pub mod privacy;
 pub mod tools;
 pub mod watch;
 pub mod wobbly;

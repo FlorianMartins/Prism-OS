@@ -36,6 +36,9 @@ Utilisation : prism <commande>
   allege                  catalogue d'allègement (services, stratégies) et état
   allege apply [niveaux]  applique : sur (défaut), avance, jeu (admin)
   allege restore          remet toutes les valeurs d'origine (admin)
+  vie-privee              tableau de bord : protections en place, télémétrie qui parle en ce moment
+  vie-privee apply [niveau]  applique : recommande (défaut) ou strict (admin)
+  vie-privee restore      remet tout comme avant (admin)
   apparence               animations, effets, thème (réglages officiels de Windows)
   apparence <préréglage>  performance | fluide ; apparence set <id> <option> ; restore
   config init|check|path  copie modifiable de la configuration
@@ -153,6 +156,39 @@ fn allege_tiers(words: &[&str]) -> Result<Vec<prism_core::allege::Tier>, String>
 }
 
 /// Liste le catalogue ; sous Windows, avec l'état réel de chaque entrée.
+/// Tableau de bord vie privée, par catégorie.
+#[cfg_attr(not(windows), allow(dead_code))]
+fn print_privacy(rows: &[prism_core::privacy::Row]) {
+    use prism_core::privacy::{score, Category, Kind, State};
+    for cat in Category::ALL {
+        let list: Vec<_> = rows.iter().filter(|r| r.category == cat).collect();
+        if list.is_empty() {
+            continue;
+        }
+        println!("{}", cat.label());
+        for r in list {
+            let mark = match &r.state {
+                State::On => "✓",
+                State::Off => "·",
+                State::Absent => "–",
+                State::Unknown(_) => "?",
+            };
+            let level = match (r.kind, r.level) {
+                (Kind::Check, _) => format!("via {}", r.source),
+                (_, Some(l)) => l.label().to_string(),
+                _ => String::new(),
+            };
+            let kind = if r.kind == Kind::Firewall { " [pare-feu]" } else { "" };
+            println!("  {mark} {}{kind}  ({level})", r.label);
+            if let State::Unknown(e) = &r.state {
+                println!("      {e}");
+            }
+        }
+    }
+    let (on, total) = score(rows);
+    println!("\n{on} protection(s) en place sur {total}  (✓ en place · non appliquée – composant absent)");
+}
+
 fn allege_list() -> Result<(), String> {
     use prism_core::allege::{Catalog, SystemConfig};
     let c = Catalog::builtin();
@@ -254,7 +290,8 @@ fn tools_install(cfg: &Config, pack: &str) -> Result<(), String> {
 fn platform_command(_cfg: &Config, args: &[&str]) -> Result<(), String> {
     match args.first() {
         Some(
-            &("status" | "watch" | "ram" | "autostart" | "allege" | "top" | "demarrage" | "jeux" | "apparence" | "bar"),
+            &("status" | "watch" | "ram" | "autostart" | "allege" | "top" | "demarrage" | "jeux" | "apparence" | "bar"
+            | "vie-privee"),
         ) => Err("cette commande agit sur Windows ; ici, essayez `prism demo`".into()),
         _ => Err(format!("commande inconnue : {}\n\n{HELP}", args.join(" "))),
     }
@@ -542,6 +579,80 @@ fn platform_command(cfg: &Config, args: &[&str]) -> Result<(), String> {
                 .ok_or_else(|| format!("préréglage inconnu « {preset} »"))?
                 .clone();
             apparence_run(move |sys, j| prism_core::apparence::apply(sys, &c, &p.values, j))
+        }
+        ["vie-privee"] => {
+            use prism_core::privacy::{status, Catalog};
+            let c = Catalog::builtin();
+            let rows = status(&mut prism_win::WindowsPrivacy::new(), &c);
+            print_privacy(&rows);
+            let conns = prism_win::telemetry_connections(&c);
+            if conns.is_empty() {
+                println!("\nTélémétrie en ce moment : aucune connexion ouverte par les composants surveillés.");
+            } else {
+                println!("\nTélémétrie en ce moment : {} connexion(s)", conns.len());
+                for k in &conns {
+                    println!("  {:<28} {:<22} {}", k.component, k.remote, k.state);
+                }
+            }
+            Ok(())
+        }
+        ["vie-privee", "apply", rest @ ..] => {
+            use prism_core::privacy::{apply, journal_path, plan, Catalog, Journal, Level};
+            let level = match rest {
+                [] => Level::Recommande,
+                [l] => Level::parse(l).ok_or_else(|| format!("niveau inconnu « {l} » (recommande, strict)"))?,
+                _ => return Err("un seul niveau : recommande ou strict".into()),
+            };
+            let c = Catalog::builtin();
+            let path = journal_path();
+            let mut journal = Journal::load(&path)?;
+            let r = apply(
+                &mut prism_win::WindowsPrivacy::new(),
+                &plan(&c, level),
+                &mut journal,
+                &mut |j| j.save(&path),
+            );
+            for d in &r.done {
+                println!("  ✓ {d}");
+            }
+            println!(
+                "{} appliqué(s), {} déjà fait(s) ou absent(s), {} échec(s)",
+                r.done.len(),
+                r.unchanged.len(),
+                r.failed.len()
+            );
+            for f in &r.failed {
+                println!("  ÉCHEC : {f}");
+            }
+            if c.registry.iter().any(|x| x.reboot && x.level <= level) {
+                println!("Certains réglages s'appliquent à la prochaine ouverture de session.");
+            }
+            println!("Annuler : prism vie-privee restore");
+            if r.failed.is_empty() {
+                Ok(())
+            } else {
+                Err("certains changements ont échoué (droits administrateur ?)".into())
+            }
+        }
+        ["vie-privee", "restore"] => {
+            use prism_core::privacy::{journal_path, restore, Journal};
+            let path = journal_path();
+            let mut journal = Journal::load(&path)?;
+            if journal.originals.is_empty() {
+                println!("Rien à restaurer.");
+                return Ok(());
+            }
+            let r = restore(&mut prism_win::WindowsPrivacy::new(), &mut journal);
+            journal.save(&path)?;
+            println!("{} élément(s) remis, {} échec(s)", r.done.len(), r.failed.len());
+            for f in &r.failed {
+                println!("  ÉCHEC : {f}");
+            }
+            if r.failed.is_empty() {
+                Ok(())
+            } else {
+                Err("restauration incomplète, relancez en administrateur".into())
+            }
         }
         ["allege", "restore"] => {
             use prism_core::allege::{restore, AllegeJournal};

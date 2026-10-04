@@ -19,6 +19,8 @@ mod library;
 #[cfg(windows)]
 pub mod metrics;
 #[cfg(windows)]
+mod privacy;
+#[cfg(windows)]
 mod startup;
 #[cfg(windows)]
 mod sysconfig;
@@ -31,6 +33,8 @@ mod win;
 pub use appearance::WindowsAppearance;
 #[cfg(windows)]
 pub use library::installed_games;
+#[cfg(windows)]
+pub use privacy::{telemetry_connections, WindowsPrivacy};
 #[cfg(windows)]
 pub use startup::WindowsStartup;
 #[cfg(windows)]

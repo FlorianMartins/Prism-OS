@@ -7,7 +7,7 @@ makes is recorded and can be undone.
 
 > The command-line interface and the app are currently in French. This guide gives
 > the exact command names (some are French words, e.g. `demarrage` = startup,
-> `allege` = debloat, `apparence` = appearance, `jeux` = games).
+> `allege` = debloat, `vie-privee` = privacy, `apparence` = appearance, `jeux` = games).
 
 ---
 
@@ -16,7 +16,7 @@ makes is recorded and can be undone.
 | Program | What it is | Size |
 |---|---|---|
 | `prism.exe` | Command-line tool and the background engine (`prism watch`) | ~1.3 MB |
-| `prism-ui.exe` | Graphical app: dashboard, games, startup, debloat, appearance, tools | ~11 MB |
+| `prism-ui.exe` | Graphical app: dashboard, games, startup, debloat, privacy, appearance, tools | ~11 MB |
 | `prism-bar.exe` | Prism Bar: your own taskbar plus desktop widgets | ~0.5 MB |
 
 Measured on Windows 11: `prism watch` uses about **3 MB** of RAM, the Prism Bar with its
@@ -133,6 +133,39 @@ prism allege restore         # put back every original value
 changed, even by editing the catalogue. Be realistic: disabling services saves about
 100 MB; startup apps and Daily Mode are where the big gains are.
 
+## 8b. Privacy (`prism vie-privee`, administrator)
+
+```powershell
+prism vie-privee                  # dashboard: what is in place, and telemetry talking right now
+prism vie-privee apply            # "recommande" (recommended): nothing useful is lost
+prism vie-privee apply strict     # recommended + settings where you give something up (each one says what)
+prism vie-privee restore          # put everything back as it was
+```
+
+Or in the app: **Vie privée** page — a score (protections in place), the
+*Recommandé* / *Strict* / *Tout restaurer* buttons, a live **Télémétrie en ce moment**
+panel and one line per protection.
+
+- **Recommended**: no diagnostic logs or full memory dumps sent, no feedback prompts,
+  no "tailored experiences", no suggested content, app suggestions, tips or
+  recommendations in Settings and Start, Start search stays on your PC (no Bing), app
+  launches not tracked, typing and handwriting not collected, Edge diagnostic data and
+  personalization off, and **Windows Firewall rules** that cut the telemetry service,
+  CompatTelRunner and DeviceCensus off from the internet.
+- **Strict** adds: error reports not sent, no online speech recognition / input
+  personalization, Windows Copilot off, location off, no cloud clipboard, apps can't
+  read other apps' diagnostic info. The app shows "On renonce à…" (what you give up)
+  under each of these.
+- Read-only lines show what **debloat** (`prism allege`, safe level) already does:
+  telemetry service and tasks, advertising ID, activity history, Recall. Apply
+  `prism allege apply` too for the full picture.
+- Some settings apply at your next sign-in (marked *à la reconnexion*).
+- Firewall rules are named `Prism OS - …` (visible in *Windows Defender Firewall with
+  Advanced Security*). Only Windows' own telemetry programs are ever blocked — never a
+  game, never Windows Update, Defender or licensing.
+- On Windows Home and Pro, Windows keeps the "required" diagnostic level whatever the
+  policy says (Microsoft's rule); the firewall rules work on every edition.
+
 ## 9. Appearance (`prism apparence`)
 
 Official Windows settings only: window animations (minimize/maximize, open/close, menus,
@@ -233,11 +266,12 @@ figures: [measurements §6](measurements.md).
 | Game Mode / Daily Mode | stop `prism watch` (Ctrl-C) — restored automatically, also after a crash |
 | Startup apps | `prism demarrage restore` |
 | Debloat | `prism allege restore` |
+| Privacy | `prism vie-privee restore` |
 | Appearance | `prism apparence restore` |
 | Prism Bar, transparency, window effects | `prism bar off` (effects); `prism apparence restore` (Windows' minimize animation) |
 
 Journals live in `%ProgramData%\Prism\` (`journal.json`, `quotidien.json`,
-`demarrage.json`, `allegement.json`, `apparence.json`).
+`demarrage.json`, `allegement.json`, `apparence.json`, `vie-privee.json`).
 
 ## 12. Games and the console mode
 

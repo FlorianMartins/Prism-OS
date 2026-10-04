@@ -56,6 +56,7 @@ fn every_page_renders() {
         ("demarrage", Page::Startup, false),
         ("allegement", Page::Allege, false),
         ("apparence", Page::Appearance, false),
+        ("vie-privee", Page::Privacy, false),
         ("outils", Page::Tools, false),
     ] {
         let img = shot(name, page, console);

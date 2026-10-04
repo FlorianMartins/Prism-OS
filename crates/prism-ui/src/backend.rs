@@ -100,6 +100,16 @@ pub trait Backend {
     fn allege_apply(&mut self, tier: Tier) -> Result<String, String>;
     fn allege_restore(&mut self) -> Result<String, String>;
 
+    /// Tableau de bord vie privée et connexions ouvertes par la télémétrie.
+    fn privacy(
+        &mut self,
+    ) -> (
+        Vec<prism_core::privacy::Row>,
+        Vec<prism_core::privacy::TelemetryConnection>,
+    );
+    fn privacy_apply(&mut self, level: prism_core::privacy::Level) -> Result<String, String>;
+    fn privacy_restore(&mut self) -> Result<String, String>;
+
     fn games(&mut self) -> Vec<Game>;
     fn launch(&mut self, game: &Game) -> Result<String, String>;
 

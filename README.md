@@ -27,6 +27,10 @@ tools. Every change is journaled and reversible.
 - **Debloat** (`prism allege`) — telemetry services and scheduled tasks, Edge
   background processes, Recall, delivery-optimisation upload, plus gaming settings;
   72 services that anti-cheats and updates need are protected.
+- **Privacy** (`prism vie-privee`) — Windows telemetry, ads and suggestions, Bing in
+  Start, typing collection, Edge reporting turned off through official policies, plus
+  Windows Firewall rules that cut the telemetry components off; *recommended* or
+  *strict* levels, a dashboard with a live "telemetry talking right now" panel.
 - **Appearance** (`prism apparence`) — official Windows animations, effects and theme
   settings with presets (Performance max, Fluide, original settings).
 - **Prism Bar** — a native taskbar on any edge (top, bottom, left, right) and on every
@@ -105,9 +109,9 @@ off-screen by the tests into `target/ui-shots/` (needs a Vulkan driver; on Linux
 ## Roadmap
 
 v0.1 engine ✓ · v0.2 process management ✓ · v0.3 interface and customisation ✓ ·
-v0.4 window effects ✓ ·
-next: Prism as a Windows service, tiling window manager, privacy
-dashboard, installer and signed updates, FPS measurements on real hardware. Details:
+v0.4 window effects ✓ · v0.5 privacy ✓ ·
+next: Prism as a Windows service, tiling window manager, installer and signed updates,
+FPS measurements on real hardware. Details:
 [ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
 ## Licence

@@ -315,6 +315,53 @@ impl Backend for WinBackend {
         }
     }
 
+    fn privacy(
+        &mut self,
+    ) -> (
+        Vec<prism_core::privacy::Row>,
+        Vec<prism_core::privacy::TelemetryConnection>,
+    ) {
+        let c = prism_core::privacy::Catalog::builtin();
+        let rows = prism_core::privacy::status(&mut prism_win::WindowsPrivacy::new(), &c);
+        (rows, prism_win::telemetry_connections(&c))
+    }
+
+    fn privacy_apply(&mut self, level: prism_core::privacy::Level) -> Result<String, String> {
+        use prism_core::privacy::{apply, journal_path, plan, Catalog, Journal};
+        let c = Catalog::builtin();
+        let path = journal_path();
+        let mut journal = Journal::load(&path)?;
+        let r = apply(
+            &mut prism_win::WindowsPrivacy::new(),
+            &plan(&c, level),
+            &mut journal,
+            &mut |j| j.save(&path),
+        );
+        if r.failed.is_empty() {
+            Ok(format!(
+                "Niveau « {} » : {} appliqué(s), {} déjà fait(s) ou absent(s)",
+                level.label(),
+                r.done.len(),
+                r.unchanged.len()
+            ))
+        } else {
+            Err(format!("{} échec(s) : {}", r.failed.len(), r.failed.join(" · ")))
+        }
+    }
+
+    fn privacy_restore(&mut self) -> Result<String, String> {
+        use prism_core::privacy::{journal_path, restore, Journal};
+        let path = journal_path();
+        let mut journal = Journal::load(&path)?;
+        let r = restore(&mut prism_win::WindowsPrivacy::new(), &mut journal);
+        journal.save(&path)?;
+        if r.failed.is_empty() {
+            Ok(format!("{} élément(s) remis comme avant", r.done.len()))
+        } else {
+            Err(r.failed.join(" · "))
+        }
+    }
+
     fn games(&mut self) -> Vec<Game> {
         installed_games()
     }

@@ -19,7 +19,7 @@ use windows_sys::Win32::System::Services::{
     QueryServiceConfig2W, QueryServiceConfigW, StartServiceW, QUERY_SERVICE_CONFIGW, SC_HANDLE, SC_MANAGER_CONNECT,
     SERVICE_AUTO_START, SERVICE_BOOT_START, SERVICE_CHANGE_CONFIG, SERVICE_CONFIG_DELAYED_AUTO_START_INFO,
     SERVICE_CONTROL_STOP, SERVICE_DELAYED_AUTO_START_INFO, SERVICE_DEMAND_START, SERVICE_DISABLED, SERVICE_NO_CHANGE,
-    SERVICE_QUERY_CONFIG, SERVICE_START, SERVICE_STATUS, SERVICE_STOP, SERVICE_SYSTEM_START,
+    SERVICE_QUERY_CONFIG, SERVICE_QUERY_STATUS, SERVICE_START, SERVICE_STATUS, SERVICE_STOP, SERVICE_SYSTEM_START,
 };
 
 fn wide(s: &str) -> Vec<u16> {
@@ -225,6 +225,25 @@ impl SystemConfig for WindowsSystemConfig {
             return Err(format!("{key} : clé hors de la liste autorisée"));
         }
         reg_delete(key, value)
+    }
+}
+
+/// PID du processus d'un service en cours d'exécution.
+pub(crate) fn service_pid(name: &str) -> Option<u32> {
+    use windows_sys::Win32::System::Services::{QueryServiceStatusEx, SC_STATUS_PROCESS_INFO, SERVICE_STATUS_PROCESS};
+    let (svc, _scm) = open_service(name, SERVICE_QUERY_STATUS).ok()??;
+    // SAFETY: structure de sortie de taille exacte.
+    unsafe {
+        let mut st: SERVICE_STATUS_PROCESS = std::mem::zeroed();
+        let mut n = 0u32;
+        let ok = QueryServiceStatusEx(
+            svc.0,
+            SC_STATUS_PROCESS_INFO,
+            &mut st as *mut _ as *mut u8,
+            size_of::<SERVICE_STATUS_PROCESS>() as u32,
+            &mut n,
+        );
+        (ok != 0 && st.dwProcessId != 0).then_some(st.dwProcessId)
     }
 }
 

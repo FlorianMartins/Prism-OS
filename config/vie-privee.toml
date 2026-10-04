@@ -1,0 +1,325 @@
+# Catalogue « Vie privée » de Prism OS (v0.5).
+#
+# Trois sortes d'entrées :
+#   [[registry]] : stratégie officielle de Windows ou réglage documenté de Paramètres
+#                  (hive = hklm par défaut | hkcu). Seules les clés de
+#                  PRIVACY_REGISTRY_ALLOWLIST (prism-core/src/privacy.rs) sont permises.
+#   [[firewall]] : règle sortante « bloquer » du Pare-feu Windows, pour un service
+#                  (service = "Nom") ou un programme de Windows (program = '%SystemRoot%\…').
+#   [[check]]    : lecture seule — ce que fait déjà « prism allege » (niveau sûr) ;
+#                  montré dans le tableau de bord, jamais modifié d'ici.
+#
+# level = "recommande" (aucune fonction utile perdue) | "strict" (on renonce à quelque
+# chose : c'est écrit dans `lose`).
+# category = telemetrie | publicite | recherche | saisie | ia | localisation | navigateur
+#
+# Jamais : Windows Update, Defender, l'activation, l'heure, le Store, les services dont
+# dépendent les anti-cheats (liste [[protected]] de allegement.toml, vérifiée aussi ici),
+# ni le fichier hosts (Defender le signale comme détournement).
+
+# --- Télémétrie ---------------------------------------------------------------
+
+[[registry]]
+key = 'SOFTWARE\Policies\Microsoft\Windows\DataCollection'
+value = "LimitDiagnosticLogCollection"
+data = 1
+label = "Pas de journaux de diagnostic détaillés envoyés"
+category = "telemetrie"
+level = "recommande"
+why = "Empêche l'envoi des journaux de diagnostic supplémentaires demandés par Microsoft."
+
+[[registry]]
+key = 'SOFTWARE\Policies\Microsoft\Windows\DataCollection'
+value = "LimitDumpCollection"
+data = 1
+label = "Pas de vidages mémoire complets envoyés"
+category = "telemetrie"
+level = "recommande"
+why = "Les vidages mémoire peuvent contenir des fragments de documents ouverts ; seuls des vidages réduits restent possibles."
+
+[[registry]]
+key = 'SOFTWARE\Policies\Microsoft\Windows\DataCollection'
+value = "DoNotShowFeedbackNotifications"
+data = 1
+label = "Pas de demandes d'avis de Microsoft"
+category = "telemetrie"
+level = "recommande"
+why = "Supprime les fenêtres « Donnez-nous votre avis »."
+
+[[registry]]
+hive = "hkcu"
+key = 'Software\Policies\Microsoft\Windows\CloudContent'
+value = "DisableTailoredExperiencesWithDiagnosticData"
+data = 1
+label = "Pas d'expériences personnalisées à partir des données de diagnostic"
+category = "telemetrie"
+level = "recommande"
+why = "Microsoft n'utilise plus vos données de diagnostic pour vous proposer conseils et offres."
+
+[[registry]]
+key = 'SOFTWARE\Policies\Microsoft\Windows\Windows Error Reporting'
+value = "Disabled"
+data = 1
+label = "Rapports d'erreurs non envoyés"
+category = "telemetrie"
+level = "strict"
+why = "Les plantages ne sont plus signalés à Microsoft."
+lose = "Microsoft ne voit plus vos plantages : pas de solution proposée par Windows après un plantage."
+
+[[registry]]
+key = 'SOFTWARE\Policies\Microsoft\Windows\AppPrivacy'
+value = "LetAppsGetDiagnosticInfo"
+data = 2
+label = "Les applis ne lisent pas les informations de diagnostic des autres"
+category = "telemetrie"
+level = "strict"
+why = "Une appli ne peut plus savoir quelles autres applis tournent ni ce qu'elles consomment."
+lose = "Les outils de diagnostic du Store ne voient plus les autres applis."
+
+[[firewall]]
+id = "diagtrack"
+service = "DiagTrack"
+label = "Pare-feu : service de télémétrie coupé d'Internet"
+category = "telemetrie"
+level = "recommande"
+why = "Même s'il est relancé (mise à jour, autre outil), le service de télémétrie ne peut plus rien envoyer."
+
+[[firewall]]
+id = "compattelrunner"
+program = '%SystemRoot%\System32\CompatTelRunner.exe'
+label = "Pare-feu : évaluateur de compatibilité coupé d'Internet"
+category = "telemetrie"
+level = "recommande"
+why = "CompatTelRunner inventorie les programmes installés et envoie le résultat."
+
+[[firewall]]
+id = "devicecensus"
+program = '%SystemRoot%\System32\DeviceCensus.exe'
+label = "Pare-feu : recensement de l'appareil coupé d'Internet"
+category = "telemetrie"
+level = "recommande"
+why = "DeviceCensus envoie la description matérielle et logicielle du PC."
+
+[[firewall]]
+id = "wermgr"
+program = '%SystemRoot%\System32\wermgr.exe'
+label = "Pare-feu : envoi des rapports d'erreurs bloqué"
+category = "telemetrie"
+level = "strict"
+why = "Le gestionnaire de rapports d'erreurs ne peut plus téléverser de rapport."
+lose = "Plus aucun rapport de plantage envoyé à Microsoft (pas de solution proposée par Windows)."
+
+# --- Publicité et suggestions ----------------------------------------------------
+
+[[registry]]
+hive = "hkcu"
+key = 'Software\Microsoft\Windows\CurrentVersion\ContentDeliveryManager'
+value = "SubscribedContent-338393Enabled"
+data = 0
+label = "Pas de contenu suggéré dans Paramètres"
+category = "publicite"
+level = "recommande"
+why = "Réglage « Me montrer du contenu suggéré dans l'application Paramètres »."
+
+[[registry]]
+hive = "hkcu"
+key = 'Software\Microsoft\Windows\CurrentVersion\ContentDeliveryManager'
+value = "SystemPaneSuggestionsEnabled"
+data = 0
+label = "Pas de suggestions d'applis dans le menu Démarrer"
+category = "publicite"
+level = "recommande"
+why = "Plus d'applis « suggérées » (souvent sponsorisées) dans Démarrer."
+
+[[registry]]
+hive = "hkcu"
+key = 'Software\Microsoft\Windows\CurrentVersion\ContentDeliveryManager'
+value = "SoftLandingEnabled"
+data = 0
+label = "Pas d'astuces ni de suggestions de Windows"
+category = "publicite"
+level = "recommande"
+why = "Réglage « Obtenir des astuces et des suggestions lors de l'utilisation de Windows »."
+
+[[registry]]
+hive = "hkcu"
+key = 'Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced'
+value = "Start_IrisRecommendations"
+data = 0
+label = "Pas de recommandations (astuces, nouvelles applis) dans Démarrer"
+category = "publicite"
+level = "recommande"
+why = "Réglage « Afficher des recommandations pour les astuces, les raccourcis, les nouvelles applications »."
+
+[[registry]]
+hive = "hkcu"
+key = 'Control Panel\International\User Profile'
+value = "HttpAcceptLanguageOptOut"
+data = 1
+label = "Les sites ne lisent pas votre liste de langues"
+category = "publicite"
+level = "recommande"
+why = "Réglage « Permettre aux sites web d'accéder à ma liste de langues » : une donnée de moins pour vous identifier."
+
+# --- Recherche --------------------------------------------------------------------
+
+[[registry]]
+hive = "hkcu"
+key = 'Software\Policies\Microsoft\Windows\Explorer'
+value = "DisableSearchBoxSuggestions"
+data = 1
+reboot = true
+label = "Recherche du menu Démarrer sur le PC seulement (pas de Bing)"
+category = "recherche"
+level = "recommande"
+why = "Ce que vous tapez dans Démarrer n'est plus envoyé à Bing ; la recherche locale reste."
+
+[[registry]]
+hive = "hkcu"
+key = 'Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced'
+value = "Start_TrackProgs"
+data = 0
+label = "Les lancements d'applis ne sont pas suivis"
+category = "recherche"
+level = "recommande"
+why = "Réglage « Permettre à Windows d'améliorer Démarrer et les résultats de recherche en suivant les lancements d'applications »."
+
+# --- Saisie -----------------------------------------------------------------------
+
+[[registry]]
+hive = "hkcu"
+key = 'Software\Microsoft\InputPersonalization'
+value = "RestrictImplicitTextCollection"
+data = 1
+label = "Ce que vous tapez n'alimente pas le dictionnaire personnel"
+category = "saisie"
+level = "recommande"
+why = "Windows ne collecte plus vos frappes pour personnaliser la saisie."
+
+[[registry]]
+hive = "hkcu"
+key = 'Software\Microsoft\InputPersonalization'
+value = "RestrictImplicitInkCollection"
+data = 1
+label = "Votre écriture manuscrite n'est pas collectée"
+category = "saisie"
+level = "recommande"
+why = "Même chose pour le stylet et l'écriture manuscrite."
+
+[[registry]]
+key = 'SOFTWARE\Policies\Microsoft\InputPersonalization'
+value = "AllowInputPersonalization"
+data = 0
+label = "Pas de personnalisation de la saisie ni de reconnaissance vocale en ligne"
+category = "saisie"
+level = "strict"
+why = "Coupe la reconnaissance vocale en ligne et l'apprentissage de votre façon d'écrire."
+lose = "Dictée vocale en ligne (Win+H) et suggestions de saisie apprises."
+
+# --- IA -------------------------------------------------------------------------
+
+[[registry]]
+hive = "hkcu"
+key = 'Software\Policies\Microsoft\Windows\WindowsCopilot'
+value = "TurnOffWindowsCopilot"
+data = 1
+reboot = true
+label = "Copilot de Windows désactivé"
+category = "ia"
+level = "strict"
+why = "Désactive l'assistant Copilot intégré à Windows."
+lose = "L'assistant Copilot (l'appli Copilot du Store peut encore être installée à part)."
+
+# --- Localisation et appareils -----------------------------------------------------
+
+[[registry]]
+key = 'SOFTWARE\Policies\Microsoft\Windows\LocationAndSensors'
+value = "DisableLocation"
+data = 1
+label = "Localisation désactivée pour tout le PC"
+category = "localisation"
+level = "strict"
+why = "Aucune appli ni Windows ne peut connaître votre position."
+lose = "Météo locale, cartes, fuseau horaire automatique, « Localiser mon appareil »."
+
+[[registry]]
+key = 'SOFTWARE\Policies\Microsoft\Windows\System'
+value = "AllowCrossDeviceClipboard"
+data = 0
+label = "Le presse-papiers ne passe pas par le cloud"
+category = "localisation"
+level = "strict"
+why = "Ce que vous copiez n'est plus synchronisé avec vos autres appareils via Microsoft."
+lose = "Copier sur le PC et coller sur un autre appareil."
+
+# --- Navigateur (Edge, installé sur tout Windows) -----------------------------------
+
+[[registry]]
+key = 'SOFTWARE\Policies\Microsoft\Edge'
+value = "DiagnosticData"
+data = 0
+label = "Edge : pas de données de diagnostic"
+category = "navigateur"
+level = "recommande"
+why = "Edge n'envoie plus de données d'utilisation ni de plantage à Microsoft."
+
+[[registry]]
+key = 'SOFTWARE\Policies\Microsoft\Edge'
+value = "PersonalizationReportingEnabled"
+data = 0
+label = "Edge : votre navigation ne sert pas à personnaliser pubs et actualités"
+category = "navigateur"
+level = "recommande"
+why = "Edge ne transmet plus l'historique de navigation pour personnaliser publicités, recherche et actualités."
+
+# --- Déjà couvert par « prism allege » (lecture seule) ------------------------------
+
+[[check]]
+service = "DiagTrack"
+label = "Service de télémétrie désactivé"
+category = "telemetrie"
+source = "prism allege (niveau sûr)"
+
+[[check]]
+key = 'HKLM\SOFTWARE\Policies\Microsoft\Windows\DataCollection'
+value = "AllowTelemetry"
+data = 0
+label = "Télémétrie au minimum autorisé"
+category = "telemetrie"
+source = "prism allege (niveau sûr)"
+
+[[check]]
+task = '\Microsoft\Windows\Application Experience\Microsoft Compatibility Appraiser'
+label = "Tâche de l'évaluateur de compatibilité désactivée"
+category = "telemetrie"
+source = "prism allege (niveau sûr)"
+
+[[check]]
+task = '\Microsoft\Windows\Customer Experience Improvement Program\Consolidator'
+label = "Programme d'amélioration (CEIP) désactivé"
+category = "telemetrie"
+source = "prism allege (niveau sûr)"
+
+[[check]]
+key = 'HKLM\SOFTWARE\Policies\Microsoft\Windows\AdvertisingInfo'
+value = "DisabledByGroupPolicy"
+data = 1
+label = "Identifiant publicitaire désactivé"
+category = "publicite"
+source = "prism allege (niveau sûr)"
+
+[[check]]
+key = 'HKLM\SOFTWARE\Policies\Microsoft\Windows\System'
+value = "PublishUserActivities"
+data = 0
+label = "Historique d'activité non enregistré"
+category = "telemetrie"
+source = "prism allege (niveau sûr)"
+
+[[check]]
+key = 'HKLM\SOFTWARE\Policies\Microsoft\Windows\WindowsAI'
+value = "DisableAIDataAnalysis"
+data = 1
+label = "Recall désactivé"
+category = "ia"
+source = "prism allege (niveau sûr)"

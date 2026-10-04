@@ -24,3 +24,8 @@ breaks one of these rules is rejected.
 9. **Never touch a game's windows.** Per-app transparency, window styles and any future
    window management skip every process classified as a game (same rules as Game Mode,
    including detected library folders) and every fullscreen window.
+10. **Firewall rules only ever block Windows' own telemetry.** A privacy rule targets a
+    telemetry service or an executable under `%SystemRoot%`; the catalogue parser and
+    the code refuse any other program and every protected service (Windows Update,
+    Defender, licensing, time, the services anti-cheats depend on). Games and
+    anti-cheats are never blocked.

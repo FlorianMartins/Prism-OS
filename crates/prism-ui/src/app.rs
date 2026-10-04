@@ -14,16 +14,18 @@ pub enum Page {
     Games,
     Startup,
     Allege,
+    Privacy,
     Appearance,
     Tools,
 }
 
 impl Page {
-    const ALL: [Page; 6] = [
+    const ALL: [Page; 7] = [
         Page::Dashboard,
         Page::Games,
         Page::Startup,
         Page::Allege,
+        Page::Privacy,
         Page::Appearance,
         Page::Tools,
     ];
@@ -34,6 +36,7 @@ impl Page {
             Page::Games => "Jeux",
             Page::Startup => "Démarrage",
             Page::Allege => "Allègement",
+            Page::Privacy => "Vie privée",
             Page::Appearance => "Apparence",
             Page::Tools => "Outils cyber",
         }
@@ -45,6 +48,7 @@ impl Page {
             Page::Games => "🎮",
             Page::Startup => "🚀",
             Page::Allege => "⚡",
+            Page::Privacy => "🔒",
             Page::Appearance => "🖥",
             Page::Tools => "🛡",
         }
@@ -58,6 +62,9 @@ pub struct PrismApp {
     startup: Vec<StartupRow>,
     allege: Vec<AllegeRow>,
     games: Vec<Game>,
+    privacy: Vec<prism_core::privacy::Row>,
+    privacy_conns: Vec<prism_core::privacy::TelemetryConnection>,
+    privacy_refresh: f64,
     toast: Option<(String, bool)>,
     /// Mode console : lanceur plein écran, navigable au clavier ou à la manette.
     pub console: bool,
@@ -73,6 +80,7 @@ impl PrismApp {
         let startup = backend.startup().unwrap_or_default();
         let allege = backend.allege();
         let games = backend.games();
+        let (privacy, privacy_conns) = backend.privacy();
         PrismApp {
             backend,
             page: Page::Dashboard,
@@ -80,6 +88,9 @@ impl PrismApp {
             startup,
             allege,
             games,
+            privacy,
+            privacy_conns,
+            privacy_refresh: 0.0,
             toast: None,
             console: false,
             console_sel: 0,
@@ -95,6 +106,7 @@ impl PrismApp {
         });
         self.startup = self.backend.startup().unwrap_or_default();
         self.allege = self.backend.allege();
+        (self.privacy, self.privacy_conns) = self.backend.privacy();
         self.live = self.backend.live();
     }
 
@@ -105,6 +117,11 @@ impl PrismApp {
         if now - self.last_refresh > 1.0 {
             self.live = self.backend.live();
             self.last_refresh = now;
+        }
+        // Connexions de la télémétrie : relues toutes les 3 s sur la page Vie privée.
+        if self.page == Page::Privacy && now - self.privacy_refresh > 3.0 {
+            (self.privacy, self.privacy_conns) = self.backend.privacy();
+            self.privacy_refresh = now;
         }
         ctx.request_repaint_after(std::time::Duration::from_secs(1));
 
@@ -134,6 +151,7 @@ impl PrismApp {
                         Page::Games => self.games_page(ui),
                         Page::Startup => self.startup_page(ui),
                         Page::Allege => self.allege_page(ui),
+                        Page::Privacy => self.privacy_page(ui),
                         Page::Appearance => self.appearance_page(ui),
                         Page::Tools => self.tools_page(ui),
                     });
@@ -501,6 +519,149 @@ impl PrismApp {
     }
 
     // --- Allègement -------------------------------------------------------------
+
+    fn privacy_page(&mut self, ui: &mut egui::Ui) {
+        use prism_core::privacy::{score, Category, Kind, Level, State};
+        let mut action: Option<Result<String, String>> = None;
+        let (on, total) = score(&self.privacy);
+        card(ui, true, |ui| {
+            ui.horizontal(|ui| {
+                ui.vertical(|ui| {
+                    ui.label(
+                        RichText::new(format!("{on} / {total}"))
+                            .size(30.0)
+                            .strong()
+                            .color(ACCENT),
+                    );
+                    ui.label(RichText::new("protections en place").color(MUTED));
+                });
+                ui.add_space(16.0);
+                ui.vertical(|ui| {
+                    ui.add(
+                        egui::ProgressBar::new(if total > 0 { on as f32 / total as f32 } else { 0.0 })
+                            .desired_width(260.0)
+                            .fill(ACCENT),
+                    );
+                    ui.label(
+                        RichText::new(
+                            "Stratégies officielles de Windows et règles du Pare-feu Windows, tout réversible.",
+                        )
+                        .small()
+                        .color(MUTED),
+                    );
+                });
+                ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                    if ui.button("Tout restaurer").clicked() {
+                        action = Some(self.backend.privacy_restore());
+                    }
+                    if ui
+                        .button("Strict")
+                        .on_hover_text(
+                            "Recommandé + réglages où l'on renonce à quelque chose (détaillé ligne par ligne)",
+                        )
+                        .clicked()
+                    {
+                        action = Some(self.backend.privacy_apply(Level::Strict));
+                    }
+                    if ui
+                        .add(egui::Button::new(RichText::new("Recommandé").color(BG).strong()).fill(ACCENT))
+                        .on_hover_text("Aucune fonction utile perdue")
+                        .clicked()
+                    {
+                        action = Some(self.backend.privacy_apply(Level::Recommande));
+                    }
+                });
+            });
+        });
+        ui.add_space(12.0);
+        section(ui, "Télémétrie en ce moment");
+        card(ui, false, |ui| {
+            if self.privacy_conns.is_empty() {
+                ui.label(
+                    RichText::new("✔  Aucun composant de télémétrie surveillé ne communique en ce moment.").color(OK),
+                );
+            } else {
+                ui.label(
+                    RichText::new(format!(
+                        "⚠  {} connexion(s) ouverte(s) par la télémétrie",
+                        self.privacy_conns.len()
+                    ))
+                    .color(WARN),
+                );
+                egui::Grid::new("tele")
+                    .num_columns(3)
+                    .spacing([16.0, 4.0])
+                    .show(ui, |ui| {
+                        for k in &self.privacy_conns {
+                            ui.label(&k.component);
+                            ui.label(RichText::new(&k.remote).monospace().color(MUTED));
+                            ui.label(RichText::new(&k.state).small().color(MUTED));
+                            ui.end_row();
+                        }
+                    });
+            }
+        });
+        for cat in Category::ALL {
+            let rows: Vec<_> = self.privacy.iter().filter(|r| r.category == cat).cloned().collect();
+            if rows.is_empty() {
+                continue;
+            }
+            let (c_on, c_total) = score(&rows);
+            ui.add_space(12.0);
+            ui.horizontal(|ui| {
+                section(ui, cat.label());
+                ui.label(RichText::new(format!("{c_on}/{c_total}")).small().color(MUTED));
+            });
+            card(ui, false, |ui| {
+                egui::Grid::new(format!("vp-{cat:?}"))
+                    .num_columns(3)
+                    .spacing([16.0, 6.0])
+                    .striped(true)
+                    .show(ui, |ui| {
+                        for r in &rows {
+                            let (mark, color) = match &r.state {
+                                State::On => ("✔", OK),
+                                State::Off => ("·", MUTED),
+                                State::Absent => ("–", MUTED),
+                                State::Unknown(_) => ("⚠", WARN),
+                            };
+                            ui.label(RichText::new(mark).color(color));
+                            let mut tip = r.why.clone();
+                            if let Some(l) = &r.lose {
+                                tip.push_str(&format!("\n\nOn renonce à : {l}"));
+                            }
+                            if let State::Unknown(e) = &r.state {
+                                tip.push_str(&format!("\n\n{e}"));
+                            }
+                            let resp = ui.vertical(|ui| {
+                                // Colonne du libellé assez large pour une ligne (sinon la
+                                // grille la réduit à un mot par ligne).
+                                ui.set_min_width(620.0);
+                                ui.label(&r.label);
+                                if let Some(l) = &r.lose {
+                                    ui.label(RichText::new(format!("On renonce à : {l}")).small().color(MUTED));
+                                }
+                            });
+                            if !tip.is_empty() {
+                                resp.response.on_hover_text(tip);
+                            }
+                            let tag = match (r.kind, r.level) {
+                                (Kind::Check, _) => format!("via {}", r.source),
+                                (Kind::Firewall, Some(l)) => format!("{} · pare-feu", l.label()),
+                                (_, Some(l)) if r.reboot => format!("{} · à la reconnexion", l.label()),
+                                (_, Some(l)) => l.label().to_string(),
+                                _ => String::new(),
+                            };
+                            ui.label(RichText::new(tag).small().color(MUTED));
+                            ui.end_row();
+                        }
+                    });
+            });
+        }
+        if let Some(r) = action {
+            self.result(r);
+        }
+    }
 
     fn allege_page(&mut self, ui: &mut egui::Ui) {
         let mut action: Option<Result<String, String>> = None;

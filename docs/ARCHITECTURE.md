@@ -9,7 +9,7 @@ Windows (Secure Boot, TPM, VBS). Prism changes everything above it:
 - resource management (Game Mode, RAM, priorities, power) — v0.1/v0.2;
 - the interface (dashboard, game launcher, console mode, Prism Bar, widgets, appearance) — v0.3;
 - window effects (genie lamp, jelly, zoom) drawn by Prism with official APIs — v0.4;
-- privacy (telemetry turned off through the official mechanisms + firewall) — v0.5;
+- privacy (telemetry turned off through the official mechanisms + firewall) — v0.5 ✓;
 - usage profiles and on-demand cybersecurity tools.
 
 Prism **is not** a modified Windows ISO, which the license forbids redistributing:
@@ -59,7 +59,7 @@ in the interface can be undone by `prism … restore`, and vice versa.
 | **v0.2** ✓ | permanent Daily Mode, P/E and X3D cores, paused services, freezing, RAM monitoring, startup apps, game settings, reversible debloat — [spec](specs/v0.2-process-management.md) |
 | **v0.3** ✓ (partial) | interface: `prism-ui` dashboard, game launcher + console mode, Store app startup tasks, Appearance (official Windows animation/effects/theme settings with presets), Prism Bar (native Win32 taskbar on any screen edge, one per screen), desktop widgets, per-app transparency rules, scheduled-task debloat — [spec](specs/v0.3-interface.md). Still planned: Prism as a Windows service, tiling window manager |
 | **v0.4** ✓ | window effects: 7 effects (genie, squash, jelly, zoom, fade, 3D tilt, fall apart) per action on minimize/restore/open/close, glide/elastic/crossfade on maximize and snap, jelly while dragging, software-rendered in the Prism Bar's click-through overlay, measured per animation (`prism fx stats`); per-element transparency (menus, dropdowns, tooltips, dialogs) — [spec](specs/v0.4-effects.md) |
-| v0.5 | privacy: telemetry (policies + services + tasks + firewall) with a dashboard of what is blocked |
+| **v0.5** ✓ | privacy: 21 official policies / Settings options and 4 Windows Firewall rules (telemetry service, CompatTelRunner, DeviceCensus, error reports) at two levels, read-only view of what debloat already does, dashboard with live telemetry connections — [spec](specs/v0.5-privacy.md) |
 | v0.6 | customization: themes, tiling window manager (if not delivered in v0.3), exportable profiles |
 | v0.7 | installer, signed updates, published FPS measurements |
 

@@ -215,6 +215,30 @@ animated from the copy taken when the window last got focus — Windows has alre
 minimized it when the event arrives. If the window's content changed since, the first
 frames show the older content. Minimizing from the Prism Bar always uses a fresh copy.
 
+## 7. Privacy (`prism vie-privee`) — 2026-10-04
+
+Same VM (Windows 11 Enterprise evaluation), debloat **not** applied, so the telemetry
+service runs as on a stock Windows.
+
+| Check | Result |
+|---|---|
+| `prism vie-privee apply` (recommended) | 18 applied (15 settings + 3 firewall rules), 0 failures |
+| Rules created as intended (`netsh … verbose`) | `Prism OS - diagtrack`: outbound, block, all profiles, `Service: DiagTrack`; programs expanded to `C:\WINDOWS\System32\…` |
+| Dashboard | 0 → 18 protections in place out of 31 |
+| `prism vie-privee restore` | 18 items put back, 0 failures; dashboard back to 0/31; no `Prism OS` rule left |
+
+**Does the telemetry actually leave?** Windows sends telemetry in batches, minutes
+apart, so a short poll proves nothing (90 s of `Get-NetTCPConnection` polling: 0
+connections, protection or not). Method: the Windows security audit *Filtering Platform
+Connection* (events 5156 allowed / 5157 blocked, with the process ID), enabled only for
+the measurement and switched off afterwards; the telemetry service is restarted and the
+Compatibility Appraiser task started at the beginning of each 40-minute window.
+
+| Window (40 min) | Outbound connections of the telemetry components |
+|---|---|
+| Without protection | 2, both **allowed**: DiagTrack → `20.184.175.6:443`, `51.132.193.108:443` |
+| With the recommended level | measurement running — added in the next commit |
+
 ## What cannot be measured in a VM
 
 - **FPS and micro-stutters**: this requires a real gaming PC, with a protocol published
