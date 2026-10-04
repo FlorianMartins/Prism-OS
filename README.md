@@ -129,10 +129,5 @@ FPS measurements on real hardware. Details:
 
 ## Licence
 
-Prism OS is free software, available under either of:
-
-- [MIT](LICENSE-MIT)
-- [Apache 2.0](LICENSE-APACHE)
-
-Unless stated otherwise, any contribution submitted to the project is licensed under
-both, without additional terms.
+Prism OS is free software under the [MIT licence](LICENSE). Unless stated otherwise,
+any contribution submitted to the project is licensed under the same terms.

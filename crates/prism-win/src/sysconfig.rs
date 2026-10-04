@@ -331,13 +331,19 @@ pub fn relaunch_elevated() -> Result<(), String> {
         .chain(Some(0))
         .collect();
     let verb: Vec<u16> = "runas".encode_utf16().chain(Some(0)).collect();
+    // Les arguments suivent (ex. `prism-setup --auto <dossier>`).
+    let args: Vec<String> = std::env::args()
+        .skip(1)
+        .map(|a| format!("\"{}\"", a.replace('"', "")))
+        .collect();
+    let params: Vec<u16> = args.join(" ").encode_utf16().chain(Some(0)).collect();
     // SAFETY: chaînes larges terminées par zéro ; pas de fenêtre parente.
     let r = unsafe {
         ShellExecuteW(
             std::ptr::null_mut(),
             verb.as_ptr(),
             file.as_ptr(),
-            std::ptr::null(),
+            params.as_ptr(),
             std::ptr::null(),
             SW_SHOWNORMAL,
         )

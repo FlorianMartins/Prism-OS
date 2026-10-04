@@ -51,6 +51,18 @@ jobs:
           & $exe tools reverse
           & $exe ram clean
           if ($LASTEXITCODE -ne 0) { exit 1 }
+      - name: Installateur MSI (WiX 5) et programme d'installation
+        shell: pwsh
+        run: |
+          $v = (Select-String -Path Cargo.toml -Pattern '^version = "(.+)"').Matches[0].Groups[1].Value
+          dotnet tool install --global wix --version 5.0.2
+          wix extension add -g WixToolset.UI.wixext/5.0.2
+          wix extension add -g WixToolset.Util.wixext/5.0.2
+          wix build -arch x64 -culture fr-FR -ext WixToolset.UI.wixext -ext WixToolset.Util.wixext -d Version=$v -d Bin=target\release -o "prism-$v-x64.msi" installer\prism.wxs
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+          $env:PRISM_MSI = (Resolve-Path "prism-$v-x64.msi").Path
+          cargo build --release -p prism-setup
+          Copy-Item target\release\prism-setup.exe "Prism-Setup-$v.exe"
       - uses: actions/upload-artifact@v4
         with:
           name: prism-windows-x64
@@ -58,38 +70,41 @@ jobs:
             target/release/prism.exe
             target/release/prism-bar.exe
             target/release/prism-ui.exe
+      - uses: actions/upload-artifact@v4
+        with:
+          name: prism-installer
+          path: |
+            prism-*-x64.msi
+            Prism-Setup-*.exe
 
   installer:
-    name: Installateur MSI
+    name: Contrôles de l'installateur
     needs: windows
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
         with:
           name: prism-windows-x64
           path: bin
-      - name: wixl (msitools)
-        run: sudo apt-get update -qq && sudo apt-get install -y -qq wixl msitools
-      - name: Construction du MSI (binaires compilés sur Windows)
+      - uses: actions/download-artifact@v4
+        with:
+          name: prism-installer
+          path: dist
+      - run: sudo apt-get update -qq && sudo apt-get install -y -qq msitools
+      - name: Aucun runtime Visual C++, paquet complet, nettoyage bien placé
         run: |
-          version=$(grep -m1 '^version' Cargo.toml | cut -d'"' -f2)
-          wixl -a x64 -D Version="$version" -D Bin=bin -o "prism-$version-x64.msi" installer/prism.wxs
-          # Contrôles : les trois programmes et les deux actions sont dans le paquet,
-          # l'action de nettoyage est entre InstallInitialize et InstallFinalize.
-          msiinfo export "prism-$version-x64.msi" File | grep -q prism-ui.exe
           # Aucun programme ne doit dépendre du runtime Visual C++ (absent d'un Windows neuf).
-          sudo apt-get install -y -qq binutils-mingw-w64-x86-64 >/dev/null || true
-          for f in bin/*.exe; do
+          for f in bin/*.exe dist/Prism-Setup-*.exe; do
             if objdump -p "$f" | grep -iE "DLL Name: (vcruntime|msvcp)"; then echo "$f dépend du runtime Visual C++"; exit 1; fi
           done
-          seq=$(msiinfo export "prism-$version-x64.msi" InstallExecuteSequence | tr -d '\r')
+          msi=$(ls dist/prism-*-x64.msi)
+          msiinfo export "$msi" File | grep -q prism-ui.exe
+          msiinfo export "$msi" Property | grep -P "^Manufacturer\tHivey"
+          seq=$(msiinfo export "$msi" InstallExecuteSequence | tr -d '\r')
           init=$(echo "$seq" | awk -F'\t' '$1=="InstallInitialize"{print $3}')
           clean=$(echo "$seq" | awk -F'\t' '$1=="PrismCleanup"{print $3}')
           fin=$(echo "$seq" | awk -F'\t' '$1=="InstallFinalize"{print $3}')
           echo "InstallInitialize=$init PrismCleanup=$clean InstallFinalize=$fin"
           test "$clean" -gt "$init" && test "$clean" -lt "$fin"
-      - uses: actions/upload-artifact@v4
-        with:
-          name: prism-installer
-          path: prism-*-x64.msi
+          # Le programme d'installation embarque bien le paquet (plusieurs Mo).
+          test $(stat -c %s dist/Prism-Setup-*.exe) -gt 15000000

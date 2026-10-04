@@ -868,7 +868,11 @@ fn platform_command(cfg: &Config, args: &[&str]) -> Result<(), String> {
             // Puis l'appli s'ouvre dans la session de l'utilisateur (sans droits
             // administrateur) : installer sans rien voir changer laissait croire que rien
             // ne s'était passé (retour d'un vrai utilisateur).
-            if let Some(user) = rest.first().filter(|u| !u.is_empty()) {
+            // Avec l'assistant (UILevel 5) ou Prism-Setup.exe (PRISM_SETUP=1), c'est leur case
+            // « Lancer Prism » qui ouvre l'appli.
+            let quiet =
+                rest.get(1).and_then(|l| l.parse::<u32>().ok()).map_or(true, |l| l < 5) && rest.get(2) != Some(&"1");
+            if let Some(user) = rest.first().filter(|u| !u.is_empty() && quiet) {
                 let ui = format!("\"{dir}\\prism-ui.exe\"");
                 let created = schtasks(&[
                     "/Create",

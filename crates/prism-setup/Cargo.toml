@@ -1,6 +1,6 @@
 [package]
-name = "prism-ui"
-description = "Interface graphique de Prism OS"
+name = "prism-setup"
+description = "Programme d'installation de Prism OS"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -9,14 +9,13 @@ repository.workspace = true
 build = "build.rs"
 
 [[bin]]
-name = "prism-ui"
+name = "prism-setup"
 path = "src/main.rs"
 
 [dependencies]
-prism-core = { path = "../prism-core" }
+prism-ui = { path = "../prism-ui" }
 prism-win = { path = "../prism-win" }
 eframe = { version = "0.36", default-features = false, features = ["wgpu", "glow", "default_fonts", "x11"] }
-serde_json.workspace = true
 
 [dev-dependencies]
 egui_kittest = { version = "0.36", features = ["wgpu"] }

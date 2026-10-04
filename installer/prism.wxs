@@ -1,66 +1,79 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-  Installateur MSI de Prism OS, construit depuis Linux avec wixl (msitools) :
-    wixl -a x64 -D Version=0.1.0 -D Bin=target/x86_64-pc-windows-gnu/release -o prism.msi installer/prism.wxs
-  Installation pour la machine dans Program Files\Prism, raccourci dans le menu Démarrer,
-  mise à jour en place (même UpgradeCode), et à la désinstallation : arrêt de la barre
-  et remise de chaque réglage changé par Prism (« prism desinstaller ») avant de
-  retirer les fichiers.
+  Installateur MSI de Prism OS (WiX Toolset 5, sur le Windows de la CI) :
+    wix build -arch x64 -culture fr-FR -ext WixToolset.UI.wixext -ext WixToolset.Util.wixext
+              -d Version=0.7.2 -d Bin=target\release -o prism.msi installer\prism.wxs
+  Assistant : bienvenue, licence, CHOIX DU DOSSIER, installation, fin avec « Lancer
+  Prism ». Mise à jour en place (même UpgradeCode). À la désinstallation, chaque réglage
+  changé par Prism est remis (« prism desinstaller ») avant de retirer les fichiers.
 -->
-<Wix xmlns="http://schemas.microsoft.com/wix/2006/wi">
-  <Product Id="*" Name="Prism OS" Language="1036" Version="$(var.Version)"
-           Manufacturer="Prism OS contributors" UpgradeCode="9655d7b5-c281-4a1e-8947-4baf353c50f5">
-    <Package InstallerVersion="500" Compressed="yes" InstallScope="perMachine"
-             Description="Prism OS — couche gaming et cybersécurité pour Windows"
-             Comments="Logiciel libre, MIT OR Apache-2.0" />
-    <Media Id="1" Cabinet="prism.cab" EmbedCab="yes" />
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs"
+     xmlns:ui="http://wixtoolset.org/schemas/v4/wxs/ui">
+  <Package Name="Prism OS" Language="1036" Codepage="1252" Version="$(var.Version)"
+           Manufacturer="Hivey" UpgradeCode="9655d7b5-c281-4a1e-8947-4baf353c50f5"
+           Scope="perMachine" InstallerVersion="500">
+    <SummaryInformation Description="Prism OS — couche gaming et cybersécurité pour Windows" />
     <MajorUpgrade DowngradeErrorMessage="Une version plus récente de Prism OS est déjà installée." />
+    <MediaTemplate EmbedCab="yes" />
 
     <Property Id="ARPURLINFOABOUT" Value="https://github.com/FlorianMartins/Prism-OS" />
     <Property Id="ARPCOMMENTS" Value="Désinstaller remet chaque réglage changé par Prism." />
 
-    <Directory Id="TARGETDIR" Name="SourceDir">
-      <Directory Id="ProgramFiles64Folder">
-        <Directory Id="INSTALLDIR" Name="Prism">
-          <Component Id="Core" Guid="55fb6e29-77f2-421a-9ea5-b4324ea20171" Win64="yes">
-            <File Id="PrismExe" Name="prism.exe" Source="$(var.Bin)/prism.exe" KeyPath="yes" />
-            <File Id="PrismBarExe" Name="prism-bar.exe" Source="$(var.Bin)/prism-bar.exe" />
-            <File Id="PrismUiExe" Name="prism-ui.exe" Source="$(var.Bin)/prism-ui.exe" />
-            <File Id="LicenseMit" Name="LICENSE-MIT.txt" Source="LICENSE-MIT" />
-            <File Id="LicenseApache" Name="LICENSE-APACHE.txt" Source="LICENSE-APACHE" />
-          </Component>
-        </Directory>
-      </Directory>
-      <Directory Id="ProgramMenuFolder">
-        <Component Id="StartMenu" Guid="6f3c2a1e-9b7d-4c55-a1d2-3e8f0b7c9a41" Win64="yes">
-          <Shortcut Id="PrismUiShortcut" Name="Prism" Description="Prism OS : tableau de bord et réglages"
-                    Target="[INSTALLDIR]prism-ui.exe" WorkingDirectory="INSTALLDIR" />
-          <!-- Désinstallation visible dans le menu Démarrer (en plus d'« Applications installées »). -->
-          <Shortcut Id="PrismUninstallShortcut" Name="Désinstaller Prism"
-                    Description="Remet tout comme avant Prism et retire le programme"
-                    Target="[SystemFolder]msiexec.exe" Arguments="/x [ProductCode]" />
-          <RegistryValue Root="HKLM" Key="Software\Prism OS" Name="StartMenu" Type="integer" Value="1"
-                         KeyPath="yes" />
+    <StandardDirectory Id="ProgramFiles64Folder">
+      <Directory Id="INSTALLFOLDER" Name="Prism">
+        <Component Id="Core">
+          <File Id="PrismExe" Source="$(var.Bin)\prism.exe" KeyPath="yes" />
+          <File Id="PrismBarExe" Source="$(var.Bin)\prism-bar.exe" />
+          <File Id="PrismUiExe" Source="$(var.Bin)\prism-ui.exe" />
+          <File Id="License" Name="LICENCE.txt" Source="LICENSE" />
         </Component>
       </Directory>
-    </Directory>
+    </StandardDirectory>
+    <StandardDirectory Id="ProgramMenuFolder">
+      <Component Id="StartMenu">
+        <Shortcut Id="PrismUiShortcut" Name="Prism" Description="Prism OS : tableau de bord et réglages"
+                  Target="[INSTALLFOLDER]prism-ui.exe" WorkingDirectory="INSTALLFOLDER" />
+        <!-- Désinstallation visible dans le menu Démarrer (en plus d'« Applications installées »). -->
+        <Shortcut Id="PrismUninstallShortcut" Name="Désinstaller Prism"
+                  Description="Remet tout comme avant Prism et retire le programme"
+                  Target="[System64Folder]msiexec.exe" Arguments="/x [ProductCode]" />
+        <RegistryValue Root="HKLM" Key="Software\Prism OS" Name="InstallFolder" Type="string"
+                       Value="[INSTALLFOLDER]" KeyPath="yes" />
+      </Component>
+    </StandardDirectory>
 
-    <Feature Id="Main" Title="Prism OS" Level="1">
+    <Feature Id="Main" Title="Prism OS">
       <ComponentRef Id="Core" />
       <ComponentRef Id="StartMenu" />
     </Feature>
 
-    <!-- Installation : dossier ajouté au PATH du système (`prism` dans tout terminal). -->
-    <CustomAction Id="PrismAfterInstall" FileKey="PrismExe" ExeCommand="apres-installation [LogonUser]"
+    <!-- Assistant avec choix du dossier. -->
+    <ui:WixUI Id="WixUI_InstallDir" InstallDirectory="INSTALLFOLDER" />
+    <WixVariable Id="WixUILicenseRtf" Value="installer\licence.rtf" />
+
+    <!-- Fin de l'assistant : case « Lancer Prism » (cochée), lancement en tant qu'utilisateur. -->
+    <Property Id="WIXUI_EXITDIALOGOPTIONALCHECKBOXTEXT" Value="Lancer Prism" />
+    <Property Id="WIXUI_EXITDIALOGOPTIONALCHECKBOX" Value="1" />
+    <Property Id="WixShellExecTarget" Value="[#PrismUiExe]" />
+    <CustomAction Id="LaunchPrism" DllEntry="WixShellExec" BinaryRef="Wix4UtilCA_X64" Impersonate="yes" />
+    <UI>
+      <Publish Dialog="ExitDialog" Control="Finish" Event="DoAction" Value="LaunchPrism"
+               Condition="WIXUI_EXITDIALOGOPTIONALCHECKBOX = 1 and NOT Installed" />
+    </UI>
+
+    <!-- Après l'installation (compte SYSTEM) : dossier ajouté au PATH ; l'appli n'est
+         ouverte par cette action que pour une installation sans assistant (UILevel < 5),
+         sinon c'est la case « Lancer Prism » qui s'en charge ; PRISM_SETUP=1 : lancé par
+         Prism-Setup.exe, qui propose lui-même « Lancer Prism » à la fin. -->
+    <CustomAction Id="PrismAfterInstall" FileRef="PrismExe" ExeCommand="apres-installation [LogonUser] [UILevel] [PRISM_SETUP]"
                   Execute="deferred" Impersonate="no" Return="ignore" />
-    <!-- Désinstallation (pas une mise à jour) : tout remettre comme avant, sans fenêtre.
-         Ancré après InstallInitialize : « Before=RemoveFiles » était placé par wixl avant
-         InstallInitialize (erreur 2762 à la désinstallation, vue en VM). -->
-    <CustomAction Id="PrismCleanup" FileKey="PrismExe" ExeCommand="desinstaller [LogonUser]"
+    <!-- Désinstallation (pas une mise à jour) : tout remettre comme avant, sans fenêtre. -->
+    <CustomAction Id="PrismCleanup" FileRef="PrismExe" ExeCommand="desinstaller [LogonUser]"
                   Execute="deferred" Impersonate="no" Return="ignore" />
     <InstallExecuteSequence>
-      <Custom Action="PrismAfterInstall" After="InstallFiles">NOT REMOVE</Custom>
-      <Custom Action="PrismCleanup" After="InstallInitialize">REMOVE="ALL" AND NOT UPGRADINGPRODUCTCODE</Custom>
+      <Custom Action="PrismAfterInstall" After="InstallFiles" Condition="NOT REMOVE" />
+      <Custom Action="PrismCleanup" After="InstallInitialize"
+              Condition="REMOVE=&quot;ALL&quot; AND NOT UPGRADINGPRODUCTCODE" />
     </InstallExecuteSequence>
-  </Product>
+  </Package>
 </Wix>

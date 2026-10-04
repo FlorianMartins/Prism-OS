@@ -1,13 +1,13 @@
 [workspace]
 resolver = "2"
-members = ["crates/prism-core", "crates/prism-win", "crates/prism", "crates/prism-ui"]
+members = ["crates/prism-core", "crates/prism-win", "crates/prism", "crates/prism-ui", "crates/prism-setup"]
 
 [workspace.package]
 version = "0.7.1"
 edition = "2021"
 rust-version = "1.80"
 authors = ["Florian Martins"]
-license = "MIT OR Apache-2.0"
+license = "MIT"
 repository = "https://github.com/FlorianMartins/Prism-OS"
 
 [workspace.dependencies]
