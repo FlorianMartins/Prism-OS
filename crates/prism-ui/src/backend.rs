@@ -105,6 +105,8 @@ pub struct ServiceRow {
     pub protected: Option<String>,
     /// Changé par Prism : on peut remettre l'origine.
     pub by_prism: bool,
+    /// Superflu selon Prism : la raison, et le mode qui allège.
+    pub superflu: Option<(String, prism_core::allege::StartType)>,
 }
 
 /// Installation ou désinstallation d'outils en cours (sans console).
@@ -165,10 +167,56 @@ pub trait Backend {
     fn service_set(&mut self, name: &str, to: prism_core::allege::StartType) -> Result<String, String>;
     /// Remet le mode de démarrage d'origine (si Prism l'a changé).
     fn service_restore(&mut self, name: &str) -> Result<String, String>;
+    /// Tous les services superflus d'un coup (protégés exclus), réversible.
+    fn services_slim(&mut self) -> Result<String, String> {
+        let rows = self.services()?;
+        let (mut done, mut failed) = (0, Vec::new());
+        for r in rows.iter().filter(|r| r.protected.is_none() && !r.info.per_user) {
+            let Some((_, to)) = &r.superflu else { continue };
+            if r.info.start == Some(*to) || r.info.start == Some(prism_core::allege::StartType::Disabled) {
+                continue;
+            }
+            match self.service_set(&r.info.name, *to) {
+                Ok(_) => done += 1,
+                Err(e) => failed.push(e),
+            }
+        }
+        if failed.is_empty() {
+            Ok(format!(
+                "{done} service(s) superflu(s) allégé(s) — réversible (↺ ou « Tout restaurer »)"
+            ))
+        } else {
+            Err(format!(
+                "{done} allégé(s), {} échec(s) : {}",
+                failed.len(),
+                failed.join(" ; ")
+            ))
+        }
+    }
 
     /// Plan automatique des jeux à anti-cheat noyau (réglages de l'utilisateur).
     fn noyau(&mut self) -> prism_core::noyau::Reglages {
         prism_core::noyau::Reglages::charger(&prism_core::paths::user_dir())
+    }
+    /// Nettoyage automatique de la RAM (réglages de l'utilisateur, lus par le moteur).
+    fn ram_auto(&mut self) -> prism_core::ram_auto::Reglages {
+        prism_core::ram_auto::Reglages::charger(&prism_core::paths::user_dir())
+    }
+    fn set_ram_auto(&mut self, r: &prism_core::ram_auto::Reglages) -> Result<String, String> {
+        r.enregistrer(&prism_core::paths::user_dir())?;
+        Ok(if r.actif {
+            format!(
+                "Nettoyage auto : toutes les {} min{}",
+                r.toutes_les_minutes,
+                if r.seuil_pourcent > 0 {
+                    format!(" et au-delà de {} % utilisés", r.seuil_pourcent)
+                } else {
+                    String::new()
+                }
+            )
+        } else {
+            "Nettoyage automatique désactivé".into()
+        })
     }
     /// Fermeture des WebView des applis restées sans fenêtre.
     fn webview(&mut self) -> prism_core::webview::Reglages {

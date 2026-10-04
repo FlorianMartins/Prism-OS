@@ -439,6 +439,7 @@ impl Backend for WinBackend {
             .into_iter()
             .map(|info| crate::backend::ServiceRow {
                 protected: c.protection(&info.name).map(String::from),
+                superflu: allege::superflu(&c, &info.name),
                 by_prism: allege::journaled(&journal, &format!("svc:{}", info.name.to_ascii_lowercase())),
                 info,
             })

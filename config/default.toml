@@ -32,7 +32,7 @@ watch_ram = true                         # purge du cache priorité 0 si la RAM 
 # puis sa RAM rendue ; tout est annulé dès qu'on y revient.
 daily = true
 daily_eco_after_minutes = 5
-daily_trim_after_minutes = 30
+daily_trim_after_minutes = 10
 daily_purge_below_percent = 15
 tool_packs = []
 
@@ -51,7 +51,7 @@ shutdown_wsl = false
 background_cpu_sets = true
 daily = true
 daily_eco_after_minutes = 10
-daily_trim_after_minutes = 60
+daily_trim_after_minutes = 20
 daily_purge_below_percent = 10
 tool_packs = []
 
@@ -70,7 +70,7 @@ shutdown_wsl = false
 # Poste de travail : allègement quotidien plus patient, outils lourds jamais gênés.
 daily = true
 daily_eco_after_minutes = 15
-daily_trim_after_minutes = 90
+daily_trim_after_minutes = 30
 daily_purge_below_percent = 10
 tool_packs = ["reseau", "web", "reverse", "kali"]
 

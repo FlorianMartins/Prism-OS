@@ -2,6 +2,7 @@
 //! dessine sans panique et produit des captures dans `target/ui-shots/`.
 
 use eframe::egui;
+use egui_kittest::kittest::Queryable;
 use egui_kittest::Harness;
 use prism_ui::app::{Page, PrismApp};
 use prism_ui::mock::MockBackend;
@@ -116,4 +117,17 @@ fn allege_page_with_extreme_and_kernel_plan_fits() {
     );
     assert!(has_accent(&img));
     assert!(right_margin_is_clear(&img), "la page Allègement déborde à droite");
+}
+
+/// Un clic sur une entrée du menu latéral change de page.
+#[test]
+fn nav_click_changes_page() {
+    let app = PrismApp::new(Box::new(MockBackend::default()));
+    let mut harness = Harness::builder()
+        .with_size(egui::vec2(1280.0, 820.0))
+        .build_ui_state(|ui, app: &mut PrismApp| app.show(ui), app);
+    harness.run_steps(3);
+    harness.get_by_label("Services").click();
+    harness.run_steps(3);
+    assert_eq!(harness.state().page, Page::Services);
 }

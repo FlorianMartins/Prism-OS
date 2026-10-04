@@ -29,6 +29,7 @@ pub struct MockBackend {
     pub noyau: prism_core::noyau::Reglages,
     pub webview: prism_core::webview::Reglages,
     pub tools_installed: Vec<String>,
+    pub ram_auto: prism_core::ram_auto::Reglages,
 }
 
 impl Default for MockBackend {
@@ -134,6 +135,7 @@ impl Default for MockBackend {
             noyau: Default::default(),
             webview: Default::default(),
             tools_installed: vec!["wireshark".into(), "x64dbg".into()],
+            ram_auto: Default::default(),
             log: Vec::new(),
         }
     }
@@ -345,6 +347,13 @@ impl Backend for MockBackend {
         rows
     }
 
+    fn ram_auto(&mut self) -> prism_core::ram_auto::Reglages {
+        self.ram_auto.clone()
+    }
+    fn set_ram_auto(&mut self, r: &prism_core::ram_auto::Reglages) -> Result<String, String> {
+        self.ram_auto = r.clone();
+        Ok("ok".into())
+    }
     fn webview(&mut self) -> prism_core::webview::Reglages {
         self.webview.clone()
     }
@@ -403,6 +412,7 @@ impl Backend for MockBackend {
         let row = |name: &str, display: &str, start, running| crate::backend::ServiceRow {
             protected: c.protection(name).map(String::from),
             by_prism: name == "SysMain",
+            superflu: prism_core::allege::superflu(&c, name),
             info: ServiceInfo {
                 name: name.into(),
                 display: display.into(),

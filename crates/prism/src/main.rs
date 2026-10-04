@@ -1778,6 +1778,8 @@ fn watch(cfg: &Config, quiet: bool) -> Result<(), String> {
     }
     let mut noyau_etat: Option<prism_core::noyau::Etat> = None;
     let mut webviews = prism_core::webview::Reaper::default();
+    // Nettoyage automatique de la RAM (réglages de l'utilisateur, actif par défaut).
+    let mut last_ram_clean = std::time::Instant::now();
     // Bilan de la partie en cours (écrit à la fin du Mode Jeu, lu par la page Jeux).
     let mut partie: Option<(prism_core::jeux::Partie, std::time::Instant)> = None;
     let mut watcher = Watcher::default();
@@ -1863,6 +1865,33 @@ fn watch(cfg: &Config, quiet: bool) -> Result<(), String> {
                     };
                     out.line(&l);
                     lines.push(l);
+                }
+                // Nettoyage automatique de la RAM, hors partie : la même action que le bouton
+                // « Libérer la RAM des applis inactives ».
+                if !watcher.engaged() {
+                    let ra = prism_core::ram_auto::Reglages::charger(&prism_core::paths::user_dir());
+                    let m = snap.mem;
+                    let used = (m.total.saturating_sub(m.free + m.standby_total) * 100)
+                        .checked_div(m.total)
+                        .unwrap_or(0);
+                    if ra.du(last_ram_clean.elapsed().as_secs(), used) {
+                        last_ram_clean = std::time::Instant::now();
+                        if let Ok(r) = prism_core::engine::clean(&mut w, cfg, false) {
+                            let freed = match (r.mem_before, r.mem_after) {
+                                (Some(a), Some(b)) => {
+                                    (b.free + b.standby_total).saturating_sub(a.free + a.standby_total)
+                                }
+                                _ => 0,
+                            };
+                            let l = format!(
+                                "Nettoyage RAM auto (utilisée {used} %) : {} appli(s) allégée(s), ≈ {} Mo rendus",
+                                r.done.len(),
+                                freed >> 20
+                            );
+                            out.line(&l);
+                            lines.push(l);
+                        }
+                    }
                 }
                 // Anti-cheat noyau pendant une partie : plan automatique ; fin de partie : sortie.
                 match (&noyau_etat, watcher.engaged()) {

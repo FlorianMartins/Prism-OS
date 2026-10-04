@@ -151,6 +151,19 @@ prism top               # what is using CPU and RAM right now
 `ram clean` frees the memory of apps you left open but are not using (measured: 2.9 GB
 returned in a test VM) and keeps the cache that holds your game's files.
 
+**Automatic RAM cleaning** (dashboard, *Nettoyage automatique*, on by default): the engine
+runs the same action as *Libérer la RAM des applis inactives* by itself — every 15
+minutes and whenever used memory goes above 75 % (both adjustable: 5–120 min, 50–95 %),
+at least 2 minutes apart, never during a game. Settings in
+`%LOCALAPPDATA%\Prism\ram-auto.json`.
+
+Daily Mode also covers game companions (Discord, Steam, NVIDIA overlay…) outside games:
+when idle they get low memory priority and give their RAM back after the delay (10 min
+in the gaming profile), without being slowed down (no EcoQoS, no efficiency cores) so a
+voice call stays smooth; they are restored as soon as a game starts. Before, they were
+never touched — on a real PC they were the biggest consumers (Discord 1.5 GB, Steam
+1.15 GB).
+
 **Memory report** (`prism rapport`, or *Rapport mémoire* on the dashboard): where this
 PC's memory goes, as a plain-text file saved on the Desktop (and in
 `%LOCALAPPDATA%\Prism`) and opened in Notepad. It contains no personal data — no user
@@ -275,6 +288,13 @@ search box and a *running only* filter. Each one can be set to *Auto*, *Auto (di
   set here;
 - every change is journaled like debloat: the ↺ button puts that service back, and
   *Tout restaurer* (Allègement page) puts back all of them.
+
+Quick actions: a switch per service (off = disabled and stopped; on = the original
+setting back, or on demand if it was already disabled before Prism), a *Superflus
+seulement* filter (services Prism considers useless: its catalogue plus third-party
+updaters such as Logitech G Hub, Adobe, Google, Brave, Mozilla, Office Click-to-Run), and
+*Désactiver tous les superflus* (protected ones excluded, reversible). The list loads in
+the background and only visible rows are drawn.
 
 ```powershell
 prism services                      # all services, start mode, 🔒 for protected ones

@@ -138,10 +138,9 @@ fn an_app_that_starts_working_again_is_given_back() {
 }
 
 #[test]
-fn protected_companion_and_games_are_never_eased() {
+fn protected_processes_and_games_are_never_eased() {
     let mut b = Bench::new();
     let ids = [
-        b.m.spawn("discord.exe", None, GIB),
         b.m.spawn("vgc.exe", None, GIB / 10),
         b.m.spawn("explorer.exe", None, GIB / 10),
         b.m.spawn("forzahorizon5.exe", Some(GAME), 4 * GIB),
@@ -156,6 +155,22 @@ fn protected_companion_and_games_are_never_eased() {
             p.info.name
         );
     }
+}
+
+/// Compagnon de jeu (Discord) inactif hors partie : il rend sa RAM (priorité mémoire
+/// basse, puis mémoire rendue) sans être ralenti (pas d'EcoQoS) ; dès qu'une partie
+/// commence, il est rendu. Avant, jamais touché (rapport d'un PC réel : 1,5 Go).
+#[test]
+fn idle_companion_gives_back_ram_outside_games_and_is_restored_in_game() {
+    let mut b = Bench::new();
+    let discord = b.m.spawn("discord.exe", None, GIB);
+    b.run(60 * 60, false);
+    let p = b.proc(discord);
+    assert_eq!(p.eco, EcoState::SystemManaged, "jamais ralenti");
+    assert_eq!(p.mem_priority, MemPriority::Low);
+    assert!(p.info.working_set < GIB, "RAM rendue");
+    b.run(POLL, true);
+    assert_eq!(b.proc(discord).mem_priority, MemPriority::Normal, "rendu en jeu");
 }
 
 #[test]

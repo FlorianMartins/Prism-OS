@@ -5,8 +5,8 @@ use std::ptr::null_mut;
 use windows_sys::Win32::Foundation::FILETIME;
 use windows_sys::Win32::NetworkManagement::IpHelper::{FreeMibTable, GetIfTable2, MIB_IF_TABLE2};
 use windows_sys::Win32::System::Performance::{
-    PdhAddEnglishCounterW, PdhCollectQueryData, PdhGetFormattedCounterArrayW, PdhOpenQueryW,
-    PDH_FMT_COUNTERVALUE_ITEM_W, PDH_FMT_DOUBLE,
+    PdhAddEnglishCounterW, PdhCollectQueryData, PdhGetFormattedCounterArrayW, PdhGetFormattedCounterValue,
+    PdhOpenQueryW, PDH_FMT_COUNTERVALUE, PDH_FMT_COUNTERVALUE_ITEM_W, PDH_FMT_DOUBLE,
 };
 use windows_sys::Win32::System::SystemInformation::{GlobalMemoryStatusEx, MEMORYSTATUSEX};
 use windows_sys::Win32::System::Threading::GetSystemTimes;
@@ -40,6 +40,9 @@ pub struct Metrics {
     /// Le compteur GPU (le plus coûteux) n'est lu qu'une mesure sur deux.
     gpu_turn: u32,
     last_gpu: Option<f32>,
+    /// « % Processor Utility » : le chiffre du Gestionnaire des tâches de Windows 11
+    /// (tient compte de la fréquence). Sans lui, le temps processeur classique.
+    cpu_query: Option<(Pdh, Pdh)>,
 }
 
 impl Default for Metrics {
@@ -56,6 +59,7 @@ impl Metrics {
             gpu_query: open_gpu_query(),
             gpu_turn: 0,
             last_gpu: None,
+            cpu_query: open_query(r"\Processor Information(_Total)\% Processor Utility"),
         }
     }
 
@@ -76,6 +80,10 @@ impl Metrics {
                 }
                 self.last_cpu = Some((idle, busy_total));
             }
+        }
+        // Même mesure que le Gestionnaire des tâches quand le compteur existe.
+        if let Some(u) = self.cpu_query.and_then(|(q, c)| single_value(q, c)) {
+            s.cpu = u.clamp(0.0, 100.0) as f32;
         }
         // Mémoire.
         // SAFETY: structure de sortie locale, taille annoncée.
@@ -119,7 +127,12 @@ fn net_octets() -> Option<(u64, u64)> {
         let rows = std::slice::from_raw_parts((*table).Table.as_ptr(), n);
         let (mut down, mut up) = (0u64, 0u64);
         for r in rows {
-            if r.Type != IF_TYPE_SOFTWARE_LOOPBACK && r.InterfaceAndOperStatusFlags._bitfield & 1 != 0 {
+            // Interfaces matérielles seulement, sans les « filtres » de Windows (WFP, QoS…)
+            // qui doublent chaque carte réseau et faisaient compter le trafic plusieurs fois.
+            let flags = r.InterfaceAndOperStatusFlags._bitfield;
+            let hardware = flags & 1 != 0;
+            let filter = flags & 2 != 0;
+            if r.Type != IF_TYPE_SOFTWARE_LOOPBACK && hardware && !filter {
                 down += r.InOctets;
                 up += r.OutOctets;
             }
@@ -129,23 +142,39 @@ fn net_octets() -> Option<(u64, u64)> {
     }
 }
 
-fn open_gpu_query() -> Option<(Pdh, Pdh)> {
+fn open_query(path: &str) -> Option<(Pdh, Pdh)> {
     // SAFETY: requête et compteur PDH détenus pour la vie du processus.
     unsafe {
         let mut q: Pdh = null_mut();
         if PdhOpenQueryW(std::ptr::null(), 0, &mut q) != 0 {
             return None;
         }
-        let path: Vec<u16> = r"\GPU Engine(*engtype_3D)\Utilization Percentage"
-            .encode_utf16()
-            .chain(Some(0))
-            .collect();
+        let path: Vec<u16> = path.encode_utf16().chain(Some(0)).collect();
         let mut c: Pdh = null_mut();
         if PdhAddEnglishCounterW(q, path.as_ptr(), 0, &mut c) != 0 {
             return None;
         }
         PdhCollectQueryData(q);
         Some((q, c))
+    }
+}
+
+/// Tous les moteurs de toutes les cartes (3D, vidéo, calcul, copie).
+fn open_gpu_query() -> Option<(Pdh, Pdh)> {
+    open_query(r"\GPU Engine(*)\Utilization Percentage")
+}
+
+fn single_value(q: Pdh, c: Pdh) -> Option<f64> {
+    // SAFETY: structure de sortie locale.
+    unsafe {
+        if PdhCollectQueryData(q) != 0 {
+            return None;
+        }
+        let mut v: PDH_FMT_COUNTERVALUE = std::mem::zeroed();
+        if PdhGetFormattedCounterValue(c, PDH_FMT_DOUBLE, null_mut(), &mut v) != 0 {
+            return None;
+        }
+        Some(v.Anonymous.doubleValue)
     }
 }
 
@@ -165,11 +194,24 @@ fn gpu_percent(q: Pdh, c: Pdh) -> Option<f32> {
         if PdhGetFormattedCounterArrayW(c, PDH_FMT_DOUBLE, &mut size, &mut count, items) != 0 {
             return None;
         }
-        let total: f64 = std::slice::from_raw_parts(items, count as usize)
+        let samples: Vec<(String, f64)> = std::slice::from_raw_parts(items, count as usize)
             .iter()
-            .map(|i| i.FmtValue.Anonymous.doubleValue)
-            .sum();
-        Some(total.clamp(0.0, 100.0) as f32)
+            .map(|i| {
+                let p = i.szName;
+                let len = if p.is_null() {
+                    0
+                } else {
+                    (0..).take_while(|k| *p.add(*k) != 0).count()
+                };
+                let name = if len == 0 {
+                    String::new()
+                } else {
+                    String::from_utf16_lossy(std::slice::from_raw_parts(p, len))
+                };
+                (name, i.FmtValue.Anonymous.doubleValue)
+            })
+            .collect();
+        Some(prism_core::mesures::gpu_busiest(&samples) as f32)
     }
 }
 

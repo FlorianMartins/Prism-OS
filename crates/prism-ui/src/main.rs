@@ -30,7 +30,7 @@ fn run(renderer: eframe::Renderer) -> eframe::Result<()> {
         options,
         Box::new(|cc| {
             prism_ui::theme::apply(&cc.egui_ctx);
-            Ok(Box::new(PrismApp::new(backend())))
+            Ok(Box::new(PrismApp::new(backend()).with_factory(backend)))
         }),
     )
 }

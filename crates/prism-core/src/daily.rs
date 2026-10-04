@@ -29,7 +29,9 @@ use crate::platform::{Outcome, Platform};
 const ACTIVE_PER_SECOND: u64 = 100_000;
 
 /// Au plus une purge de surveillance toutes les N passes.
-const PURGE_EVERY_POLLS: u32 = 15;
+/// Au plus une purge du cache basse priorité toutes les 30 s (en secondes : le moteur
+/// espace ses relevés hors partie, un compte en passages la rendait 5 fois plus rare).
+const PURGE_EVERY_SECS: u64 = 30;
 
 #[derive(Clone, Debug, Default)]
 struct Track {
@@ -46,7 +48,7 @@ struct Track {
 pub struct Daily {
     tracks: HashMap<ProcId, Track>,
     pub journal: Journal,
-    since_purge: u32,
+    since_purge: u64,
 }
 
 fn target_of(u: &Undo) -> Option<ProcId> {
@@ -128,9 +130,20 @@ impl Daily {
             return report;
         }
 
-        let background: Vec<_> = classify_all(snap, cfg)
+        // Applis d'arrière-plan, et compagnons de jeu (Discord, Steam…) : ceux-ci rendent
+        // leur RAM hors partie quand ils sont inactifs, sans être ralentis (pas
+        // d'EcoQoS ni de cœurs économes : un vocal doit rester fluide), et sont rendus
+        // dès qu'une partie commence. Avant, jamais touchés : les plus gros consommateurs
+        // (rapport d'un PC réel : Discord 1,5 Go, Steam 1,15 Go) gardaient tout.
+        let classified = classify_all(snap, cfg);
+        let companions: HashSet<ProcId> = classified
+            .iter()
+            .filter(|(_, c)| *c == Class::Companion)
+            .map(|(p, _)| p.id)
+            .collect();
+        let background: Vec<_> = classified
             .into_iter()
-            .filter(|(_, c)| *c == Class::Background)
+            .filter(|(_, c)| *c == Class::Background || *c == Class::Companion)
             .map(|(p, _)| p)
             .collect();
         let alive: HashSet<ProcId> = background.iter().map(|p| p.id).collect();
@@ -171,6 +184,19 @@ impl Daily {
             }
             let foreground = snap.foreground_pid == Some(p.id.pid);
             let busy = delta > elapsed_secs.max(1) * ACTIVE_PER_SECOND;
+            let companion = companions.contains(&p.id);
+
+            // Compagnon pendant une partie : rendu tout de suite, plus touché.
+            if companion && game_running {
+                track.idle_secs = 0;
+                track.trimmed = false;
+                if track.eased {
+                    track.eased = false;
+                    self.revert(platform, p.id, &mut report);
+                    dirty = true;
+                }
+                continue;
+            }
 
             if foreground || busy {
                 track.idle_secs = 0;
@@ -189,14 +215,14 @@ impl Daily {
             if !track.eased && !game_running && track.idle_secs >= eco_after {
                 track.eased = true;
                 let t = Target::of(p);
-                let mut actions = vec![
-                    Action::EcoQos { target: t.clone() },
-                    Action::MemoryPriority {
-                        target: t.clone(),
-                        to: MemPriority::Low,
-                    },
-                ];
-                if let Some(s) = &split {
+                let mut actions = vec![Action::MemoryPriority {
+                    target: t.clone(),
+                    to: MemPriority::Low,
+                }];
+                if !companion {
+                    actions.insert(0, Action::EcoQos { target: t.clone() });
+                }
+                if let (Some(s), false) = (&split, companion) {
                     actions.push(Action::CpuSets {
                         target: t,
                         cpus: s.background.clone(),
@@ -224,8 +250,8 @@ impl Daily {
             self.save(store, &mut report);
         }
 
-        self.since_purge += 1;
-        if profile.daily_purge_below_percent > 0 && (trimmed_now || self.since_purge >= PURGE_EVERY_POLLS) {
+        self.since_purge += elapsed_secs;
+        if profile.daily_purge_below_percent > 0 && (trimmed_now || self.since_purge >= PURGE_EVERY_SECS) {
             if let Some(r) = watch_ram_below(platform, profile.daily_purge_below_percent, snap, trimmed_now) {
                 self.since_purge = 0;
                 report.merge(r);

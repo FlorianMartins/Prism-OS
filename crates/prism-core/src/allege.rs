@@ -657,6 +657,40 @@ pub struct ServiceInfo {
     pub per_user: bool,
 }
 
+/// Services d'éditeurs tiers qui ne servent qu'à se mettre à jour ou à précharger une
+/// appli : à la demande, ils redémarrent quand l'appli en a besoin. (Page Services :
+/// « superflus », avec ceux du catalogue.)
+pub const TIERS_SUPERFLUS: [(&str, &str); 14] = [
+    ("LGHUBUpdaterService", "Mise à jour de Logitech G Hub"),
+    ("AdobeARMservice", "Mise à jour d'Adobe Reader"),
+    ("GoogleUpdaterService", "Mise à jour de Google Chrome"),
+    ("GoogleUpdaterInternalService", "Mise à jour de Google Chrome"),
+    ("gupdate", "Mise à jour de Google"),
+    ("gupdatem", "Mise à jour de Google"),
+    ("brave", "Mise à jour de Brave"),
+    ("bravem", "Mise à jour de Brave"),
+    ("BraveElevationService", "Élévation de Brave (mises à jour)"),
+    ("MozillaMaintenance", "Mise à jour de Firefox"),
+    (
+        "ClickToRunSvc",
+        "Office « Démarrer en un clic » (préchargement d'Office)",
+    ),
+    ("Razer Game Manager Service", "Service de jeux Razer"),
+    ("CorsairService", "Service iCUE (Corsair)"),
+    ("ArmouryCrateService", "Service Armoury Crate (Asus)"),
+];
+
+/// Raison pour laquelle un service est superflu (catalogue de Prism ou éditeur tiers).
+pub fn superflu(catalog: &Catalog, name: &str) -> Option<(String, StartType)> {
+    if let Some(s) = catalog.services.iter().find(|s| s.name.eq_ignore_ascii_case(name)) {
+        return Some((s.why.clone(), s.start));
+    }
+    TIERS_SUPERFLUS
+        .iter()
+        .find(|(n, _)| n.eq_ignore_ascii_case(name))
+        .map(|(_, why)| (why.to_string(), StartType::Manual))
+}
+
 /// Règle un service quelconque (page Services) au mode exact demandé — y compris
 /// Désactivé → Manuel, que l'allègement considère déjà fait. Refusé pour un service
 /// protégé ; la valeur d'origine est journalisée une seule fois (« Tout restaurer » et

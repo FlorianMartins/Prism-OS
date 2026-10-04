@@ -59,8 +59,19 @@ impl Page {
     }
 }
 
+/// Action longue lancée en arrière-plan : elle reçoit son propre accès au système.
+type BgAction = Box<dyn FnOnce(&mut dyn Backend) -> Result<String, String> + Send>;
+type ServicesResult = Result<Vec<crate::backend::ServiceRow>, String>;
+/// Résultat d'une action d'arrière-plan, rempli par son fil.
+type JobSlot = std::sync::Arc<std::sync::Mutex<Option<Result<String, String>>>>;
+
 pub struct PrismApp {
     backend: Box<dyn Backend>,
+    /// Fabrique d'un accès au système pour les actions longues (fil d'arrière-plan).
+    /// `None` (tests) : l'action est exécutée tout de suite.
+    factory: Option<fn() -> Box<dyn Backend>>,
+    /// Action en cours : son libellé et son résultat quand elle a fini.
+    job: Option<(String, JobSlot)>,
     pub page: Page,
     live: Live,
     startup: Vec<StartupRow>,
@@ -69,6 +80,8 @@ pub struct PrismApp {
     noyau: prism_core::noyau::Reglages,
     /// Fermeture des WebView en arrière-plan.
     webview: prism_core::webview::Reglages,
+    /// Nettoyage automatique de la RAM.
+    ram_auto: prism_core::ram_auto::Reglages,
     /// Saisie d'une appli à exclure.
     webview_new: String,
     /// Page Outils : état lu au premier affichage ; désinstallation qui efface des
@@ -80,6 +93,8 @@ pub struct PrismApp {
     /// Page Jeux : réglages par jeu (lus à l'ouverture, les dossiers des jeux sont parcourus).
     game_cfgs: Option<Vec<crate::backend::GameCfg>>,
     services_running_only: bool,
+    services_superflus_only: bool,
+    services_loading: Option<std::sync::Arc<std::sync::Mutex<Option<ServicesResult>>>>,
     tools_confirm: Option<Vec<String>>,
     games: Vec<Game>,
     privacy: Vec<prism_core::privacy::Row>,
@@ -113,24 +128,30 @@ impl PrismApp {
         let allege = backend.allege();
         let noyau = backend.noyau();
         let webview = backend.webview();
+        let ram_auto = backend.ram_auto();
         let games = backend.games();
         let (privacy, privacy_conns) = backend.privacy();
         let welcome_done = backend.welcome_done();
         let autostart_on = backend.autostart();
         PrismApp {
             backend,
+            factory: None,
+            job: None,
             page: Page::Dashboard,
             live,
             startup,
             allege,
             noyau,
             webview,
+            ram_auto,
             webview_new: String::new(),
             tools_scan_asked: false,
             services: None,
             services_search: String::new(),
             game_cfgs: None,
             services_running_only: false,
+            services_superflus_only: false,
+            services_loading: None,
             tools_confirm: None,
             games,
             privacy,
@@ -147,6 +168,52 @@ impl PrismApp {
             console_sel: 0,
             new_rule: String::new(),
             last_refresh: 0.0,
+        }
+    }
+
+    /// Les actions longues (allègement, vie privée, services, applis…) tournent dans un
+    /// fil à part : l'interface ne fige plus pendant qu'elles s'appliquent.
+    pub fn with_factory(mut self, factory: fn() -> Box<dyn Backend>) -> PrismApp {
+        self.factory = Some(factory);
+        self
+    }
+
+    fn bg(&mut self, label: &str, f: impl FnOnce(&mut dyn Backend) -> Result<String, String> + Send + 'static) {
+        if self.job.is_some() {
+            self.toast = Some(("Une action est déjà en cours, un instant…".into(), false));
+            return;
+        }
+        let f: BgAction = Box::new(f);
+        let Some(factory) = self.factory else {
+            let r = f(self.backend.as_mut());
+            self.result(r);
+            return;
+        };
+        let slot = std::sync::Arc::new(std::sync::Mutex::new(None));
+        let out = slot.clone();
+        std::thread::spawn(move || {
+            let mut b = factory();
+            let r = f(b.as_mut());
+            if let Ok(mut o) = out.lock() {
+                *o = Some(r);
+            }
+        });
+        self.job = Some((label.to_string(), slot));
+    }
+
+    /// Résultat d'une action d'arrière-plan arrivé : affiché, données relues.
+    fn poll_job(&mut self, ctx: &egui::Context) {
+        let done = self
+            .job
+            .as_ref()
+            .and_then(|(_, slot)| slot.lock().ok().and_then(|mut o| o.take()));
+        match done {
+            Some(r) => {
+                self.job = None;
+                self.result(r);
+            }
+            None if self.job.is_some() => ctx.request_repaint_after(std::time::Duration::from_millis(200)),
+            None => {}
         }
     }
 
@@ -177,6 +244,7 @@ impl PrismApp {
             // rester derrière les autres fenêtres).
             ctx.send_viewport_cmd(egui::ViewportCommand::Focus);
         }
+        self.poll_job(&ctx);
         let now = ctx.input(|i| i.time);
         // Diagnostic (PRISM_UI_DEBUG=1) : images par seconde et ce qui les a demandées,
         // dans %LOCALAPPDATA%\Prism\ui-debug.log.
@@ -390,6 +458,7 @@ impl PrismApp {
         let game = self.live.etat.as_ref().map(|e| e.game.clone()).unwrap_or_default();
         let mut clean = false;
         let mut rapport = false;
+        let mut ram_auto = self.ram_auto.clone();
         let cores = self.live.cores.clone();
         row(ui, 3, |i, col| match i {
             0 => {
@@ -422,6 +491,23 @@ impl PrismApp {
                     {
                         rapport = true;
                     }
+                    // Nettoyage automatique : la même action, lancée par le moteur.
+                    ui.add_space(6.0);
+                    let ra = &mut ram_auto;
+                    ui.checkbox(&mut ra.actif, "Nettoyage automatique")
+                        .on_hover_text("Le moteur libère la RAM des applis inactives tout seul, comme le bouton ci-dessus (jamais pendant une partie).");
+                    ui.add_enabled_ui(ra.actif, |ui| {
+                        ui.add(
+                            egui::Slider::new(&mut ra.toutes_les_minutes, 5..=120)
+                                .prefix("toutes les ")
+                                .suffix(" min"),
+                        );
+                        ui.add(
+                            egui::Slider::new(&mut ra.seuil_pourcent, 50..=95)
+                                .prefix("et dès ")
+                                .suffix(" % utilisés"),
+                        );
+                    });
                 });
             }
             1 => {
@@ -465,12 +551,17 @@ impl PrismApp {
             }
         });
         if clean {
-            let r = self.backend.ram_clean();
-            self.result(r);
+            self.bg("Libération de la RAM", |b| b.ram_clean());
+        }
+        if ram_auto != self.ram_auto {
+            self.ram_auto = ram_auto;
+            let r = self.backend.set_ram_auto(&self.ram_auto);
+            if let Err(e) = r {
+                self.toast = Some((e, false));
+            }
         }
         if rapport {
-            let r = self.backend.rapport();
-            self.result(r);
+            self.bg("Rapport mémoire", |b| b.rapport());
         }
 
         ui.add_space(14.0);
@@ -675,8 +766,7 @@ impl PrismApp {
                 });
         });
         if let Some((name, r, on)) = set {
-            let res = self.backend.game_set(&name, r, on);
-            self.result(res);
+            self.bg("Réglage du jeu", move |b| b.game_set(&name, r, on));
         }
     }
 
@@ -750,7 +840,7 @@ impl PrismApp {
             );
             ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                 if ui.button("Tout restaurer").clicked() {
-                    action = Some(self.backend.startup_restore());
+                    self.bg("Démarrage : restauration", |b| b.startup_restore());
                 }
                 if ui
                     .add(
@@ -759,7 +849,7 @@ impl PrismApp {
                     )
                     .clicked()
                 {
-                    action = Some(self.backend.startup_recommended());
+                    self.bg("Démarrage : réglages recommandés", |b| b.startup_recommended());
                 }
             });
         });
@@ -799,7 +889,7 @@ impl PrismApp {
     fn privacy_page(&mut self, ui: &mut egui::Ui) {
         use prism_core::privacy::{score, Category, Kind, Level, State};
         let mut toggle: Option<(String, bool)> = None;
-        let mut action: Option<Result<String, String>> = None;
+        let action: Option<Result<String, String>> = None;
         let (on, total) = score(&self.privacy);
         card(ui, true, |ui| {
             ui.horizontal(|ui| {
@@ -829,7 +919,7 @@ impl PrismApp {
                 });
                 ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                     if ui.button("Tout restaurer").clicked() {
-                        action = Some(self.backend.privacy_restore());
+                        self.bg("Vie privée : restauration", |b| b.privacy_restore());
                     }
                     if ui
                         .button("Strict")
@@ -838,7 +928,7 @@ impl PrismApp {
                         )
                         .clicked()
                     {
-                        action = Some(self.backend.privacy_apply(Level::Strict));
+                        self.bg("Vie privée : niveau strict", |b| b.privacy_apply(Level::Strict));
                     }
                     if ui
                         .add(
@@ -848,7 +938,9 @@ impl PrismApp {
                         .on_hover_text("Aucune fonction utile perdue")
                         .clicked()
                     {
-                        action = Some(self.backend.privacy_apply(Level::Recommande));
+                        self.bg("Vie privée : niveau recommandé", |b| {
+                            b.privacy_apply(Level::Recommande)
+                        });
                     }
                 });
             });
@@ -951,7 +1043,7 @@ impl PrismApp {
             });
         }
         if let Some((key, on)) = toggle {
-            action = Some(self.backend.privacy_toggle(&key, on));
+            self.bg("Vie privée", move |b| b.privacy_toggle(&key, on));
         }
         if let Some(r) = action {
             self.result(r);
@@ -1034,7 +1126,7 @@ impl PrismApp {
             );
             ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                 if ui.button("Tout restaurer").clicked() {
-                    action = Some(self.backend.allege_restore());
+                    self.bg("Allègement : restauration", |b| b.allege_restore());
                 }
             });
         });
@@ -1077,7 +1169,7 @@ impl PrismApp {
                 );
                 ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                     if ui.button(format!("Appliquer « {title} »")).clicked() {
-                        action = Some(self.backend.allege_apply(tier));
+                        self.bg("Allègement", move |b| b.allege_apply(tier));
                     }
                 });
             });
@@ -1110,7 +1202,7 @@ impl PrismApp {
             });
         }
         if let Some((key, on)) = toggle {
-            action = Some(self.backend.allege_toggle(&key, on));
+            self.bg("Allègement", move |b| b.allege_toggle(&key, on));
         }
         if let Some(r) = action {
             self.result(r);
@@ -1172,14 +1264,37 @@ impl PrismApp {
 
     fn services_page(&mut self, ui: &mut egui::Ui) {
         use prism_core::allege::StartType;
-        if self.services.is_none() {
-            self.services = Some(self.backend.services());
+        // Liste lue en arrière-plan (plusieurs secondes sur certains PC).
+        if self.services.is_none() && self.services_loading.is_none() {
+            match self.factory {
+                Some(factory) => {
+                    let slot = std::sync::Arc::new(std::sync::Mutex::new(None));
+                    let out = slot.clone();
+                    std::thread::spawn(move || {
+                        let r = factory().services();
+                        if let Ok(mut o) = out.lock() {
+                            *o = Some(r);
+                        }
+                    });
+                    self.services_loading = Some(slot);
+                }
+                None => self.services = Some(self.backend.services()),
+            }
+        }
+        if let Some(slot) = &self.services_loading {
+            if let Some(r) = slot.lock().ok().and_then(|mut o| o.take()) {
+                self.services = Some(r);
+                self.services_loading = None;
+            } else {
+                ui.ctx().request_repaint_after(std::time::Duration::from_millis(200));
+            }
         }
         ui.label(
             RichText::new("Tous les services de Windows. Manuel = démarré par Windows quand un programme en a besoin (le plus sûr pour alléger) ; Désactivé = jamais. Les services dont les anti-cheats, les mises à jour et la sécurité ont besoin sont verrouillés. Chaque changement se remet d'un clic (↺) ou avec « Tout restaurer » de la page Allègement.")
                 .color(th::muted()),
         );
         ui.add_space(8.0);
+        let mut slim = false;
         ui.horizontal(|ui| {
             ui.add(
                 egui::TextEdit::singleline(&mut self.services_search)
@@ -1187,6 +1302,17 @@ impl PrismApp {
                     .desired_width(280.0),
             );
             ui.checkbox(&mut self.services_running_only, "En marche seulement");
+            ui.checkbox(&mut self.services_superflus_only, "Superflus seulement")
+                .on_hover_text("Services que Prism juge inutiles : télémétrie, diagnostics, mises à jour d'éditeurs tiers…");
+            ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                if ui
+                    .button("Désactiver tous les superflus")
+                    .on_hover_text("Les passe à la demande ou désactivés (protégés exclus) et les arrête. Réversible : ↺ ou « Tout restaurer ».")
+                    .clicked()
+                {
+                    slim = true;
+                }
+            });
         });
         ui.add_space(8.0);
         let rows = match &self.services {
@@ -1195,12 +1321,19 @@ impl PrismApp {
                 ui.label(RichText::new(format!("Liste des services illisible : {e}")).color(th::warn()));
                 return;
             }
-            None => return,
+            None => {
+                ui.horizontal(|ui| {
+                    ui.spinner();
+                    ui.label(RichText::new("Lecture des services…").color(th::muted()));
+                });
+                return;
+            }
         };
         let q = self.services_search.to_lowercase();
         let shown: Vec<&crate::backend::ServiceRow> = rows
             .iter()
             .filter(|r| !self.services_running_only || r.info.running)
+            .filter(|r| !self.services_superflus_only || r.superflu.is_some())
             .filter(|r| {
                 q.is_empty() || r.info.display.to_lowercase().contains(&q) || r.info.name.to_lowercase().contains(&q)
             })
@@ -1217,80 +1350,120 @@ impl PrismApp {
         );
         let mut set: Option<(String, StartType)> = None;
         let mut restore: Option<String> = None;
+        // Seules les lignes visibles sont dessinées (274 services : les dessiner toutes
+        // à chaque image figeait la page, et faisait rater des clics).
+        let row_h = 34.0;
         card(ui, false, |ui| {
-            egui::Grid::new("services")
-                .num_columns(4)
-                .spacing([14.0, 6.0])
-                .striped(true)
-                .show(ui, |ui| {
-                    for r in &shown {
-                        // Pastille dessinée (la police n'a pas le glyphe ●).
-                        let (rect, resp) = ui.allocate_exact_size(egui::vec2(12.0, 12.0), egui::Sense::hover());
-                        if r.info.running {
-                            ui.painter().circle_filled(rect.center(), 4.5, th::ok());
-                        } else {
-                            ui.painter()
-                                .circle_stroke(rect.center(), 4.0, egui::Stroke::new(1.2, th::muted()));
-                        }
-                        resp.on_hover_text(if r.info.running { "en marche" } else { "arrêté" });
-                        ui.label(&r.info.display).on_hover_text(&r.info.name);
-                        let current = r.info.start;
-                        let locked = r.protected.is_some()
-                            || r.info.per_user
-                            || current.is_none()
-                            || matches!(current, Some(StartType::Boot | StartType::System));
-                        if locked {
-                            let why = match (&r.protected, r.info.per_user) {
-                                (Some(p), _) => format!("Verrouillé : {p}"),
-                                (None, true) => "Service par utilisateur : réglé par son modèle".to_string(),
-                                _ => "Service du noyau : non réglable".to_string(),
-                            };
-                            ui.label(
-                                RichText::new(format!("🔒 {}", current.map(|c| c.label_fr()).unwrap_or("?")))
-                                    .color(th::muted()),
-                            )
-                            .on_hover_text(why);
-                        } else {
-                            let mut sel = current.unwrap_or(StartType::Manual);
-                            egui::ComboBox::from_id_salt(("svc", &r.info.name))
-                                .selected_text(sel.label_fr())
-                                .width(140.0)
-                                .show_ui(ui, |ui| {
-                                    for st in [
-                                        StartType::Auto,
-                                        StartType::AutoDelayed,
-                                        StartType::Manual,
-                                        StartType::Disabled,
-                                    ] {
-                                        ui.selectable_value(&mut sel, st, st.label_fr());
+            egui::ScrollArea::vertical()
+                .id_salt("services-rows")
+                .max_height(560.0)
+                .auto_shrink([false, true])
+                .show_rows(ui, row_h, shown.len(), |ui, range| {
+                    for r in &shown[range] {
+                        ui.allocate_ui_with_layout(
+                            egui::vec2(ui.available_width(), row_h),
+                            Layout::left_to_right(Align::Center),
+                            |ui| {
+                                // Pastille dessinée (la police n'a pas le glyphe ●).
+                                let (rect, resp) = ui.allocate_exact_size(egui::vec2(14.0, 14.0), Sense::hover());
+                                if r.info.running {
+                                    ui.painter().circle_filled(rect.center(), 4.5, th::ok());
+                                } else {
+                                    ui.painter()
+                                        .circle_stroke(rect.center(), 4.0, egui::Stroke::new(1.2, th::muted()));
+                                }
+                                resp.on_hover_text(if r.info.running { "en marche" } else { "arrêté" });
+                                let name_w = (ui.available_width() - 330.0).max(160.0);
+                                let label = ui
+                                    .allocate_ui_with_layout(
+                                        egui::vec2(name_w, row_h),
+                                        Layout::left_to_right(Align::Center),
+                                        |ui| {
+                                            ui.set_min_width(name_w);
+                                            ui.add(egui::Label::new(&r.info.display).truncate())
+                                        },
+                                    )
+                                    .inner;
+                                match &r.superflu {
+                                    Some((why, _)) => {
+                                        label.on_hover_text(format!("{} — superflu : {why}", r.info.name))
                                     }
-                                });
-                            if Some(sel) != current {
-                                set = Some((r.info.name.clone(), sel));
-                            }
-                        }
-                        if r.by_prism {
-                            if ui
-                                .small_button("↺")
-                                .on_hover_text("Remettre le réglage d'origine")
-                                .clicked()
-                            {
-                                restore = Some(r.info.name.clone());
-                            }
-                        } else {
-                            ui.label("");
-                        }
-                        ui.end_row();
+                                    None => label.on_hover_text(&r.info.name),
+                                };
+                                let current = r.info.start;
+                                let locked = r.protected.is_some()
+                                    || r.info.per_user
+                                    || current.is_none()
+                                    || matches!(current, Some(StartType::Boot | StartType::System));
+                                if locked {
+                                    let why = match (&r.protected, r.info.per_user) {
+                                        (Some(p), _) => format!("Verrouillé : {p}"),
+                                        (None, true) => "Service par utilisateur : réglé par son modèle".to_string(),
+                                        _ => "Service du noyau : non réglable".to_string(),
+                                    };
+                                    ui.add_space(48.0);
+                                    ui.label(
+                                        RichText::new(format!("🔒 {}", current.map(|c| c.label_fr()).unwrap_or("?")))
+                                            .color(th::muted()),
+                                    )
+                                    .on_hover_text(why);
+                                    return;
+                                }
+                                // Interrupteur : coupé = désactivé (et arrêté) ; rallumé =
+                                // réglage d'origine, ou à la demande s'il était désactivé avant.
+                                let mut on = current != Some(StartType::Disabled);
+                                if ui
+                                    .add(toggle_switch(&mut on))
+                                    .on_hover_text("Activé / désactivé")
+                                    .changed()
+                                {
+                                    if on && r.by_prism {
+                                        restore = Some(r.info.name.clone());
+                                    } else {
+                                        set = Some((
+                                            r.info.name.clone(),
+                                            if on { StartType::Manual } else { StartType::Disabled },
+                                        ));
+                                    }
+                                }
+                                let mut sel = current.unwrap_or(StartType::Manual);
+                                egui::ComboBox::from_id_salt(("svc", &r.info.name))
+                                    .selected_text(sel.label_fr())
+                                    .width(140.0)
+                                    .show_ui(ui, |ui| {
+                                        for st in [
+                                            StartType::Auto,
+                                            StartType::AutoDelayed,
+                                            StartType::Manual,
+                                            StartType::Disabled,
+                                        ] {
+                                            ui.selectable_value(&mut sel, st, st.label_fr());
+                                        }
+                                    });
+                                if Some(sel) != current {
+                                    set = Some((r.info.name.clone(), sel));
+                                }
+                                if r.by_prism
+                                    && ui
+                                        .small_button("↺")
+                                        .on_hover_text("Remettre le réglage d'origine")
+                                        .clicked()
+                                {
+                                    restore = Some(r.info.name.clone());
+                                }
+                            },
+                        );
                     }
                 });
         });
+        if slim {
+            self.bg("Services superflus", |b| b.services_slim());
+        }
         if let Some((name, to)) = set {
-            let r = self.backend.service_set(&name, to);
-            self.result(r);
+            self.bg("Service", move |b| b.service_set(&name, to));
         }
         if let Some(name) = restore {
-            let r = self.backend.service_restore(&name);
-            self.result(r);
+            self.bg("Service : origine", move |b| b.service_restore(&name));
         }
     }
 
@@ -1376,7 +1549,10 @@ impl PrismApp {
                     ui.label(RichText::new(&p.description).small().color(th::muted()));
                 });
                 if resp.interact(Sense::click()).clicked() {
-                    action = Some(self.backend.appearance_preset(&p.id));
+                    {
+                        let id = p.id.clone();
+                        self.bg("Apparence", move |b| b.appearance_preset(&id));
+                    }
                 }
             } else {
                 let resp = card(col, false, |ui| {
@@ -1388,7 +1564,7 @@ impl PrismApp {
                     );
                 });
                 if resp.interact(Sense::click()).clicked() {
-                    action = Some(self.backend.appearance_restore());
+                    self.bg("Apparence : restauration", |b| b.appearance_restore());
                 }
             }
         });
