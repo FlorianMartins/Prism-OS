@@ -81,9 +81,10 @@ real gaming hardware.
 
 ## Quick start
 
-Install with `prism-<version>-x64.msi` (CI artifact `prism-installer`): Start menu
-entry, `prism` in every terminal, and uninstalling from *Installed apps* puts back
-everything Prism changed.
+Install with `prism-<version>-x64.msi` (GitHub Releases, or CI artifact
+`prism-installer`): Start menu entry, `prism` in every terminal, and uninstalling from
+*Installed apps* puts back everything Prism changed. `prism maj installer` updates to
+the latest release after checking its SHA-256 fingerprint.
 
 ```powershell
 prism status               # what Prism sees: profile, memory, CPU layout, games, conflicts
@@ -121,8 +122,8 @@ off-screen by the tests into `target/ui-shots/` (needs a Vulkan driver; on Linux
 
 v0.1 engine ✓ · v0.2 process management ✓ · v0.3 interface and customisation ✓ ·
 v0.4 window effects ✓ · v0.5 privacy ✓ · v0.6 themes, export and tiling ✓ ·
-v0.7 installer ✓ ·
-next: Prism as a Windows service, code signing and updates,
+v0.7 installer and updates ✓ ·
+next: code signing,
 FPS measurements on real hardware. Details:
 [ARCHITECTURE.md](docs/ARCHITECTURE.md).
 

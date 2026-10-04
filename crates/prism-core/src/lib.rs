@@ -29,5 +29,6 @@ pub mod privacy;
 pub mod theme;
 pub mod tiling;
 pub mod tools;
+pub mod update;
 pub mod watch;
 pub mod wobbly;

@@ -117,6 +117,31 @@ pub fn path_remove(dir: &str) -> Result<bool, String> {
     }
 }
 
+/// Nombre d'autres processus `exe` (soi-même exclu).
+pub fn other_instances(exe: &str) -> usize {
+    let me = std::process::id();
+    let mut n = 0;
+    // SAFETY: instantané des processus, refermé ici.
+    unsafe {
+        let snap = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
+        if snap.is_null() || snap as isize == -1 {
+            return 0;
+        }
+        let mut e: PROCESSENTRY32W = std::mem::zeroed();
+        e.dwSize = size_of::<PROCESSENTRY32W>() as u32;
+        let mut ok = Process32FirstW(snap, &mut e) != 0;
+        while ok {
+            let len = e.szExeFile.iter().position(|c| *c == 0).unwrap_or(e.szExeFile.len());
+            if String::from_utf16_lossy(&e.szExeFile[..len]).eq_ignore_ascii_case(exe) && e.th32ProcessID != me {
+                n += 1;
+            }
+            ok = Process32NextW(snap, &mut e) != 0;
+        }
+        CloseHandle(snap);
+    }
+    n
+}
+
 /// Arrête les autres processus `exe` (ex. `prism.exe` lancé en `watch`), jamais
 /// soi-même. Renvoie leur nombre.
 pub fn stop_other_instances(exe: &str) -> usize {

@@ -46,6 +46,8 @@ Utilisation : prism <commande>
   config import <fichier> la réapplique, sur ce PC ou un autre (admin pour les niveaux)
   autostart on|off        lance le Mode Jeu à l'ouverture de session (admin)
   desinstaller            remet TOUT comme avant Prism (fait aussi par la désinstallation, admin)
+  maj                     y a-t-il une version plus récente ? (GitHub)
+  maj installer           la télécharge, vérifie son empreinte SHA-256 et l'installe (admin)
   bar on|off              lance / arrête la Prism Bar ; bar autostart on|off
   fx demo | fx stats      démonstration mesurée des effets ; mesures des dernières animations
   demo                    partie simulée de bout en bout (tout système)
@@ -294,7 +296,7 @@ fn platform_command(_cfg: &Config, args: &[&str]) -> Result<(), String> {
     match args.first() {
         Some(
             &("status" | "watch" | "ram" | "autostart" | "allege" | "top" | "demarrage" | "jeux" | "apparence" | "bar"
-            | "vie-privee" | "config"),
+            | "vie-privee" | "config" | "maj" | "desinstaller"),
         ) => Err("cette commande agit sur Windows ; ici, essayez `prism demo`".into()),
         _ => Err(format!("commande inconnue : {}\n\n{HELP}", args.join(" "))),
     }
@@ -866,7 +868,135 @@ fn platform_command(cfg: &Config, args: &[&str]) -> Result<(), String> {
             Ok(())
         }
         ["desinstaller", rest @ ..] => uninstall(rest),
+        ["maj"] => match check_update()? {
+            None => {
+                println!("Prism {} est à jour.", env!("CARGO_PKG_VERSION"));
+                Ok(())
+            }
+            Some(u) => {
+                println!(
+                    "Nouvelle version : {} (installée : {})\n{}\nInstaller : prism maj installer",
+                    u.version,
+                    env!("CARGO_PKG_VERSION"),
+                    u.page
+                );
+                Ok(())
+            }
+        },
+        ["maj", "installer"] => update_install(),
+        ["maj", "--appliquer", msi, bar, engine] => update_apply(msi, *bar == "1", *engine == "1"),
         _ => Err(format!("commande inconnue : {}\n\n{HELP}", args.join(" "))),
+    }
+}
+
+/// Téléchargement par `curl.exe` (fourni avec Windows 10 et 11) : pas de pile HTTPS
+/// embarquée dans Prism.
+#[cfg(windows)]
+fn download(url: &str, to: Option<&std::path::Path>) -> Result<Vec<u8>, String> {
+    let mut cmd = Command::new("curl.exe");
+    cmd.args(["-fsSL", "--max-time", "300", "-A", "prism-os"]);
+    if let Some(p) = to {
+        cmd.arg("-o").arg(p);
+    }
+    let out = cmd.arg(url).output().map_err(|e| format!("curl.exe : {e}"))?;
+    if !out.status.success() {
+        return Err(format!(
+            "téléchargement impossible ({url}) : {}",
+            String::from_utf8_lossy(&out.stderr).trim()
+        ));
+    }
+    Ok(out.stdout)
+}
+
+#[cfg(windows)]
+fn check_update() -> Result<Option<prism_core::update::Update>, String> {
+    let json = download(&prism_core::update::latest_url(), None)?;
+    prism_core::update::from_release(&json, env!("CARGO_PKG_VERSION"))
+}
+
+/// Télécharge et vérifie la nouvelle version, puis passe la main à une copie de Prism
+/// hors du dossier d'installation (un programme en cours d'exécution ne peut pas être
+/// remplacé).
+#[cfg(windows)]
+fn update_install() -> Result<(), String> {
+    use prism_core::update::{expected_sha256, hex, sha256};
+    let Some(u) = check_update()? else {
+        println!("Prism {} est à jour.", env!("CARGO_PKG_VERSION"));
+        return Ok(());
+    };
+    let dir = std::env::temp_dir().join("prism-maj");
+    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    let msi = dir.join(&u.msi_name);
+    println!("Téléchargement de Prism {}…", u.version);
+    let sums = String::from_utf8_lossy(&download(&u.sums_url, None)?).into_owned();
+    download(&u.msi_url, Some(&msi))?;
+    let expected = expected_sha256(&sums, &u.msi_name).ok_or("empreinte de l'installateur absente de SHA256SUMS")?;
+    let got = sha256(&std::fs::read(&msi).map_err(|e| e.to_string())?);
+    if got != expected {
+        let _ = std::fs::remove_file(&msi);
+        return Err(format!(
+            "empreinte différente : attendu {}, reçu {} — fichier supprimé, rien n'est installé",
+            hex(&expected),
+            hex(&got)
+        ));
+    }
+    println!("✓ empreinte SHA-256 vérifiée ({})", hex(&got));
+    let helper = dir.join("prism-maj.exe");
+    std::fs::copy(std::env::current_exe().map_err(|e| e.to_string())?, &helper).map_err(|e| e.to_string())?;
+    let bar = prism_win::bar_app::running();
+    let engine = prism_win::install::other_instances("prism.exe") > 0;
+    Command::new(&helper)
+        .args(["maj", "--appliquer", &msi.display().to_string()])
+        .arg(if bar { "1" } else { "0" })
+        .arg(if engine { "1" } else { "0" })
+        .spawn()
+        .map_err(|e| e.to_string())?;
+    println!("Installation de la mise à jour lancée ; la barre et le moteur redémarrent ensuite.");
+    Ok(())
+}
+
+/// Lancé depuis la copie temporaire : arrête la barre et le moteur (journaux appliqués),
+/// installe le MSI en mise à jour (les réglages et journaux sont gardés), puis relance
+/// ce qui tournait.
+#[cfg(windows)]
+fn update_apply(msi: &str, bar: bool, engine: bool) -> Result<(), String> {
+    std::thread::sleep(std::time::Duration::from_millis(800));
+    if prism_win::bar_app::stop() {
+        for _ in 0..20 {
+            if !prism_win::bar_app::running() {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(250));
+        }
+    }
+    if prism_win::install::stop_other_instances("prism.exe") > 0 {
+        std::thread::sleep(std::time::Duration::from_millis(500));
+        use prism_core::journal::FileStore;
+        let mut w = prism_win::WindowsPlatform::new();
+        for path in [sys::journal_path(), sys::data_dir().join("quotidien.json")] {
+            let _ = prism_core::engine::recover(&mut w, &mut FileStore { path });
+        }
+    }
+    let log = std::env::temp_dir().join("prism-maj").join("msiexec.log");
+    let status = Command::new("msiexec.exe")
+        .args(["/i", msi, "/passive", "/norestart", "/l*v"])
+        .arg(&log)
+        .status()
+        .map_err(|e| e.to_string())?;
+    let code = status.code().unwrap_or(-1);
+    let dir = std::path::PathBuf::from(std::env::var("ProgramFiles").unwrap_or_else(|_| "C:\\Program Files".into()))
+        .join("Prism");
+    if bar {
+        let _ = Command::new(dir.join("prism-bar.exe")).spawn();
+    }
+    if engine {
+        let _ = Command::new(dir.join("prism.exe")).args(["watch", "--quiet"]).spawn();
+    }
+    // 3010 : réussi, redémarrage conseillé.
+    if code == 0 || code == 3010 {
+        Ok(())
+    } else {
+        Err(format!("msiexec a échoué (code {code}), journal : {}", log.display()))
     }
 }
 

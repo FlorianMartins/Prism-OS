@@ -54,6 +54,20 @@ deleted afterwards. Your Prism settings files stay in `%ProgramData%\Prism`.
 
 The same clean-up is available on its own: `prism desinstaller` (administrator).
 
+### Updates
+
+```powershell
+prism maj             # is there a newer version? (GitHub Releases)
+prism maj installer   # download it, verify it, install it (administrator)
+```
+
+`prism maj installer` downloads the installer and the published `SHA256SUMS`, checks
+the installer's SHA-256 fingerprint — a file that does not match is deleted and nothing
+is installed — then hands over to a temporary copy of itself (a running program cannot
+be replaced): it stops the Prism Bar and the engine (applying the engine's journal),
+installs the new version as an upgrade (your settings and journals are kept) and starts
+again what was running. Prism never updates itself without you asking.
+
 ## 3. First steps
 
 ```powershell
