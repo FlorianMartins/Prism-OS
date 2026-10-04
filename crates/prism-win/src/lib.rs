@@ -15,6 +15,8 @@ pub mod bar_app;
 #[cfg(windows)]
 mod fx_overlay;
 #[cfg(windows)]
+pub mod install;
+#[cfg(windows)]
 mod library;
 #[cfg(windows)]
 pub mod metrics;

@@ -70,3 +70,47 @@ pub fn active_profile(cfg: &Config) -> String {
 pub fn etat_path() -> PathBuf {
     data_dir().join("etat.json")
 }
+
+/// `PATH` avec `dir` ajouté à la fin ; `None` s'il y est déjà (casse et barre oblique
+/// finale ignorées, comme le fait Windows).
+pub fn path_with(path: &str, dir: &str) -> Option<String> {
+    let norm = |s: &str| s.trim().trim_end_matches('\\').to_ascii_lowercase();
+    if path.split(';').any(|p| norm(p) == norm(dir)) {
+        return None;
+    }
+    let base = path.trim_end_matches(';');
+    Some(if base.is_empty() {
+        dir.to_string()
+    } else {
+        format!("{base};{dir}")
+    })
+}
+
+/// `PATH` sans `dir` ; `None` s'il n'y était pas. Les autres entrées restent intactes,
+/// dans leur ordre et leur écriture (`%SystemRoot%` compris).
+pub fn path_without(path: &str, dir: &str) -> Option<String> {
+    let norm = |s: &str| s.trim().trim_end_matches('\\').to_ascii_lowercase();
+    let parts: Vec<&str> = path.split(';').collect();
+    let kept: Vec<&str> = parts.iter().copied().filter(|p| norm(p) != norm(dir)).collect();
+    (kept.len() != parts.len()).then(|| kept.join(";"))
+}
+
+#[cfg(test)]
+mod path_tests {
+    use super::*;
+
+    #[test]
+    fn install_dir_is_added_once_and_removed_without_touching_the_rest() {
+        let p = r"%SystemRoot%\system32;%SystemRoot%;C:\Tools";
+        let with = path_with(p, r"C:\Program Files\Prism\").unwrap();
+        assert_eq!(
+            with,
+            r"%SystemRoot%\system32;%SystemRoot%;C:\Tools;C:\Program Files\Prism\"
+        );
+        assert_eq!(path_with(&with, r"c:\program files\prism"), None, "déjà présent");
+        assert_eq!(path_without(&with, r"C:\Program Files\Prism").unwrap(), p);
+        assert_eq!(path_without(p, r"C:\Program Files\Prism"), None);
+        assert_eq!(path_with("", r"C:\P").unwrap(), r"C:\P");
+        assert_eq!(path_with(r"C:\A;", r"C:\P").unwrap(), r"C:\A;C:\P");
+    }
+}

@@ -24,10 +24,12 @@ widgets about **15 MB**, the app about 58 MB (close it while you play).
 
 ## 2. Install
 
-1. Download `prism.exe`, `prism-ui.exe` and `prism-bar.exe` (CI artifact
-   `prism-windows-x64`, or build them, see the README) and put them in one folder,
-   for example `C:\Program Files\Prism`.
-2. Open a terminal **as administrator** in that folder.
+1. Download the installer `prism-<version>-x64.msi` (CI artifact `prism-installer`)
+   and run it. It installs Prism in `C:\Program Files\Prism`, adds a **Prism** entry to
+   the Start menu (the app), adds the folder to the system `PATH` (so `prism` works in
+   any terminal) and registers *Prism OS* in **Settings › Apps › Installed apps**.
+   Installing a newer version upgrades in place.
+2. Open a terminal **as administrator**.
 3. Start the engine automatically when you log in:
    ```powershell
    prism autostart on
@@ -41,8 +43,16 @@ Prism must run **in your user session** (that is what `autostart` sets up). If i
 in the services session (for example over SSH), it refuses to touch any process and
 `prism status` tells you so.
 
-To uninstall: `prism autostart off`, `prism bar autostart off`, then restore what you
-changed (section 11) and delete the folder.
+**Uninstall** from *Settings › Apps › Installed apps › Prism OS*. Before removing the
+files, the uninstaller puts back everything Prism changed: it stops the engine and
+applies its journals, stops the Prism Bar (the Windows taskbar comes back, translucent
+and tiled windows return to normal), restores privacy, debloat, appearance and startup
+apps, removes the scheduled tasks and the `PATH` entry. The uninstaller runs as the
+system account; the part that belongs to your session (your bar, your settings) is run
+in your session, with administrator rights, through a one-off scheduled task that is
+deleted afterwards. Your Prism settings files stay in `%ProgramData%\Prism`.
+
+The same clean-up is available on its own: `prism desinstaller` (administrator).
 
 ## 3. First steps
 
@@ -285,6 +295,7 @@ figures: [measurements §6](measurements.md).
 | Debloat | `prism allege restore` |
 | Privacy | `prism vie-privee restore` |
 | Appearance | `prism apparence restore` |
+| **Everything at once** | `prism desinstaller` (also run by the uninstaller) |
 | Prism Bar, transparency, window effects | `prism bar off` (effects); `prism apparence restore` (Windows' minimize animation) |
 
 Journals live in `%ProgramData%\Prism\` (`journal.json`, `quotidien.json`,

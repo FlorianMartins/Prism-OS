@@ -45,6 +45,7 @@ Utilisation : prism <commande>
   config export <fichier> toute la configuration (barre, thème, apparence, niveaux) dans un fichier
   config import <fichier> la réapplique, sur ce PC ou un autre (admin pour les niveaux)
   autostart on|off        lance le Mode Jeu à l'ouverture de session (admin)
+  desinstaller            remet TOUT comme avant Prism (fait aussi par la désinstallation, admin)
   bar on|off              lance / arrête la Prism Bar ; bar autostart on|off
   fx demo | fx stats      démonstration mesurée des effets ; mesures des dernières animations
   demo                    partie simulée de bout en bout (tout système)
@@ -855,7 +856,157 @@ fn platform_command(cfg: &Config, args: &[&str]) -> Result<(), String> {
             ])
         }
         ["autostart", "off"] => schtasks(&["/Delete", "/TN", "Prism OS", "/F"]),
+        ["apres-installation"] => {
+            // Lancé par l'installateur MSI (compte SYSTEM) : `prism` dans tout terminal.
+            let dir = install_dir()?;
+            match prism_win::install::path_add(&dir)? {
+                true => println!("{dir} ajouté au PATH du système"),
+                false => println!("{dir} déjà dans le PATH"),
+            }
+            Ok(())
+        }
+        ["desinstaller", rest @ ..] => uninstall(rest),
         _ => Err(format!("commande inconnue : {}\n\n{HELP}", args.join(" "))),
+    }
+}
+
+#[cfg(windows)]
+fn install_dir() -> Result<String, String> {
+    let exe = std::env::current_exe().map_err(|e| e.to_string())?;
+    Ok(exe
+        .parent()
+        .ok_or("dossier d'installation introuvable")?
+        .display()
+        .to_string())
+}
+
+/// Remet tout comme avant Prism. Depuis l'installateur (compte SYSTEM, session des
+/// services), la partie « utilisateur » est relancée dans la session de l'utilisateur
+/// avec les droits administrateur — c'est là que vivent sa barre, ses réglages
+/// d'apparence et sa branche HKCU du registre —, puis le PATH est nettoyé.
+#[cfg(windows)]
+fn uninstall(args: &[&str]) -> Result<(), String> {
+    let done_flag = sys::data_dir().join("desinstallation-terminee");
+    let service = prism_win::install::in_service_session();
+    if service && args.first() != Some(&"--ici") {
+        if let Some(user) = args.first().filter(|u| !u.is_empty()) {
+            let _ = std::fs::remove_file(&done_flag);
+            let exe = std::env::current_exe().map_err(|e| e.to_string())?;
+            let task = format!("\"{}\" desinstaller --ici", exe.display());
+            let created = schtasks(&[
+                "/Create",
+                "/TN",
+                "Prism desinstaller",
+                "/TR",
+                &task,
+                "/SC",
+                "ONCE",
+                "/ST",
+                "23:59",
+                "/RU",
+                user,
+                "/IT",
+                "/RL",
+                "HIGHEST",
+                "/F",
+            ]);
+            if created.is_ok() && schtasks(&["/Run", "/TN", "Prism desinstaller"]).is_ok() {
+                // Attend la fin (deux minutes au plus) : les fichiers ne doivent pas
+                // disparaître pendant qu'elle tourne.
+                for _ in 0..240 {
+                    if done_flag.exists() {
+                        break;
+                    }
+                    std::thread::sleep(std::time::Duration::from_millis(500));
+                }
+            }
+            let _ = schtasks(&["/Delete", "/TN", "Prism desinstaller", "/F"]);
+            let _ = std::fs::remove_file(&done_flag);
+        } else {
+            println!("Aucun utilisateur connecté : réglages de session non remis (relancer « prism desinstaller »).");
+        }
+        let _ = schtasks(&["/Delete", "/TN", "Prism OS", "/F"]);
+        let _ = schtasks(&["/Delete", "/TN", "Prism Bar", "/F"]);
+        prism_win::install::path_remove(&install_dir()?)?;
+        return Ok(());
+    }
+    let mut failed = 0usize;
+    // 1. Le moteur : arrêté, puis ses journaux appliqués (comme à son redémarrage).
+    let stopped = prism_win::install::stop_other_instances("prism.exe");
+    if stopped > 0 {
+        std::thread::sleep(std::time::Duration::from_millis(500));
+    }
+    {
+        use prism_core::journal::FileStore;
+        let mut w = prism_win::WindowsPlatform::new();
+        for path in [sys::journal_path(), sys::data_dir().join("quotidien.json")] {
+            let mut store = FileStore { path };
+            if let Ok(Some(r)) = prism_core::engine::recover(&mut w, &mut store) {
+                println!("✓ moteur : {} réglage(s) de processus remis", r.done.len());
+            }
+        }
+    }
+    // 2. La barre : sa fermeture rend la barre Windows, l'opacité et les fenêtres en tuiles.
+    if prism_win::bar_app::stop() {
+        for _ in 0..20 {
+            if !prism_win::bar_app::running() {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(250));
+        }
+        println!("✓ Prism Bar arrêtée, barre des tâches Windows remise");
+    }
+    // 3. Chaque module, par son journal.
+    {
+        use prism_core::privacy;
+        let path = privacy::journal_path();
+        let mut j = privacy::Journal::load(&path)?;
+        let r = privacy::restore(&mut prism_win::WindowsPrivacy::new(), &mut j);
+        j.save(&path)?;
+        failed += r.failed.len();
+        println!("✓ vie privée : {} remis, {} échec(s)", r.done.len(), r.failed.len());
+    }
+    {
+        use prism_core::allege::{restore, AllegeJournal};
+        let path = sys::data_dir().join("allegement.json");
+        let mut j = AllegeJournal::load(&path)?;
+        let r = restore(&mut prism_win::WindowsSystemConfig, &mut j);
+        j.save(&path)?;
+        failed += r.failed.len();
+        println!("✓ allègement : {} remis, {} échec(s)", r.done.len(), r.failed.len());
+    }
+    {
+        let path = sys::data_dir().join("apparence.json");
+        let mut j = prism_core::apparence::AppearanceJournal::load(&path)?;
+        let r = prism_core::apparence::restore(
+            &mut prism_win::WindowsAppearance,
+            &prism_core::apparence::Catalog::builtin(),
+            &mut j,
+        );
+        j.save(&path)?;
+        failed += r.failed.len();
+        println!("✓ apparence : {} remis, {} échec(s)", r.done.len(), r.failed.len());
+    }
+    {
+        use prism_core::demarrage::{restore, StartupJournal};
+        let path = sys::data_dir().join("demarrage.json");
+        let mut j = StartupJournal::load(&path)?;
+        let r = restore(&mut prism_win::WindowsStartup, &mut j);
+        j.save(&path)?;
+        failed += r.failed.len();
+        println!("✓ démarrage : {} remis, {} échec(s)", r.done.len(), r.failed.len());
+    }
+    let _ = schtasks(&["/Delete", "/TN", "Prism OS", "/F"]);
+    let _ = schtasks(&["/Delete", "/TN", "Prism Bar", "/F"]);
+    if !service {
+        let _ = prism_win::install::path_remove(&install_dir()?);
+    }
+    let _ = std::fs::write(&done_flag, b"ok");
+    if failed == 0 {
+        println!("Tout est remis comme avant Prism.");
+        Ok(())
+    } else {
+        Err(format!("{failed} élément(s) non remis (droits administrateur ?)"))
     }
 }
 

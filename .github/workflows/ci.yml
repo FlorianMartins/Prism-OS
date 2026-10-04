@@ -58,3 +58,33 @@ jobs:
             target/release/prism.exe
             target/release/prism-bar.exe
             target/release/prism-ui.exe
+
+  installer:
+    name: Installateur MSI
+    needs: windows
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: prism-windows-x64
+          path: bin
+      - name: wixl (msitools)
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq wixl msitools
+      - name: Construction du MSI (binaires compilés sur Windows)
+        run: |
+          version=$(grep -m1 '^version' Cargo.toml | cut -d'"' -f2)
+          wixl -a x64 -D Version="$version" -D Bin=bin -o "prism-$version-x64.msi" installer/prism.wxs
+          # Contrôles : les trois programmes et les deux actions sont dans le paquet,
+          # l'action de nettoyage est entre InstallInitialize et InstallFinalize.
+          msiinfo export "prism-$version-x64.msi" File | grep -q prism-ui.exe
+          seq=$(msiinfo export "prism-$version-x64.msi" InstallExecuteSequence | tr -d '\r')
+          init=$(echo "$seq" | awk -F'\t' '$1=="InstallInitialize"{print $3}')
+          clean=$(echo "$seq" | awk -F'\t' '$1=="PrismCleanup"{print $3}')
+          fin=$(echo "$seq" | awk -F'\t' '$1=="InstallFinalize"{print $3}')
+          echo "InstallInitialize=$init PrismCleanup=$clean InstallFinalize=$fin"
+          test "$clean" -gt "$init" && test "$clean" -lt "$fin"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: prism-installer
+          path: prism-*-x64.msi

@@ -113,8 +113,6 @@ struct Bar {
     game: bool,
     /// Widgets du bureau masqués (plein écran).
     desk_hidden: bool,
-    /// État de la barre Windows avant que Prism la masque (pour le remettre).
-    taskbar_prev: Option<u32>,
     scale: f32,
     desk: Vec<DeskWin>,
     /// Règles du Mode Jeu, pour ne jamais rendre un jeu transparent.
@@ -372,26 +370,56 @@ fn taskbar_hwnd() -> HWND {
     unsafe { FindWindowW(c.as_ptr(), null()) }
 }
 
-/// Masque automatiquement (ou remet) la barre des tâches de Windows : c'est
-/// l'option « Masquer automatiquement la barre des tâches » de Windows.
-fn set_taskbar_autohide(on: bool, prev: Option<u32>) -> Option<u32> {
+/// État de la barre Windows avant que Prism la masque, gardé sur disque : une barre
+/// arrêtée de force ne doit pas faire oublier l'état d'origine (sinon la suivante
+/// noterait « masquée » comme état d'origine — vu en VM).
+fn taskbar_state_path() -> std::path::PathBuf {
+    prism_core::paths::data_dir().join("barre-windows.txt")
+}
+
+fn taskbar_state() -> Option<u32> {
     let tb = taskbar_hwnd();
     if tb.is_null() {
-        return prev;
+        return None;
     }
     let mut d = appbar_data(tb);
     // SAFETY: structure locale initialisée avec sa taille.
-    unsafe {
-        let current = SHAppBarMessage(ABM_GETSTATE, &mut d) as u32;
-        let target = if on {
-            ABS_AUTOHIDE
-        } else {
-            prev.unwrap_or(current & !ABS_AUTOHIDE)
-        };
-        d.lParam = target as LPARAM;
-        SHAppBarMessage(ABM_SETSTATE, &mut d);
-        Some(current)
+    Some(unsafe { SHAppBarMessage(ABM_GETSTATE, &mut d) } as u32)
+}
+
+fn set_taskbar_state(state: u32) {
+    let tb = taskbar_hwnd();
+    if tb.is_null() {
+        return;
     }
+    let mut d = appbar_data(tb);
+    d.lParam = state as LPARAM;
+    // SAFETY: structure locale initialisée avec sa taille.
+    unsafe { SHAppBarMessage(ABM_SETSTATE, &mut d) };
+}
+
+/// Masque automatiquement la barre des tâches de Windows (son option « Masquer
+/// automatiquement »), en notant son état d'origine une seule fois.
+fn hide_taskbar() {
+    let path = taskbar_state_path();
+    if !path.exists() {
+        if let Some(cur) = taskbar_state() {
+            let _ = std::fs::create_dir_all(prism_core::paths::data_dir());
+            let _ = std::fs::write(&path, cur.to_string());
+        }
+    }
+    set_taskbar_state(ABS_AUTOHIDE);
+}
+
+/// Remet la barre des tâches de Windows dans son état d'origine.
+fn show_taskbar() {
+    let path = taskbar_state_path();
+    let saved = std::fs::read_to_string(&path)
+        .ok()
+        .and_then(|t| t.trim().parse::<u32>().ok());
+    let target = saved.unwrap_or_else(|| taskbar_state().unwrap_or(0) & !ABS_AUTOHIDE);
+    set_taskbar_state(target);
+    let _ = std::fs::remove_file(path);
 }
 
 impl Bar {
@@ -851,7 +879,11 @@ impl Bar {
                 self.tiler.restore_all();
             }
             if new.hide_windows_taskbar != self.cfg.hide_windows_taskbar {
-                self.taskbar_prev = set_taskbar_autohide(new.hide_windows_taskbar, self.taskbar_prev);
+                if new.hide_windows_taskbar {
+                    hide_taskbar();
+                } else {
+                    show_taskbar();
+                }
             }
             self.cfg = new;
             self.dock();
@@ -2484,7 +2516,7 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) 
                     }
                 }
                 if b.cfg.hide_windows_taskbar {
-                    set_taskbar_autohide(false, b.taskbar_prev);
+                    show_taskbar();
                 }
             });
             PostQuitMessage(0);
@@ -2544,11 +2576,9 @@ pub fn run() -> Result<(), String> {
         BAR_HWND.with(|b| b.set(hwnd as isize));
         let cfg = BarConfig::load();
         set_colors(&cfg.theme);
-        let taskbar_prev = if cfg.hide_windows_taskbar {
-            set_taskbar_autohide(true, None)
-        } else {
-            None
-        };
+        if cfg.hide_windows_taskbar {
+            hide_taskbar();
+        }
         let scale = GetDpiForWindow(hwnd).max(96) as f32 / 96.0;
         BAR.with(|b| {
             *b.borrow_mut() = Some(Bar {
@@ -2572,7 +2602,6 @@ pub fn run() -> Result<(), String> {
                 }],
                 game: false,
                 desk_hidden: false,
-                taskbar_prev,
                 scale,
                 desk: Vec::new(),
                 game_cfg: {
