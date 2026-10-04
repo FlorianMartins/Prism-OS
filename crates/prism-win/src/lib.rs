@@ -11,7 +11,11 @@
 #[cfg(windows)]
 mod appearance;
 #[cfg(windows)]
+pub mod bar_app;
+#[cfg(windows)]
 mod library;
+#[cfg(windows)]
+pub mod metrics;
 #[cfg(windows)]
 mod startup;
 #[cfg(windows)]

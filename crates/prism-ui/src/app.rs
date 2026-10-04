@@ -584,7 +584,9 @@ impl PrismApp {
                 .color(MUTED),
         );
         ui.add_space(10.0);
-        section(ui, "Préréglages");
+        self.bar_section(ui, &mut action);
+        ui.add_space(12.0);
+        section(ui, "Effets de Windows : préréglages");
         let presets = self.backend.appearance_presets();
         let n = presets.len() + 1;
         row(ui, n, |i, col| {
@@ -644,6 +646,101 @@ impl PrismApp {
         }
         if let Some(r) = action {
             self.result(r);
+        }
+    }
+
+    fn bar_section(&mut self, ui: &mut egui::Ui, action: &mut Option<Result<String, String>>) {
+        use prism_core::bar::{Edge, Widget, MARGIN_MAX, OPACITY_MIN, THICKNESS_MAX, THICKNESS_MIN};
+        let running = self.backend.bar_running();
+        let mut cfg = self.backend.bar_config();
+        let before = cfg.clone();
+        ui.horizontal(|ui| {
+            section(ui, "Prism Bar");
+            ui.label(
+                RichText::new(
+                    "Votre barre des tâches : n'importe quel bord, taille et opacité au choix, widgets système.",
+                )
+                .small()
+                .color(MUTED),
+            );
+            ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                if running {
+                    if ui.button("Arrêter la barre").clicked() {
+                        *action = Some(self.backend.bar_stop());
+                    }
+                    pill(ui, "✔ en marche", OK);
+                } else if ui
+                    .add(egui::Button::new(RichText::new("Lancer la barre").color(BG)).fill(ACCENT))
+                    .clicked()
+                {
+                    *action = Some(self.backend.bar_start());
+                }
+            });
+        });
+        card(ui, false, |ui| {
+            row(ui, 2, |i, col| {
+                if i == 0 {
+                    bar_preview(col, &cfg);
+                    return;
+                }
+                egui::Grid::new("bar-cfg")
+                    .num_columns(2)
+                    .spacing([16.0, 10.0])
+                    .show(col, |ui| {
+                        ui.label("Position");
+                        ui.horizontal(|ui| {
+                            for e in Edge::ALL {
+                                let sel = cfg.edge == e;
+                                let b = egui::Button::new(RichText::new(e.label()).color(if sel { BG } else { TEXT }))
+                                    .fill(if sel { ACCENT } else { CARD_HI });
+                                if ui.add(b).clicked() {
+                                    cfg.edge = e;
+                                }
+                            }
+                        });
+                        ui.end_row();
+                        ui.label("Épaisseur");
+                        ui.add(egui::Slider::new(&mut cfg.thickness, THICKNESS_MIN..=THICKNESS_MAX).suffix(" px"));
+                        ui.end_row();
+                        ui.label("Marge (barre flottante)");
+                        ui.add(egui::Slider::new(&mut cfg.margin, 0..=MARGIN_MAX).suffix(" px"));
+                        ui.end_row();
+                        ui.label("Opacité");
+                        ui.add(egui::Slider::new(&mut cfg.opacity, OPACITY_MIN..=100).suffix(" %"));
+                        ui.end_row();
+                        ui.label("Options");
+                        ui.vertical(|ui| {
+                            ui.checkbox(&mut cfg.rounded, "Coins arrondis");
+                            ui.checkbox(&mut cfg.hide_windows_taskbar, "Masquer la barre des tâches de Windows");
+                            ui.checkbox(
+                                &mut cfg.hide_in_fullscreen,
+                                "Se cacher pendant les jeux et vidéos plein écran",
+                            );
+                        });
+                        ui.end_row();
+                        ui.label("Widgets");
+                        ui.horizontal_wrapped(|ui| {
+                            for w in Widget::ALL {
+                                let mut on = cfg.widgets.contains(&w);
+                                if ui.checkbox(&mut on, w.label()).changed() {
+                                    if on {
+                                        cfg.widgets.push(w);
+                                    } else {
+                                        cfg.widgets.retain(|x| *x != w);
+                                    }
+                                    // Ordre stable : celui de la liste de référence.
+                                    cfg.widgets.sort_by_key(|x| Widget::ALL.iter().position(|y| y == x));
+                                }
+                            }
+                        });
+                        ui.end_row();
+                    });
+            });
+        });
+        if cfg != before {
+            if let Err(e) = self.backend.set_bar_config(&cfg) {
+                *action = Some(Err(e));
+            }
         }
     }
 
@@ -862,6 +959,88 @@ fn game_tile(ui: &mut egui::Ui, g: &Game, size: Vec2, selected: bool) -> egui::R
         );
     }
     resp
+}
+
+/// Aperçu de la barre sur un écran miniature, avec le même code de disposition que
+/// la vraie barre (`prism_core::bar::layout`).
+fn bar_preview(ui: &mut egui::Ui, cfg: &prism_core::bar::BarConfig) {
+    use prism_core::bar::{bar_rect, layout, Rect as BRect, Widget};
+    let w = ui.available_width().min(520.0);
+    let h = w * 9.0 / 16.0;
+    let (rect, _) = ui.allocate_exact_size(Vec2::new(w, h), Sense::hover());
+    let p = ui.painter();
+    // Écran simulé en 1920x1080, puis réduit.
+    let k = w / 1920.0;
+    p.rect_filled(rect, CornerRadius::same(8), Color32::from_rgb(0x24, 0x3b, 0x55));
+    p.rect_filled(
+        rect.shrink(1.0),
+        CornerRadius::same(8),
+        Color32::from_rgb(0x1a, 0x2a, 0x3d),
+    );
+    // Une fenêtre factice dans la zone de travail.
+    let (bar, reserved) = bar_rect(
+        BRect {
+            left: 0,
+            top: 0,
+            right: 1920,
+            bottom: 1080,
+        },
+        cfg,
+    );
+    let work = match cfg.edge {
+        prism_core::bar::Edge::Top => {
+            egui::Rect::from_min_max(egui::pos2(0.0, reserved.bottom as f32), egui::pos2(1920.0, 1080.0))
+        }
+        prism_core::bar::Edge::Bottom => {
+            egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1920.0, reserved.top as f32))
+        }
+        prism_core::bar::Edge::Left => {
+            egui::Rect::from_min_max(egui::pos2(reserved.right as f32, 0.0), egui::pos2(1920.0, 1080.0))
+        }
+        prism_core::bar::Edge::Right => {
+            egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(reserved.left as f32, 1080.0))
+        }
+    };
+    let to_screen = |x: f32, y: f32| rect.min + Vec2::new(x * k, y * k);
+    let win = egui::Rect::from_min_max(
+        to_screen(work.min.x + 160.0, work.min.y + 120.0),
+        to_screen(work.max.x - 160.0, work.max.y - 120.0),
+    );
+    p.rect_filled(win, CornerRadius::same(4), Color32::from_rgb(0x2b, 0x36, 0x44));
+    p.rect_filled(
+        egui::Rect::from_min_size(win.min, Vec2::new(win.width(), 10.0)),
+        CornerRadius::same(4),
+        Color32::from_rgb(0x36, 0x44, 0x55),
+    );
+    // La barre.
+    let alpha = (cfg.opacity as f32 / 100.0 * 255.0) as u8;
+    let br = egui::Rect::from_min_max(
+        to_screen(bar.left as f32, bar.top as f32),
+        to_screen(bar.right as f32, bar.bottom as f32),
+    );
+    let radius = if cfg.rounded { 6 } else { 0 };
+    p.rect_filled(
+        br,
+        CornerRadius::same(radius),
+        Color32::from_rgba_unmultiplied(0x12, 0x17, 0x1e, alpha),
+    );
+    for it in layout(cfg, bar.width(), bar.height(), 3) {
+        let r = egui::Rect::from_min_max(
+            br.min + Vec2::new(it.rect.left as f32 * k, it.rect.top as f32 * k),
+            br.min + Vec2::new(it.rect.right as f32 * k, it.rect.bottom as f32 * k),
+        )
+        .shrink(1.5);
+        let color = match it.widget {
+            Widget::Start => ACCENT,
+            Widget::Windows if it.index == Some(0) => ACCENT_DIM,
+            Widget::Windows => CARD_HI,
+            Widget::Cpu | Widget::Ram | Widget::Gpu => Color32::from_rgb(0x2e, 0x5a, 0x4c),
+            Widget::GameMode => Color32::from_rgb(0x3a, 0x33, 0x60),
+            Widget::Network => Color32::from_rgb(0x3d, 0x4a, 0x2a),
+            Widget::Clock => Color32::from_rgb(0x44, 0x4c, 0x58),
+        };
+        p.rect_filled(r, CornerRadius::same(2), color);
+    }
 }
 
 /// Interrupteur (case à cocher redessinée).

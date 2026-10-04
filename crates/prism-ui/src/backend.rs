@@ -109,6 +109,12 @@ pub trait Backend {
     fn appearance_preset(&mut self, id: &str) -> Result<String, String>;
     fn appearance_restore(&mut self) -> Result<String, String>;
 
+    fn bar_config(&mut self) -> prism_core::bar::BarConfig;
+    fn set_bar_config(&mut self, cfg: &prism_core::bar::BarConfig) -> Result<(), String>;
+    fn bar_running(&mut self) -> bool;
+    fn bar_start(&mut self) -> Result<String, String>;
+    fn bar_stop(&mut self) -> Result<String, String>;
+
     fn packs(&self) -> Vec<PackInfo>;
     fn install_pack(&mut self, pack: &str) -> Result<String, String>;
 }

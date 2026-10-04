@@ -13,6 +13,8 @@ const GIB: u64 = 1024 * 1024 * 1024;
 const MIB: u64 = 1024 * 1024;
 
 pub struct MockBackend {
+    pub bar: prism_core::bar::BarConfig,
+    pub bar_on: bool,
     pub appearance: prism_core::apparence::MockAppearance,
     pub appearance_journal: prism_core::apparence::AppearanceJournal,
     pub profile: String,
@@ -33,6 +35,8 @@ impl Default for MockBackend {
             protected,
         };
         MockBackend {
+            bar: prism_core::bar::BarConfig::default(),
+            bar_on: true,
             appearance: prism_core::apparence::MockAppearance::factory(&prism_core::apparence::Catalog::builtin()),
             appearance_journal: Default::default(),
             profile: "gaming".into(),
@@ -353,6 +357,29 @@ impl Backend for MockBackend {
 
     fn appearance_restore(&mut self) -> Result<String, String> {
         crate::appearance_common::restore_all(&mut self.appearance, &mut self.appearance_journal)
+    }
+
+    fn bar_config(&mut self) -> prism_core::bar::BarConfig {
+        self.bar.clone()
+    }
+
+    fn set_bar_config(&mut self, cfg: &prism_core::bar::BarConfig) -> Result<(), String> {
+        self.bar = cfg.clone().sanitized();
+        Ok(())
+    }
+
+    fn bar_running(&mut self) -> bool {
+        self.bar_on
+    }
+
+    fn bar_start(&mut self) -> Result<String, String> {
+        self.bar_on = true;
+        Ok("Prism Bar lancée".into())
+    }
+
+    fn bar_stop(&mut self) -> Result<String, String> {
+        self.bar_on = false;
+        Ok("Prism Bar arrêtée".into())
     }
 
     fn packs(&self) -> Vec<PackInfo> {

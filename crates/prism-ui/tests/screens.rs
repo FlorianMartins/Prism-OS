@@ -7,7 +7,11 @@ use prism_ui::app::{Page, PrismApp};
 use prism_ui::mock::MockBackend;
 
 fn shot(name: &str, page: Page, console: bool) -> image::RgbaImage {
-    let mut app = PrismApp::new(Box::new(MockBackend::default()));
+    shot_with(name, page, console, MockBackend::default())
+}
+
+fn shot_with(name: &str, page: Page, console: bool, backend: MockBackend) -> image::RgbaImage {
+    let mut app = PrismApp::new(Box::new(backend));
     app.page = page;
     app.console = console;
     let mut harness = Harness::builder()
@@ -43,4 +47,16 @@ fn every_page_renders() {
         assert_eq!((img.width(), img.height()), (1280, 820), "{name}");
         assert!(has_accent(&img), "{name} : page vide ou thème absent");
     }
+}
+
+#[test]
+fn bar_preview_on_the_left_floating_and_rounded() {
+    let mut b = MockBackend::default();
+    b.bar.edge = prism_core::bar::Edge::Left;
+    b.bar.margin = 12;
+    b.bar.rounded = true;
+    b.bar.thickness = 56;
+    b.bar.opacity = 70;
+    let img = shot_with("apparence-barre-gauche", Page::Appearance, false, b);
+    assert!(has_accent(&img));
 }

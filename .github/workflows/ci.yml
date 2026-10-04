@@ -56,4 +56,5 @@ jobs:
           name: prism-windows-x64
           path: |
             target/release/prism.exe
+            target/release/prism-bar.exe
             target/release/prism-ui.exe

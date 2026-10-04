@@ -361,6 +361,34 @@ impl Backend for WinBackend {
         r
     }
 
+    fn bar_config(&mut self) -> prism_core::bar::BarConfig {
+        prism_core::bar::BarConfig::load()
+    }
+
+    fn set_bar_config(&mut self, cfg: &prism_core::bar::BarConfig) -> Result<(), String> {
+        cfg.save()
+    }
+
+    fn bar_running(&mut self) -> bool {
+        prism_win::bar_app::running()
+    }
+
+    fn bar_start(&mut self) -> Result<String, String> {
+        let exe = prism_exe().with_file_name("prism-bar.exe");
+        Command::new(&exe)
+            .spawn()
+            .map_err(|e| format!("{} : {e}", exe.display()))?;
+        Ok("Prism Bar lancée".into())
+    }
+
+    fn bar_stop(&mut self) -> Result<String, String> {
+        if prism_win::bar_app::stop() {
+            Ok("Prism Bar arrêtée, barre Windows remise".into())
+        } else {
+            Err("Prism Bar ne tournait pas".into())
+        }
+    }
+
     fn packs(&self) -> Vec<PackInfo> {
         self.cfg
             .packs

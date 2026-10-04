@@ -6,6 +6,7 @@
 
 pub mod allege;
 pub mod apparence;
+pub mod bar;
 pub mod classify;
 pub mod config;
 pub mod cores;
