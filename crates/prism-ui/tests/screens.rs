@@ -131,3 +131,23 @@ fn nav_click_changes_page() {
     harness.run_steps(3);
     assert_eq!(harness.state().page, Page::Services);
 }
+
+/// Carte survolée : relief (bordure lumineuse, ombre, reflet) visible au rendu.
+#[test]
+fn hovered_card_shows_its_3d_effect() {
+    let app = PrismApp::new(Box::new(MockBackend::default()));
+    let mut harness = Harness::builder()
+        .with_size(egui::vec2(1280.0, 820.0))
+        .wgpu()
+        .build_ui_state(|ui, app: &mut PrismApp| app.show(ui), app);
+    prism_ui::theme::apply(&harness.ctx);
+    harness.run_steps(3);
+    harness
+        .input_mut()
+        .events
+        .push(egui::Event::PointerMoved(egui::pos2(700.0, 520.0)));
+    harness.run_steps(12);
+    let img = harness.render().expect("rendu wgpu");
+    let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../target/ui-shots");
+    img.save(dir.join("carte-survolee.png")).unwrap();
+}

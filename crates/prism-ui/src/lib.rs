@@ -6,6 +6,7 @@
 pub mod app;
 pub mod appearance_common;
 pub mod backend;
+pub mod futur;
 pub mod logo;
 pub mod mock;
 pub mod theme;

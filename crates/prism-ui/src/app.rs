@@ -426,6 +426,35 @@ impl PrismApp {
             self.welcome(ui);
             ui.add_space(12.0);
         }
+        // Système en direct : jauges circulaires.
+        section(ui, "Système");
+        let m0 = self.live.mem;
+        let used_pct = (m0.total > 0)
+            .then(|| (m0.total.saturating_sub(m0.free + m0.standby_total) as f64 * 100.0 / m0.total as f64) as f32);
+        let (cpu, gpu) = (self.live.cpu, self.live.gpu);
+        let cores = self.live.cores.clone();
+        let used_txt = format!(
+            "{} utilisés sur {}",
+            human_bytes(m0.total.saturating_sub(m0.free + m0.standby_total)),
+            human_bytes(m0.total)
+        );
+        row(ui, 3, |i, col| {
+            card(col, false, |ui| match i {
+                0 => crate::futur::ring(ui, cpu, "Processeur", &cores),
+                1 => crate::futur::ring(ui, used_pct, "Mémoire", &used_txt),
+                _ => crate::futur::ring(
+                    ui,
+                    gpu,
+                    "Carte graphique",
+                    if gpu.is_some() {
+                        "moteur le plus chargé"
+                    } else {
+                        "compteur indisponible"
+                    },
+                ),
+            });
+        });
+        ui.add_space(14.0);
         section(ui, "Profil");
         let profiles = self.backend.profiles();
         let mut chosen = None;
@@ -2171,17 +2200,9 @@ fn stat_title(ui: &mut egui::Ui, title: &str) {
     ui.label(RichText::new(title).small().color(th::accent()));
 }
 
+/// Carte en relief, interactive (voir `futur::card3d`) : toutes les pages en profitent.
 fn card(ui: &mut egui::Ui, highlighted: bool, add: impl FnOnce(&mut egui::Ui)) -> egui::Response {
-    egui::Frame::new()
-        .fill(if highlighted { th::accent_dim() } else { th::card() })
-        .stroke(Stroke::new(1.0, if highlighted { th::accent() } else { th::border() }))
-        .corner_radius(CornerRadius::same(10))
-        .inner_margin(Margin::same(14))
-        .show(ui, |ui| {
-            ui.set_width(ui.available_width());
-            add(ui)
-        })
-        .response
+    crate::futur::card3d(ui, highlighted, add)
 }
 
 fn pill(ui: &mut egui::Ui, text: &str, color: Color32) {

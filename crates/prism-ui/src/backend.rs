@@ -26,6 +26,9 @@ pub struct Live {
     pub etat: Option<Etat>,
     /// `prism watch` tourne-t-il en ce moment ?
     pub watch_alive: bool,
+    /// Processeur et carte graphique en %, mesurés comme la Prism Bar.
+    pub cpu: Option<f32>,
+    pub gpu: Option<f32>,
 }
 
 #[derive(Clone, Debug)]

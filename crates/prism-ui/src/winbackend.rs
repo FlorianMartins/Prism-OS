@@ -21,6 +21,8 @@ pub struct WinBackend {
     cfg: Config,
     platform: WindowsPlatform,
     previous: Option<(Snapshot, Instant)>,
+    /// Mesures du processeur et de la carte graphique (comme la barre).
+    metrics: prism_win::metrics::Metrics,
     /// Page Outils cyber : état partagé avec les fils de lecture et d'installation.
     tools: std::sync::Arc<std::sync::Mutex<crate::backend::ToolsView>>,
 }
@@ -31,6 +33,7 @@ impl WinBackend {
             cfg: load_config().unwrap_or_else(|_| Config::builtin()),
             platform: WindowsPlatform::new(),
             previous: None,
+            metrics: prism_win::metrics::Metrics::new(),
             tools: Default::default(),
         }
     }
@@ -161,6 +164,7 @@ impl Backend for WinBackend {
         let cores = prism_core::cores::split(&snap.cpus)
             .map(|s| s.describe())
             .unwrap_or_else(|| format!("{} cœurs logiques homogènes", snap.cpus.len()));
+        let sample = self.metrics.sample();
         let live = Live {
             profile: active_profile(&self.cfg),
             mem: snap.mem,
@@ -168,6 +172,8 @@ impl Backend for WinBackend {
             cores,
             etat,
             watch_alive,
+            cpu: Some(sample.cpu),
+            gpu: sample.gpu,
         };
         self.previous = Some((snap, Instant::now()));
         live

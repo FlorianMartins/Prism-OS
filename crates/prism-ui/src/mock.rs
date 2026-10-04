@@ -203,6 +203,8 @@ impl Backend for MockBackend {
                 ],
             }),
             watch_alive: true,
+            cpu: Some(23.0),
+            gpu: Some(41.0),
         }
     }
 

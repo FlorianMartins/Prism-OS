@@ -106,6 +106,13 @@ prism demo          # a simulated gaming session, end to end (works on any compu
 prism-ui            # the graphical app
 ```
 
+### The app's look
+
+Cards react to the mouse: they tilt towards the pointer, a soft light follows it, the
+shadow shifts and the border lights up cyan → violet; animations only run while you
+hover, so the app does not redraw on its own. The dashboard opens with live gauges for
+the processor, memory and graphics card (same measurements as the Prism Bar).
+
 ## 4. Profiles
 
 | Profile | For | Daily Mode | Game Mode |
