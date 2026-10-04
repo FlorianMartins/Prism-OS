@@ -66,7 +66,7 @@ in the interface can be undone by `prism … restore`, and vice versa.
 | **v0.6** ✓ | customization: colour themes for the bar, widgets and app (8 presets, custom accent, WCAG contrast tested), export/import of the whole setup, tiling window manager (4 layouts, per screen, shortcuts, exact undo) — [spec](specs/v0.6-customization.md) |
 | **v0.7** (partial) | MSI installer built from Linux in CI (Start menu, PATH, in-place upgrades) whose uninstall puts back everything Prism changed ✓; release workflow (tag → MSI + SHA256SUMS on GitHub) and `prism maj` updates verified by SHA-256 ✓ — [spec](specs/v0.7-installer.md). Still to do: code signing, published FPS measurements |
 | **v0.8** ✓ | settings that apply without administrator rights, administrator rights without prompt (on-demand task), start with Windows, Windows taskbar fully replaced by the Prism Bar |
-| **v0.9** (in progress) | CPU: bar 19.8 % → 0.26 % of a core (tiling loop fixed), two-speed engine; Extreme debloat level (services on demand, preinstalled apps removed and re-registered offline on undo); automatic, configurable kernel anti-cheat plan (Extreme services back for the game, cybersecurity tools on standby) |
+| **v0.9** ✓ | CPU: bar 19.8 % → 0.26 % of a core (tiling loop fixed), two-speed engine; Extreme debloat level (services on demand, preinstalled apps removed and re-registered offline on undo); automatic, configurable kernel anti-cheat plan (Extreme services back for the game, cybersecurity tools on standby) |
 
 ## Principles
 
