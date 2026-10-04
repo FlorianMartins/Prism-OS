@@ -75,6 +75,7 @@ pub fn is_game_process(name: &str, path: Option<&str>, cfg: &Config) -> bool {
         session: 0,
         working_set: 0,
         cpu_time: 0,
+        parent: 0,
     };
     any_matches(&cfg.lists.protected, &p.name) || is_game(&p, cfg)
 }
@@ -132,6 +133,7 @@ pub(crate) mod tests {
             session: 1,
             working_set: 100 << 20,
             cpu_time: 0,
+            parent: 0,
         }
     }
 

@@ -30,6 +30,7 @@ crates/
                  etat (live state shared with the interface)
                  cadence (engine: light PID check, full scan only when useful)
                  noyau (kernel anti-cheat plan: detection, tool standby, enter/exit)
+                 webview (background WebView2 engines: owner app, delay, recreation)
   prism-win/    execution on Windows (windows-sys): process snapshot, applying and
                  restoring each lever, startup entries, services/policies/scheduled
                  tasks, appearance settings, game library, metrics, Prism Bar window

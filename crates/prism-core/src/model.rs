@@ -23,6 +23,9 @@ pub struct ProcInfo {
     pub working_set: u64,
     /// Temps processeur cumulé (noyau + utilisateur), en unités de 100 ns.
     pub cpu_time: u64,
+    /// PID du processus parent (0 si inconnu). Peut avoir été réutilisé : comparer les
+    /// dates de création avant de s'y fier.
+    pub parent: u32,
 }
 
 /// Un processeur logique tel que Windows le décrit (CPU set).
@@ -71,6 +74,8 @@ pub struct Snapshot {
     pub cpus: Vec<CpuInfo>,
     /// Processus de la fenêtre au premier plan (celle que l'utilisateur regarde).
     pub foreground_pid: Option<u32>,
+    /// Processus qui ont au moins une fenêtre visible (ni cachée, ni outil, ni masquée).
+    pub windowed: Vec<u32>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]

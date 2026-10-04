@@ -36,6 +36,7 @@ Utilisation : prism <commande>
   allege                  catalogue d'allègement (services, stratégies) et état
   allege apply [niveaux]  applique : sur (défaut), avance, jeu, extreme (admin)
   jeu-noyau [on|off]      plan automatique pour les jeux à anti-cheat noyau
+  webview [on|off]        WebView des applis sans fenêtre : liste, ou fermeture auto
   allege restore          remet toutes les valeurs d'origine (admin)
   vie-privee              tableau de bord : protections en place, télémétrie qui parle en ce moment
   vie-privee apply [niveau]  applique : recommande (défaut) ou strict (admin)
@@ -112,6 +113,17 @@ fn run(args: &[&str]) -> Result<(), String> {
         ["tools", "install", pack] => tools_install(&cfg, pack),
         ["allege"] => allege_list(),
         ["jeu-noyau", rest @ ..] => jeu_noyau(rest),
+        ["webview", "on" | "off"] => {
+            let dir = prism_core::paths::user_dir();
+            let mut r = prism_core::webview::Reglages::charger(&dir);
+            r.actif = args[1] == "on";
+            r.enregistrer(&dir)?;
+            println!(
+                "Fermeture des WebView en arrière-plan : {}",
+                if r.actif { "active" } else { "désactivée" }
+            );
+            Ok(())
+        }
         ["tools", pack] => {
             for t in resolve_pack(&cfg, pack)? {
                 println!("{}", t.name);
@@ -358,7 +370,7 @@ fn platform_command(_cfg: &Config, args: &[&str]) -> Result<(), String> {
     match args.first() {
         Some(
             &("status" | "watch" | "ram" | "autostart" | "allege" | "top" | "demarrage" | "jeux" | "apparence" | "bar"
-            | "vie-privee" | "config" | "maj" | "desinstaller"),
+            | "vie-privee" | "config" | "maj" | "desinstaller" | "webview"),
         ) => Err("cette commande agit sur Windows ; ici, essayez `prism demo`".into()),
         _ => Err(format!("commande inconnue : {}\n\n{HELP}", args.join(" "))),
     }
@@ -514,6 +526,35 @@ fn platform_command(cfg: &Config, args: &[&str]) -> Result<(), String> {
             } else {
                 Err("certains changements ont échoué".into())
             }
+        }
+        ["webview"] => {
+            use prism_core::platform::Platform;
+            let snap = prism_win::WindowsPlatform::new().snapshot()?;
+            let r = prism_core::webview::Reglages::charger(&prism_core::paths::user_dir());
+            let gs = prism_core::webview::groupes(&snap);
+            if gs.is_empty() {
+                println!("Aucune WebView ouverte dans votre session.");
+            }
+            for g in &gs {
+                println!(
+                    "{:<28} {:>5} Mo  {}",
+                    g.owner_name,
+                    g.bytes >> 20,
+                    if g.windowed {
+                        "fenêtre ouverte"
+                    } else {
+                        "sans fenêtre"
+                    }
+                );
+            }
+            let total: u64 = gs.iter().map(|g| g.bytes).sum();
+            println!("\nTotal : {} Mo.", total >> 20);
+            println!(
+                "Fermeture automatique : {} (après {} min sans fenêtre ; prism webview on|off).",
+                if r.actif { "active" } else { "désactivée" },
+                r.minutes
+            );
+            Ok(())
         }
         ["demarrage"] => {
             use prism_core::demarrage::{Catalog, StartupConfig};
@@ -1443,6 +1484,7 @@ fn watch(cfg: &Config, quiet: bool) -> Result<(), String> {
         }
     }
     let mut noyau_etat: Option<prism_core::noyau::Etat> = None;
+    let mut webviews = prism_core::webview::Reaper::default();
     let mut watcher = Watcher::default();
     let mut daily = Daily::default();
     let mut etat = prism_core::etat::Etat {
@@ -1492,6 +1534,41 @@ fn watch(cfg: &Config, quiet: bool) -> Result<(), String> {
                     }
                 }
                 let mut lines: Vec<String> = r.done.iter().map(|d| format!("Quotidien : {d}")).collect();
+                // WebView des applis restées sans fenêtre : fermées, sauf si l'appli la
+                // recrée aussitôt (elle passe alors dans les exclusions, visibles dans l'appli).
+                let wv = prism_core::webview::Reglages::charger(&prism_core::paths::user_dir());
+                for d in webviews.tick(&snap, cfg, &wv, since_full.max(cfg.poll_seconds)) {
+                    let l = match d {
+                        prism_core::webview::Decision::Fermer(g) => {
+                            let ok = g
+                                .roots
+                                .iter()
+                                .filter(|id| prism_win::terminate_verified(id).is_ok())
+                                .count();
+                            format!(
+                                "{}WebView de {} fermée (≈ {} Mo, sans fenêtre depuis {} min)",
+                                if ok == g.roots.len() { "" } else { "ÉCHEC partiel : " },
+                                g.owner_name,
+                                g.bytes >> 20,
+                                wv.minutes
+                            )
+                        }
+                        prism_core::webview::Decision::Recreee { name, bytes } => {
+                            let dir = prism_core::paths::user_dir();
+                            let mut r = prism_core::webview::Reglages::charger(&dir);
+                            if !r.exclus.contains(&name) {
+                                r.exclus.push(name.clone());
+                                let _ = r.enregistrer(&dir);
+                            }
+                            format!(
+                                "{name} recrée sa WebView (≈ {} Mo) : Prism ne la fermera plus. Pour gagner cette mémoire, quittez l'appli ou retirez-la du démarrage.",
+                                bytes >> 20
+                            )
+                        }
+                    };
+                    out.line(&l);
+                    lines.push(l);
+                }
                 // Anti-cheat noyau pendant une partie : plan automatique ; fin de partie : sortie.
                 match (&noyau_etat, watcher.engaged()) {
                     (None, true) => {

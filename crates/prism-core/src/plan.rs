@@ -210,6 +210,7 @@ mod tests {
             self_pid: 999,
             cpus: Vec::new(),
             foreground_pid: None,
+            windowed: Vec::new(),
         }
     }
 

@@ -63,6 +63,10 @@ pub struct PrismApp {
     allege: Vec<AllegeRow>,
     /// Plan automatique des jeux à anti-cheat noyau.
     noyau: prism_core::noyau::Reglages,
+    /// Fermeture des WebView en arrière-plan.
+    webview: prism_core::webview::Reglages,
+    /// Saisie d'une appli à exclure.
+    webview_new: String,
     games: Vec<Game>,
     privacy: Vec<prism_core::privacy::Row>,
     privacy_conns: Vec<prism_core::privacy::TelemetryConnection>,
@@ -88,6 +92,7 @@ impl PrismApp {
         let startup = backend.startup().unwrap_or_default();
         let allege = backend.allege();
         let noyau = backend.noyau();
+        let webview = backend.webview();
         let games = backend.games();
         let (privacy, privacy_conns) = backend.privacy();
         let welcome_done = backend.welcome_done();
@@ -99,6 +104,8 @@ impl PrismApp {
             startup,
             allege,
             noyau,
+            webview,
+            webview_new: String::new(),
             games,
             privacy,
             privacy_conns,
@@ -832,6 +839,8 @@ impl PrismApp {
         });
         ui.add_space(10.0);
         self.noyau_section(ui, &mut action);
+        ui.add_space(12.0);
+        self.webview_section(ui, &mut action);
         for (tier, title, note) in [
             (
                 Tier::Sur,
@@ -895,6 +904,59 @@ impl PrismApp {
         }
         if let Some(r) = action {
             self.result(r);
+        }
+    }
+
+    /// WebView des applis restées sans fenêtre (Teams, Outlook, Widgets dans la zone de
+    /// notification…) : fermées après un délai.
+    fn webview_section(&mut self, ui: &mut egui::Ui, action: &mut Option<Result<String, String>>) {
+        section(ui, "WebView en arrière-plan");
+        ui.label(
+            RichText::new(
+                "Une appli réduite dans la zone de notification garde souvent un moteur WebView complet en mémoire (100 à 400 Mo). Prism le ferme quand l'appli n'a plus aucune fenêtre depuis le délai choisi ; elle le recrée quand vous la rouvrez (son contenu se recharge). Jamais pour un jeu, un anti-cheat ou un compagnon de jeu.",
+            )
+            .small()
+            .color(th::muted()),
+        );
+        let before = self.webview.clone();
+        let r = &mut self.webview;
+        let new = &mut self.webview_new;
+        card(ui, false, |ui| {
+            ui.checkbox(
+                &mut r.actif,
+                RichText::new("Fermer les WebView en arrière-plan").strong(),
+            );
+            ui.add_enabled_ui(r.actif, |ui| {
+                ui.horizontal(|ui| {
+                    ui.label("Après");
+                    ui.add(egui::Slider::new(&mut r.minutes, 2..=60).suffix(" min sans fenêtre"));
+                });
+                ui.horizontal_wrapped(|ui| {
+                    ui.label(RichText::new("Jamais pour :").small().color(th::muted()));
+                    let mut remove = None;
+                    for (i, e) in r.exclus.iter().enumerate() {
+                        if ui.small_button(format!("{e}  ✕")).on_hover_text("Retirer").clicked() {
+                            remove = Some(i);
+                        }
+                    }
+                    if let Some(i) = remove {
+                        r.exclus.remove(i);
+                    }
+                    let edit = ui.add(
+                        egui::TextEdit::singleline(new)
+                            .hint_text("ms-teams.exe")
+                            .desired_width(160.0),
+                    );
+                    let enter = edit.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
+                    if (ui.button("Ajouter").clicked() || enter) && !new.trim().is_empty() {
+                        r.exclus.push(new.trim().to_lowercase());
+                        new.clear();
+                    }
+                });
+            });
+        });
+        if self.webview != before {
+            *action = Some(self.backend.set_webview(&self.webview));
         }
     }
 

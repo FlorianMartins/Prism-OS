@@ -345,6 +345,25 @@ Same VM (Windows 11 evaluation, clean, 12 GB, ~145 processes), in the user's ses
   (the packages stay provisioned): **15 original values restored, 0 failures, 19 s,
   offline**; Widgets, Teams, Phone Link, To Do, News and Outlook back.
 
+## 12. Background WebViews — 2026-10-04
+
+Same VM, Teams (new) started then its window closed (it stays in the notification
+area): its WebView2 tree weighed **645 MB** (5 `msedgewebview2.exe` processes, delay set
+to 0 for the test).
+
+- First version: Prism closed the WebView, Teams **restarted itself** (new process) with a
+  new ~550 MB WebView, Prism closed it again — 7 times in 30 s, after which Teams quit.
+  "Once per app launch" did not hold because every restart is a new launch.
+- Fixed: tracking by app name, at most one closing until the app shows a window again,
+  and an app whose WebView comes back within 5 minutes is excluded for good (saved in
+  the user's settings). Re-run: one closing (257 MB), Teams restarted with a 573 MB
+  WebView, *"ms-teams.exe recrée sa WebView … Prism ne la fermera plus"*, Teams still
+  running, `ms-teams.exe` in the exclusions.
+- So for Teams the closing saves nothing; the saving is quitting it or removing it from
+  startup. Which apps keep the memory freed (stay without their WebView until reopened)
+  could not be measured here — Widgets and the new Outlook need a signed-in Microsoft
+  account in this VM.
+
 ## What cannot be measured in a VM
 
 - **FPS and micro-stutters**: this requires a real gaming PC, with a protocol published

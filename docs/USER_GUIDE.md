@@ -214,6 +214,20 @@ EA AntiCheat, Call of Duty's Ricochet), Prism:
 4. at the end of the game, sets the Extreme services back to on-demand and restarts the
    stopped services. Closed programs are not reopened.
 
+**Background WebViews** (*WebView en arrière-plan*, *Allègement* page; `prism webview`
+lists them per app with their memory, `prism webview on|off`): an app sitting in the
+notification area with no window often keeps a whole WebView2 engine in memory
+(`msedgewebview2.exe`, 100–600 MB). Prism closes it once the app has had no visible
+window for the chosen delay (10 min by default; a minimized window counts as visible).
+The app itself keeps running and rebuilds its view when you open it again. Never for a
+game, an anti-cheat, a game companion, a protected process or an app you exclude.
+
+Some apps rebuild their WebView at once, or restart to do it (measured: Teams restarts
+with a new 570 MB WebView). Closing it again would only fight the app, so Prism closes an
+app's WebView at most once until you reopen the app, and an app that rebuilds it within
+5 minutes is added to the exclusions for good, with a message: for those, the only real
+saving is to quit the app or remove it from startup.
+
 A tool can be marked *never touched*. After a crash, the end-of-game step is replayed
 when Prism starts again. Prism never uninstalls a tool for a game (reinstalling would take
 minutes every time); uninstalling is a separate action.

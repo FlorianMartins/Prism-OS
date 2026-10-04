@@ -308,6 +308,7 @@ mod tests {
             session: 1,
             working_set: 0,
             cpu_time: 0,
+            parent: 0,
         };
         let snap = Snapshot {
             procs: vec![p.clone()],

@@ -140,6 +140,39 @@ fn cpu_time(h: HANDLE) -> u64 {
     }
 }
 
+/// Processus qui ont au moins une fenêtre visible (réduite comprise : l'appli est
+/// ouverte), hors fenêtres outils et fenêtres masquées par Windows (applis suspendues).
+fn windowed_pids() -> Vec<u32> {
+    use windows_sys::Win32::Foundation::{HWND, LPARAM};
+    use windows_sys::Win32::Graphics::Dwm::{DwmGetWindowAttribute, DWMWA_CLOAKED};
+    use windows_sys::Win32::UI::WindowsAndMessaging::{
+        EnumWindows, GetWindowLongPtrW, GetWindowThreadProcessId, IsWindowVisible, GWL_EXSTYLE, WS_EX_TOOLWINDOW,
+    };
+    unsafe extern "system" fn cb(hwnd: HWND, lp: LPARAM) -> windows_sys::core::BOOL {
+        let out = &mut *(lp as *mut Vec<u32>);
+        if IsWindowVisible(hwnd) == 0 || GetWindowLongPtrW(hwnd, GWL_EXSTYLE) as u32 & WS_EX_TOOLWINDOW != 0 {
+            return 1;
+        }
+        let mut cloaked = 0u32;
+        DwmGetWindowAttribute(hwnd, DWMWA_CLOAKED as u32, &mut cloaked as *mut _ as *mut c_void, 4);
+        if cloaked != 0 {
+            return 1;
+        }
+        let mut pid = 0u32;
+        GetWindowThreadProcessId(hwnd, &mut pid);
+        if pid != 0 {
+            out.push(pid);
+        }
+        1
+    }
+    let mut out = Vec::new();
+    // SAFETY: le rappel ne reçoit que notre vecteur, vivant pendant tout l'appel.
+    unsafe { EnumWindows(Some(cb), &mut out as *mut _ as LPARAM) };
+    out.sort_unstable();
+    out.dedup();
+    out
+}
+
 fn foreground_pid() -> Option<u32> {
     use windows_sys::Win32::UI::WindowsAndMessaging::{GetForegroundWindow, GetWindowThreadProcessId};
     // SAFETY: lecture de la fenêtre au premier plan ; nulle hors session interactive.
@@ -612,6 +645,7 @@ impl Platform for WindowsPlatform {
                     session,
                     working_set: ws,
                     cpu_time: cpu,
+                    parent: entry.th32ParentProcessID,
                 });
                 more = Process32NextW(snap.0, &mut entry) != 0;
             }
@@ -627,6 +661,7 @@ impl Platform for WindowsPlatform {
             self_pid: self.self_pid,
             cpus: self.cpus.clone(),
             foreground_pid: foreground_pid(),
+            windowed: windowed_pids(),
         })
     }
 

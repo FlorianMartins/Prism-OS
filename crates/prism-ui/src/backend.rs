@@ -104,6 +104,14 @@ pub trait Backend {
     fn noyau(&mut self) -> prism_core::noyau::Reglages {
         prism_core::noyau::Reglages::charger(&prism_core::paths::user_dir())
     }
+    /// Fermeture des WebView des applis restées sans fenêtre.
+    fn webview(&mut self) -> prism_core::webview::Reglages {
+        prism_core::webview::Reglages::charger(&prism_core::paths::user_dir())
+    }
+    fn set_webview(&mut self, r: &prism_core::webview::Reglages) -> Result<String, String> {
+        r.enregistrer(&prism_core::paths::user_dir())?;
+        Ok("WebView en arrière-plan : réglage enregistré".into())
+    }
     fn set_noyau(&mut self, r: &prism_core::noyau::Reglages) -> Result<String, String> {
         r.enregistrer(&prism_core::paths::user_dir())?;
         Ok("Plan « jeu noyau » enregistré : appliqué à la prochaine partie".into())

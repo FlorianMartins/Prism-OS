@@ -78,6 +78,7 @@ impl MockPlatform {
                 session: self.user_session,
                 working_set,
                 cpu_time: 0,
+                parent: 0,
             },
             priority: Priority::Normal,
             eco: EcoState::SystemManaged,
@@ -115,6 +116,7 @@ impl MockPlatform {
                 session: self.user_session,
                 working_set: 0,
                 cpu_time: 0,
+                parent: 0,
             },
             priority: Priority::Normal,
             eco: EcoState::SystemManaged,
@@ -166,6 +168,7 @@ impl Platform for MockPlatform {
                 session: 0,
                 working_set: 0,
                 cpu_time: 0,
+                parent: 0,
             });
         }
         Ok(Snapshot {
@@ -175,6 +178,7 @@ impl Platform for MockPlatform {
             self_pid: self.self_pid,
             cpus: self.cpus.clone(),
             foreground_pid: self.foreground,
+            windowed: Vec::new(),
         })
     }
 

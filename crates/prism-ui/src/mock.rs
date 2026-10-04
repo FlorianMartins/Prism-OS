@@ -27,6 +27,7 @@ pub struct MockBackend {
     pub welcome_seen: bool,
     pub autostart_on: bool,
     pub noyau: prism_core::noyau::Reglages,
+    pub webview: prism_core::webview::Reglages,
 }
 
 impl Default for MockBackend {
@@ -130,6 +131,7 @@ impl Default for MockBackend {
             welcome_seen: false,
             autostart_on: false,
             noyau: Default::default(),
+            webview: Default::default(),
             log: Vec::new(),
         }
     }
@@ -323,6 +325,13 @@ impl Backend for MockBackend {
         rows
     }
 
+    fn webview(&mut self) -> prism_core::webview::Reglages {
+        self.webview.clone()
+    }
+    fn set_webview(&mut self, r: &prism_core::webview::Reglages) -> Result<String, String> {
+        self.webview = r.clone();
+        Ok("WebView en arrière-plan : réglage enregistré".into())
+    }
     fn noyau(&mut self) -> prism_core::noyau::Reglages {
         self.noyau.clone()
     }

@@ -327,6 +327,7 @@ mod tests {
             self_pid: 1,
             cpus: Vec::new(),
             foreground_pid: None,
+            windowed: Vec::new(),
         }
     }
 
