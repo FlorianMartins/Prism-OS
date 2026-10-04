@@ -87,7 +87,7 @@ pub(crate) fn open_service(name: &str, access: u32) -> Result<Option<(Sc, Sc)>, 
     }
 }
 
-fn read_start(svc: &Sc) -> Result<StartType, String> {
+pub(crate) fn read_start(svc: &Sc) -> Result<StartType, String> {
     // SAFETY: premier appel pour connaître la taille, second avec un tampon assez grand
     // et aligné (Vec<u64>).
     unsafe {

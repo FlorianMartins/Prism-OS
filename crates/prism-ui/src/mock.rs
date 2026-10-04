@@ -360,6 +360,49 @@ impl Backend for MockBackend {
         Ok("Plan « jeu noyau » enregistré".into())
     }
 
+    fn services(&mut self) -> Result<Vec<crate::backend::ServiceRow>, String> {
+        use prism_core::allege::{ServiceInfo, StartType};
+        let c = Catalog::builtin();
+        let row = |name: &str, display: &str, start, running| crate::backend::ServiceRow {
+            protected: c.protection(name).map(String::from),
+            by_prism: name == "SysMain",
+            info: ServiceInfo {
+                name: name.into(),
+                display: display.into(),
+                start: Some(start),
+                running,
+                per_user: false,
+            },
+        };
+        Ok(vec![
+            row(
+                "BITS",
+                "Service de transfert intelligent en arrière-plan",
+                StartType::Manual,
+                true,
+            ),
+            row(
+                "DiagTrack",
+                "Expériences des utilisateurs connectés et télémétrie",
+                StartType::Disabled,
+                false,
+            ),
+            row("Spooler", "Spouleur d'impression", StartType::Auto, true),
+            row("SysMain", "SysMain", StartType::Disabled, false),
+            row("vgc", "Vanguard (Riot)", StartType::Manual, false),
+            row("WSearch", "Windows Search", StartType::AutoDelayed, true),
+            row("wuauserv", "Windows Update", StartType::Manual, true),
+        ])
+    }
+
+    fn service_set(&mut self, name: &str, to: prism_core::allege::StartType) -> Result<String, String> {
+        Ok(format!("{name} : {}", to.label_fr()))
+    }
+
+    fn service_restore(&mut self, name: &str) -> Result<String, String> {
+        Ok(format!("{name} : origine remise"))
+    }
+
     fn allege_toggle(&mut self, key: &str, on: bool) -> Result<String, String> {
         Ok(format!("{key} {}", if on { "appliqué" } else { "remis" }))
     }

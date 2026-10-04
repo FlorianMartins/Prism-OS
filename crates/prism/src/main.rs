@@ -38,6 +38,7 @@ Utilisation : prism <commande>
   jeu-noyau [on|off]      plan automatique pour les jeux à anti-cheat noyau
   webview [on|off]        WebView des applis sans fenêtre : liste, ou fermeture auto
   tools uninstall <x>     désinstalle un outil ou un pack (Kali : efface la distribution)
+  services [<nom> <mode>] tous les services ; mode auto|differe|manuel|desactive|origine
   rapport                 où part la mémoire (fichier texte à envoyer, sans données personnelles)
   allege restore          remet toutes les valeurs d'origine (admin)
   vie-privee on|off <clé> un seul réglage ou une seule règle (clés : prism vie-privee)
@@ -404,7 +405,7 @@ fn platform_command(_cfg: &Config, args: &[&str]) -> Result<(), String> {
     match args.first() {
         Some(
             &("status" | "watch" | "ram" | "autostart" | "allege" | "top" | "demarrage" | "jeux" | "apparence" | "bar"
-            | "vie-privee" | "config" | "maj" | "desinstaller" | "webview" | "rapport"),
+            | "vie-privee" | "config" | "maj" | "desinstaller" | "webview" | "rapport" | "services"),
         ) => Err("cette commande agit sur Windows ; ici, essayez `prism demo`".into()),
         _ => Err(format!("commande inconnue : {}\n\n{HELP}", args.join(" "))),
     }
@@ -595,6 +596,60 @@ fn platform_command(cfg: &Config, args: &[&str]) -> Result<(), String> {
             } else {
                 Err("certains changements ont échoué".into())
             }
+        }
+        ["services"] => {
+            let c = prism_core::allege::Catalog::builtin();
+            let list = prism_win::services::services_list()?;
+            for sv in &list {
+                let lock = if c.protection(&sv.name).is_some() { "🔒" } else { "  " };
+                println!(
+                    "{} {lock} {:<16} {:<44} {}",
+                    if sv.running { "●" } else { "○" },
+                    sv.start.map(|s| s.label_fr()).unwrap_or("?"),
+                    sv.display.chars().take(44).collect::<String>(),
+                    sv.name
+                );
+            }
+            let running = list.iter().filter(|s| s.running).count();
+            println!(
+                "\n{} services, {running} en marche. Régler : prism services <nom> auto|manuel|desactive|origine",
+                list.len()
+            );
+            Ok(())
+        }
+        ["services", name, mode] => {
+            use prism_core::allege::{set_service, AllegeJournal, Catalog, StartType};
+            let path = sys::data_dir().join("allegement.json");
+            let mut journal = AllegeJournal::load(&path)?;
+            let to = match *mode {
+                "auto" => StartType::Auto,
+                "differe" | "différé" => StartType::AutoDelayed,
+                "manuel" => StartType::Manual,
+                "desactive" | "désactivé" => StartType::Disabled,
+                "origine" => {
+                    let key = format!("svc:{}", name.to_ascii_lowercase());
+                    if !prism_core::allege::journaled(&journal, &key) {
+                        return Err(format!("{name} : pas changé par Prism, rien à remettre"));
+                    }
+                    let r = prism_core::allege::restore_keys(&mut prism_win::WindowsSystemConfig, &mut journal, &[key]);
+                    journal.save(&path)?;
+                    for l in r.done.iter().chain(&r.failed) {
+                        println!("  {l}");
+                    }
+                    return Ok(());
+                }
+                _ => return Err("mode : auto, differe, manuel, desactive ou origine".into()),
+            };
+            let msg = set_service(
+                &mut prism_win::WindowsSystemConfig,
+                &Catalog::builtin(),
+                &mut journal,
+                name,
+                to,
+                &mut |j| j.save(&path),
+            )?;
+            println!("  {msg}");
+            Ok(())
         }
         ["rapport"] => {
             let (path, text) = rapport()?;

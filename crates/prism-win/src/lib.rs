@@ -25,6 +25,8 @@ mod privacy;
 #[cfg(windows)]
 pub mod rapport;
 #[cfg(windows)]
+pub mod services;
+#[cfg(windows)]
 pub mod setup;
 #[cfg(windows)]
 mod startup;

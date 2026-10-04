@@ -258,6 +258,25 @@ A tool can be marked *never touched*. After a crash, the end-of-game step is rep
 when Prism starts again. Prism never uninstalls a tool for a game (reinstalling would take
 minutes every time); uninstalling is a separate action.
 
+## 8a. Services (`prism services`, administrator)
+
+The *Services* page lists every Windows service (running or not, start mode) with a
+search box and a *running only* filter. Each one can be set to *Auto*, *Auto (différé)*,
+*Manuel* or *Désactivé*:
+
+- *Manuel* (on demand) is the safe way to slim Windows down: Windows starts the service
+  by itself the moment a program needs it. *Désactivé* means never;
+- the services anti-cheats, updates and security depend on (the 72 protected ones) are
+  locked, with the reason shown; per-user service instances and kernel services are not
+  set here;
+- every change is journaled like debloat: the ↺ button puts that service back, and
+  *Tout restaurer* (Allègement page) puts back all of them.
+
+```powershell
+prism services                      # all services, start mode, 🔒 for protected ones
+prism services Spooler manuel       # auto | differe | manuel | desactive | origine
+```
+
 ## 8b. Privacy (`prism vie-privee`, administrator)
 
 ```powershell

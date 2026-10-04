@@ -388,6 +388,32 @@ impl Backend for WinBackend {
         rows
     }
 
+    fn services(&mut self) -> Result<Vec<crate::backend::ServiceRow>, String> {
+        let c = AllegeCatalog::builtin();
+        let journal = allege::AllegeJournal::load(&data_dir().join("allegement.json")).unwrap_or_default();
+        Ok(prism_win::services::services_list()?
+            .into_iter()
+            .map(|info| crate::backend::ServiceRow {
+                protected: c.protection(&info.name).map(String::from),
+                by_prism: allege::journaled(&journal, &format!("svc:{}", info.name.to_ascii_lowercase())),
+                info,
+            })
+            .collect())
+    }
+
+    fn service_set(&mut self, name: &str, to: allege::StartType) -> Result<String, String> {
+        let c = AllegeCatalog::builtin();
+        let path = data_dir().join("allegement.json");
+        let mut journal = allege::AllegeJournal::load(&path)?;
+        allege::set_service(&mut WindowsSystemConfig, &c, &mut journal, name, to, &mut |j| {
+            j.save(&path)
+        })
+    }
+
+    fn service_restore(&mut self, name: &str) -> Result<String, String> {
+        self.allege_toggle(&format!("svc:{}", name.to_ascii_lowercase()), false)
+    }
+
     fn allege_toggle(&mut self, key: &str, on: bool) -> Result<String, String> {
         let c = AllegeCatalog::builtin();
         let path = data_dir().join("allegement.json");

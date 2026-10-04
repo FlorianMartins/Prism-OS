@@ -643,6 +643,57 @@ pub fn restore(sys: &mut dyn SystemConfig, journal: &mut AllegeJournal) -> Alleg
     r
 }
 
+/// Un service Windows, pour la page Services.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ServiceInfo {
+    pub name: String,
+    pub display: String,
+    /// `None` : illisible.
+    pub start: Option<StartType>,
+    pub running: bool,
+    /// Service par utilisateur (instance `Nom_1a2b3`) : réglé par son modèle, pas ici.
+    pub per_user: bool,
+}
+
+/// Règle un service quelconque (page Services) au mode exact demandé — y compris
+/// Désactivé → Manuel, que l'allègement considère déjà fait. Refusé pour un service
+/// protégé ; la valeur d'origine est journalisée une seule fois (« Tout restaurer » et
+/// `restore_keys` la remettent).
+pub fn set_service(
+    sys: &mut dyn SystemConfig,
+    catalog: &Catalog,
+    journal: &mut AllegeJournal,
+    name: &str,
+    to: StartType,
+    save: &mut dyn FnMut(&AllegeJournal) -> Result<(), String>,
+) -> Result<String, String> {
+    if let Some(reason) = catalog.protection(name) {
+        return Err(format!("{name} est protégé : {reason}"));
+    }
+    if !matches!(
+        to,
+        StartType::Auto | StartType::AutoDelayed | StartType::Manual | StartType::Disabled
+    ) {
+        return Err("seuls Auto, Auto (différé), Manuel et Désactivé se règlent ici".into());
+    }
+    let was = sys
+        .service_start(name)?
+        .ok_or_else(|| format!("{name} : service absent"))?;
+    if was == to {
+        return Ok(format!("{name} : déjà {}", to.label_fr()));
+    }
+    sys.set_service_start(name, to)?;
+    let key = format!("svc:{}", name.to_ascii_lowercase());
+    if !journal.has(&key) {
+        journal.originals.push(Original::ServiceStart {
+            name: name.to_string(),
+            was,
+        });
+        save(journal)?;
+    }
+    Ok(format!("{name} : {} → {}", was.label_fr(), to.label_fr()))
+}
+
 /// Changement du catalogue identifié par sa clé (`svc:dps`, `app:msteams`…), quel que
 /// soit son niveau : pour appliquer un seul élément.
 pub fn change_for(catalog: &Catalog, key: &str) -> Option<Change> {
@@ -795,6 +846,24 @@ mod tests {
         assert_eq!(m.services["diagtrack"], StartType::Disabled);
         assert!(!journaled(&j, "svc:sysmain") && journaled(&j, "svc:diagtrack"));
         assert!(change_for(&c, "svc:wuauserv").is_none());
+    }
+
+    #[test]
+    fn any_service_can_be_set_exactly_except_protected_ones() {
+        let c = Catalog::builtin();
+        let mut m = MockSystem::default();
+        m.services.insert("spooler".into(), StartType::Disabled);
+        m.services.insert("wuauserv".into(), StartType::Manual);
+        let mut j = AllegeJournal::default();
+        // Désactivé -> Manuel : appliqué (l'allègement l'aurait jugé déjà fait).
+        set_service(&mut m, &c, &mut j, "Spooler", StartType::Manual, &mut |_| Ok(())).unwrap();
+        assert_eq!(m.services["spooler"], StartType::Manual);
+        set_service(&mut m, &c, &mut j, "Spooler", StartType::Auto, &mut |_| Ok(())).unwrap();
+        // L'origine journalisée reste la toute première.
+        restore_keys(&mut m, &mut j, &["svc:spooler".into()]);
+        assert_eq!(m.services["spooler"], StartType::Disabled);
+        assert!(set_service(&mut m, &c, &mut j, "wuauserv", StartType::Disabled, &mut |_| Ok(())).is_err());
+        assert_eq!(m.services["wuauserv"], StartType::Manual);
     }
 
     #[test]

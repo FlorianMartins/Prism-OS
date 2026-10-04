@@ -55,6 +55,7 @@ fn every_page_renders() {
         ("mode-console", Page::Games, true),
         ("demarrage", Page::Startup, false),
         ("allegement", Page::Allege, false),
+        ("services", Page::Services, false),
         ("apparence", Page::Appearance, false),
         ("vie-privee", Page::Privacy, false),
         ("outils", Page::Tools, false),

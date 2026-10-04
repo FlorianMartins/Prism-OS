@@ -86,6 +86,16 @@ pub struct PackInfo {
     pub tools: Vec<(String, String, Option<String>)>,
 }
 
+/// Un service Windows et ce qu'on peut en faire.
+#[derive(Clone, Debug)]
+pub struct ServiceRow {
+    pub info: prism_core::allege::ServiceInfo,
+    /// Raison de protection : réglage verrouillé.
+    pub protected: Option<String>,
+    /// Changé par Prism : on peut remettre l'origine.
+    pub by_prism: bool,
+}
+
 /// Installation ou désinstallation d'outils en cours (sans console).
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct ToolJob {
@@ -133,6 +143,12 @@ pub trait Backend {
     fn allege_restore(&mut self) -> Result<String, String>;
     /// Applique (`on`) ou remet (`!on`) un seul élément.
     fn allege_toggle(&mut self, key: &str, on: bool) -> Result<String, String>;
+
+    /// Tous les services Windows (page Services).
+    fn services(&mut self) -> Result<Vec<ServiceRow>, String>;
+    fn service_set(&mut self, name: &str, to: prism_core::allege::StartType) -> Result<String, String>;
+    /// Remet le mode de démarrage d'origine (si Prism l'a changé).
+    fn service_restore(&mut self, name: &str) -> Result<String, String>;
 
     /// Plan automatique des jeux à anti-cheat noyau (réglages de l'utilisateur).
     fn noyau(&mut self) -> prism_core::noyau::Reglages {
