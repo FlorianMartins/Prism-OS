@@ -44,7 +44,7 @@ mod win;
 #[cfg(windows)]
 pub use appearance::WindowsAppearance;
 #[cfg(windows)]
-pub use library::installed_games;
+pub use library::{game_files, installed_games};
 #[cfg(windows)]
 pub use privacy::{telemetry_connections, WindowsPrivacy};
 #[cfg(windows)]

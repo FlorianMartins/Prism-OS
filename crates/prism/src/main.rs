@@ -39,6 +39,7 @@ Utilisation : prism <commande>
   webview [on|off]        WebView des applis sans fenêtre : liste, ou fermeture auto
   tools uninstall <x>     désinstalle un outil ou un pack (Kali : efface la distribution)
   services [<nom> <mode>] tous les services ; mode auto|differe|manuel|desactive|origine
+  jeux gpu|plein-ecran <exe> on|off   réglage Windows par jeu (page Jeux)
   rapport                 où part la mémoire (fichier texte à envoyer, sans données personnelles)
   allege restore          remet toutes les valeurs d'origine (admin)
   vie-privee on|off <clé> un seul réglage ou une seule règle (clés : prism vie-privee)
@@ -476,6 +477,32 @@ fn platform_command(cfg: &Config, args: &[&str]) -> Result<(), String> {
                 println!("{:<11} {:<40} {}{how}", g.store.label(), g.name, g.install_dir);
             }
             println!("\n{} jeu(x). Lancer : prism jeux lancer <nom>", games.len());
+            Ok(())
+        }
+        ["jeux", kind @ ("gpu" | "plein-ecran"), exe, onoff @ ("on" | "off")] => {
+            use prism_core::jeux::{appliquer, Journal, Reglage};
+            let r = if *kind == "gpu" {
+                Reglage::Gpu
+            } else {
+                Reglage::PleinEcran
+            };
+            let dir = prism_core::paths::user_dir();
+            let mut j = Journal::charger(&dir);
+            let n = appliquer(
+                &mut prism_win::WindowsSystemConfig,
+                &mut j,
+                r,
+                &[exe.to_string()],
+                *onoff == "on",
+            );
+            j.enregistrer(&dir)?;
+            println!(
+                "{} : {} {} ({} changement(s))",
+                exe,
+                r.label(),
+                if *onoff == "on" { "activé" } else { "retiré" },
+                n?
+            );
             Ok(())
         }
         ["jeux", "lancer", query @ ..] => {
@@ -1442,6 +1469,14 @@ fn uninstall(args: &[&str]) -> Result<(), String> {
         println!("✓ allègement : {} remis, {} échec(s)", r.done.len(), r.failed.len());
     }
     {
+        // Réglages Windows par jeu (carte graphique, plein écran).
+        let dir = prism_core::paths::user_dir();
+        let mut j = prism_core::jeux::Journal::charger(&dir);
+        let errors = prism_core::jeux::tout_remettre(&mut prism_win::WindowsSystemConfig, &mut j);
+        let _ = j.enregistrer(&dir);
+        failed += errors.len();
+    }
+    {
         let path = prism_core::paths::user_dir().join("apparence.json");
         let mut j = prism_core::apparence::AppearanceJournal::load(&path)?;
         let r = prism_core::apparence::restore(
@@ -1743,6 +1778,8 @@ fn watch(cfg: &Config, quiet: bool) -> Result<(), String> {
     }
     let mut noyau_etat: Option<prism_core::noyau::Etat> = None;
     let mut webviews = prism_core::webview::Reaper::default();
+    // Bilan de la partie en cours (écrit à la fin du Mode Jeu, lu par la page Jeux).
+    let mut partie: Option<(prism_core::jeux::Partie, std::time::Instant)> = None;
     let mut watcher = Watcher::default();
     let mut daily = Daily::default();
     let mut etat = prism_core::etat::Etat {
@@ -1850,9 +1887,35 @@ fn watch(cfg: &Config, quiet: bool) -> Result<(), String> {
                     }
                     _ => {}
                 }
+                let dispo = snap.mem.free + snap.mem.standby_total;
+                if let Some((p, _)) = partie.as_mut() {
+                    p.dispo_min = p.dispo_min.min(dispo);
+                    if p.anticheat.is_none() {
+                        p.anticheat = noyau_etat.as_ref().map(|e| e.anticheat.clone());
+                    }
+                }
                 match &event {
-                    Event::Engaged { games, .. } => lines.push(format!("Mode Jeu : {}", games.join(", "))),
-                    Event::Released { .. } => lines.push("Fin du Mode Jeu, réglages restaurés".into()),
+                    Event::Engaged { games, report, .. } => {
+                        lines.push(format!("Mode Jeu : {}", games.join(", ")));
+                        partie = Some((
+                            prism_core::jeux::Partie {
+                                jeux: games.clone(),
+                                debut: sys::now_utc()[..16].replace('T', " ") + " UTC",
+                                actions: report.done.len(),
+                                dispo_debut: dispo,
+                                dispo_min: dispo,
+                                ..Default::default()
+                            },
+                            std::time::Instant::now(),
+                        ));
+                    }
+                    Event::Released { .. } => {
+                        lines.push("Fin du Mode Jeu, réglages restaurés".into());
+                        if let Some((mut p, t)) = partie.take() {
+                            p.duree_secs = t.elapsed().as_secs();
+                            let _ = p.enregistrer(&sys::data_dir());
+                        }
+                    }
                     _ => {}
                 }
                 for l in lines {

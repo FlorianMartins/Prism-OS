@@ -133,3 +133,32 @@ pub fn installed_games() -> Vec<Game> {
     all.dedup_by(|a, b| a.name.eq_ignore_ascii_case(&b.name) && a.store == b.store);
     all
 }
+
+/// Exécutables du dossier d'un jeu (chemin relatif, taille), sur 4 niveaux au plus et
+/// 20 000 entrées au plus (un dossier de jeu peut contenir des centaines de milliers de
+/// fichiers de données).
+pub fn game_files(dir: &str) -> Vec<(String, u64)> {
+    let root = std::path::Path::new(dir);
+    let mut out = Vec::new();
+    let mut stack = vec![(root.to_path_buf(), 0u32)];
+    let mut seen = 0usize;
+    while let Some((d, depth)) = stack.pop() {
+        let Ok(rd) = std::fs::read_dir(&d) else { continue };
+        for e in rd.flatten() {
+            seen += 1;
+            if seen > 20_000 {
+                return out;
+            }
+            let Ok(ft) = e.file_type() else { continue };
+            let p = e.path();
+            if ft.is_dir() && depth < 4 {
+                stack.push((p, depth + 1));
+            } else if ft.is_file() && p.extension().is_some_and(|x| x.eq_ignore_ascii_case("exe")) {
+                if let (Ok(rel), Ok(meta)) = (p.strip_prefix(root), e.metadata()) {
+                    out.push((rel.display().to_string(), meta.len()));
+                }
+            }
+        }
+    }
+    out
+}

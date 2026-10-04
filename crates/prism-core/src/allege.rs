@@ -139,13 +139,15 @@ impl std::fmt::Display for RegData {
 /// Seules ces clés (chemin complet, en minuscules) peuvent être écrites : les
 /// stratégies officielles et quelques réglages utilisateur documentés. Tout le reste
 /// du registre est hors de portée, même avec un catalogue modifié à la main.
-pub const REGISTRY_ALLOWLIST: [&str; 6] = [
+pub const REGISTRY_ALLOWLIST: [&str; 7] = [
     "hklm\\software\\policies\\",
     "hkcu\\software\\policies\\",
     "hklm\\system\\currentcontrolset\\control\\graphicsdrivers",
     "hkcu\\software\\microsoft\\gamebar",
     "hkcu\\software\\microsoft\\directx\\usergpupreferences",
     "hkcu\\control panel\\mouse",
+    // Optimisations plein écran d'un exécutable (Propriétés > Compatibilité) : page Jeux.
+    "hkcu\\software\\microsoft\\windows nt\\currentversion\\appcompatflags\\layers",
 ];
 
 pub fn registry_allowed(full_key: &str) -> bool {

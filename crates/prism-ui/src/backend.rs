@@ -86,6 +86,17 @@ pub struct PackInfo {
     pub tools: Vec<(String, String, Option<String>)>,
 }
 
+/// Réglages Windows d'un jeu (page Jeux).
+#[derive(Clone, Debug)]
+pub struct GameCfg {
+    pub name: String,
+    /// Exécutables trouvés dans son dossier (chemins complets).
+    pub exes: Vec<String>,
+    /// `None` : aucun exécutable trouvé.
+    pub gpu: Option<bool>,
+    pub plein_ecran: Option<bool>,
+}
+
 /// Un service Windows et ce qu'on peut en faire.
 #[derive(Clone, Debug)]
 pub struct ServiceRow {
@@ -143,6 +154,11 @@ pub trait Backend {
     fn allege_restore(&mut self) -> Result<String, String>;
     /// Applique (`on`) ou remet (`!on`) un seul élément.
     fn allege_toggle(&mut self, key: &str, on: bool) -> Result<String, String>;
+
+    /// Réglages par jeu (lit les dossiers des jeux : à appeler à l'ouverture de la page).
+    fn game_cfgs(&mut self) -> Vec<GameCfg>;
+    fn game_set(&mut self, name: &str, r: prism_core::jeux::Reglage, on: bool) -> Result<String, String>;
+    fn last_session(&mut self) -> Option<prism_core::jeux::Partie>;
 
     /// Tous les services Windows (page Services).
     fn services(&mut self) -> Result<Vec<ServiceRow>, String>;

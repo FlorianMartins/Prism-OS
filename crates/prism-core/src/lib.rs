@@ -19,6 +19,7 @@ pub mod etat;
 pub mod fx;
 pub mod fx_effects;
 pub mod glob;
+pub mod jeux;
 pub mod journal;
 pub mod library;
 pub mod mock;

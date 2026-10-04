@@ -452,6 +452,26 @@ prism jeux lancer elden ring     # launch through its store
 In prism-ui, **Jeux → Mode console** opens a fullscreen launcher you can drive with
 the arrow keys and Enter (Esc to leave).
 
+**Per-game settings** (*Réglages par jeu*, under the game tiles): for each installed game,
+two Windows settings on its executable — the same ones as *Settings > Display >
+Graphics* and *Properties > Compatibility*, nothing is written into the game, compatible
+with anti-cheats:
+
+- *Carte graphique haute performance*: Windows runs the game on the dedicated GPU
+  (laptops and PCs with integrated + dedicated graphics);
+- *Plein écran exclusif*: turns off Windows' fullscreen optimizations for that game
+  (some games get lower input latency or fewer stutters; others prefer them on — try it).
+
+Prism finds the game's executable in its folder (the largest one; uninstallers, crash
+reporters and redistributables are skipped). Takes effect at the next launch; unticking
+puts the original value back exactly (other compatibility flags you set are kept), and
+uninstalling Prism puts everything back. Command line: `prism jeux gpu|plein-ecran
+<exe> on|off`.
+
+**Last game** (*Dernière partie*): game, start, duration, how many Game Mode settings
+were applied and put back, available memory at the start and at its lowest, and whether
+the kernel anti-cheat plan ran.
+
 ## 13. Cybersecurity tools
 
 ```powershell

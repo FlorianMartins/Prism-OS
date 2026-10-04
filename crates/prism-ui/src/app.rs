@@ -77,6 +77,8 @@ pub struct PrismApp {
     /// Page Services : liste lue à l'ouverture et après chaque changement.
     services: Option<Result<Vec<crate::backend::ServiceRow>, String>>,
     services_search: String,
+    /// Page Jeux : réglages par jeu (lus à l'ouverture, les dossiers des jeux sont parcourus).
+    game_cfgs: Option<Vec<crate::backend::GameCfg>>,
     services_running_only: bool,
     tools_confirm: Option<Vec<String>>,
     games: Vec<Game>,
@@ -121,6 +123,7 @@ impl PrismApp {
             tools_scan_asked: false,
             services: None,
             services_search: String::new(),
+            game_cfgs: None,
             services_running_only: false,
             tools_confirm: None,
             games,
@@ -147,6 +150,9 @@ impl PrismApp {
         self.allege = self.backend.allege();
         if self.services.is_some() {
             self.services = None;
+        }
+        if self.game_cfgs.is_some() {
+            self.game_cfgs = None;
         }
         (self.privacy, self.privacy_conns) = self.backend.privacy();
         self.live = self.backend.live();
@@ -524,6 +530,96 @@ impl PrismApp {
         if let Some(g) = launch {
             let r = self.backend.launch(&g);
             self.result(r);
+        }
+        ui.add_space(16.0);
+        self.games_settings(ui);
+    }
+
+    /// Dernière partie et réglages Windows par jeu (carte graphique, plein écran).
+    fn games_settings(&mut self, ui: &mut egui::Ui) {
+        use prism_core::jeux::Reglage;
+        if let Some(p) = self.backend.last_session() {
+            section(ui, "Dernière partie");
+            card(ui, false, |ui| {
+                ui.label(
+                    RichText::new(format!(
+                        "{} · {} · {} h {:02} min",
+                        p.jeux.join(", "),
+                        p.debut,
+                        p.duree_secs / 3600,
+                        p.duree_secs % 3600 / 60
+                    ))
+                    .strong(),
+                );
+                let go = |b: u64| format!("{:.1} Go", b as f64 / (1u64 << 30) as f64);
+                ui.label(
+                    RichText::new(format!(
+                        "{} réglage(s) du Mode Jeu appliqués au lancement, remis à la fin · mémoire disponible : {} au début, {} au plus bas{}",
+                        p.actions,
+                        go(p.dispo_debut),
+                        go(p.dispo_min),
+                        p.anticheat
+                            .as_ref()
+                            .map(|a| format!(" · {a} : services et outils préparés"))
+                            .unwrap_or_default()
+                    ))
+                    .small()
+                    .color(th::muted()),
+                );
+            });
+            ui.add_space(12.0);
+        }
+        section(ui, "Réglages par jeu");
+        ui.label(
+            RichText::new("Réglages de Windows pour l'exécutable du jeu, comme dans Paramètres > Graphiques et Propriétés > Compatibilité : rien n'est écrit dans le jeu, compatible avec les anti-cheats. Pris en compte au prochain lancement ; décocher remet la valeur d'origine.")
+                .small()
+                .color(th::muted()),
+        );
+        if self.game_cfgs.is_none() {
+            self.game_cfgs = Some(self.backend.game_cfgs());
+        }
+        let cfgs = self.game_cfgs.clone().unwrap_or_default();
+        let mut set: Option<(String, Reglage, bool)> = None;
+        card(ui, false, |ui| {
+            egui::Grid::new("jeux-reglages")
+                .num_columns(3)
+                .spacing([18.0, 6.0])
+                .striped(true)
+                .show(ui, |ui| {
+                    ui.label(RichText::new("Jeu").small().color(th::muted()));
+                    ui.label(
+                        RichText::new("Carte graphique haute performance")
+                            .small()
+                            .color(th::muted()),
+                    );
+                    ui.label(RichText::new("Plein écran exclusif").small().color(th::muted()));
+                    ui.end_row();
+                    for g in &cfgs {
+                        let name = ui.label(&g.name);
+                        if g.exes.is_empty() {
+                            name.on_hover_text("Aucun exécutable trouvé dans son dossier");
+                            ui.label(RichText::new("–").color(th::muted()));
+                            ui.label(RichText::new("–").color(th::muted()));
+                        } else {
+                            name.on_hover_text(g.exes.join("\n"));
+                            for (r, v) in [(Reglage::Gpu, g.gpu), (Reglage::PleinEcran, g.plein_ecran)] {
+                                let mut on = v.unwrap_or(false);
+                                if ui
+                                    .add(egui::Checkbox::without_text(&mut on))
+                                    .on_hover_text(r.label())
+                                    .changed()
+                                {
+                                    set = Some((g.name.clone(), r, on));
+                                }
+                            }
+                        }
+                        ui.end_row();
+                    }
+                });
+        });
+        if let Some((name, r, on)) = set {
+            let res = self.backend.game_set(&name, r, on);
+            self.result(res);
         }
     }
 

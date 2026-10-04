@@ -388,6 +388,50 @@ impl Backend for WinBackend {
         rows
     }
 
+    fn game_cfgs(&mut self) -> Vec<crate::backend::GameCfg> {
+        use prism_core::jeux::{etat, Reglage};
+        let helpers = self.cfg.lists.game_helpers.clone();
+        let mut sys = WindowsSystemConfig;
+        installed_games()
+            .into_iter()
+            .map(|g| {
+                let exes: Vec<String> =
+                    prism_core::jeux::candidate_exes(&prism_win::game_files(&g.install_dir), &helpers)
+                        .into_iter()
+                        .map(|rel| std::path::Path::new(&g.install_dir).join(rel).display().to_string())
+                        .collect();
+                crate::backend::GameCfg {
+                    gpu: etat(&mut sys, Reglage::Gpu, &exes),
+                    plein_ecran: etat(&mut sys, Reglage::PleinEcran, &exes),
+                    name: g.name,
+                    exes,
+                }
+            })
+            .collect()
+    }
+
+    fn game_set(&mut self, name: &str, r: prism_core::jeux::Reglage, on: bool) -> Result<String, String> {
+        let cfg = self
+            .game_cfgs()
+            .into_iter()
+            .find(|g| g.name == name)
+            .ok_or_else(|| format!("jeu introuvable : {name}"))?;
+        let dir = prism_core::paths::user_dir();
+        let mut journal = prism_core::jeux::Journal::charger(&dir);
+        let n = prism_core::jeux::appliquer(&mut WindowsSystemConfig, &mut journal, r, &cfg.exes, on);
+        journal.enregistrer(&dir)?;
+        let n = n?;
+        Ok(format!(
+            "{name} : {} {} ({n} exécutable(s)) — pris en compte au prochain lancement du jeu",
+            r.label(),
+            if on { "activé" } else { "retiré" }
+        ))
+    }
+
+    fn last_session(&mut self) -> Option<prism_core::jeux::Partie> {
+        prism_core::jeux::Partie::charger(&data_dir())
+    }
+
     fn services(&mut self) -> Result<Vec<crate::backend::ServiceRow>, String> {
         let c = AllegeCatalog::builtin();
         let journal = allege::AllegeJournal::load(&data_dir().join("allegement.json")).unwrap_or_default();

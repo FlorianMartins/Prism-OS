@@ -37,3 +37,9 @@ breaks one of these rules is rejected.
     the game, and every service an anti-cheat needs stays on the protected list. The
     Extreme level sets services to *on demand*, so Windows starts any of them again
     whenever a program — anti-cheat included — asks for it.
+
+12. **Per-game settings are Windows' own, keyed to the executable path.** The GPU
+    preference (`UserGpuPreferences`) and the fullscreen-optimizations compatibility flag
+    (`AppCompatFlags\Layers`) are what Windows Settings and the file's Properties write;
+    the game's files and process are never touched, and these two keys are the only ones
+    added to the registry allowlist for it.

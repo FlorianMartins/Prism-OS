@@ -32,6 +32,7 @@ crates/
                  noyau (kernel anti-cheat plan: detection, tool standby, enter/exit)
                  webview (background WebView2 engines: owner app, delay, recreation)
                  rapport (memory report: layout and advice; collected by prism-win)
+                 jeux (per-game Windows settings: GPU preference, fullscreen optimizations; last game)
   prism-win/    execution on Windows (windows-sys): process snapshot, applying and
                  restoring each lever, startup entries, services/policies/scheduled
                  tasks, appearance settings, game library, metrics, Prism Bar window

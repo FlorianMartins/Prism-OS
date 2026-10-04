@@ -360,6 +360,43 @@ impl Backend for MockBackend {
         Ok("Plan « jeu noyau » enregistré".into())
     }
 
+    fn game_cfgs(&mut self) -> Vec<crate::backend::GameCfg> {
+        self.games()
+            .into_iter()
+            .enumerate()
+            .map(|(i, g)| crate::backend::GameCfg {
+                name: g.name,
+                exes: if i == 2 {
+                    Vec::new()
+                } else {
+                    vec![format!("{}\\game.exe", g.install_dir)]
+                },
+                gpu: if i == 2 { None } else { Some(i == 0) },
+                plein_ecran: if i == 2 { None } else { Some(false) },
+            })
+            .collect()
+    }
+
+    fn game_set(&mut self, name: &str, r: prism_core::jeux::Reglage, on: bool) -> Result<String, String> {
+        Ok(format!(
+            "{name} : {} {}",
+            r.label(),
+            if on { "activé" } else { "retiré" }
+        ))
+    }
+
+    fn last_session(&mut self) -> Option<prism_core::jeux::Partie> {
+        Some(prism_core::jeux::Partie {
+            jeux: vec!["cs2.exe".into()],
+            debut: "2026-10-04 19:12 UTC".into(),
+            duree_secs: 5_460,
+            actions: 23,
+            dispo_debut: 9 << 30,
+            dispo_min: 7 << 30,
+            anticheat: None,
+        })
+    }
+
     fn services(&mut self) -> Result<Vec<crate::backend::ServiceRow>, String> {
         use prism_core::allege::{ServiceInfo, StartType};
         let c = Catalog::builtin();
