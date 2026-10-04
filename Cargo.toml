@@ -3,7 +3,7 @@ resolver = "2"
 members = ["crates/prism-core", "crates/prism-win", "crates/prism", "crates/prism-ui", "crates/prism-setup"]
 
 [workspace.package]
-version = "0.9.7"
+version = "0.9.8"
 edition = "2021"
 rust-version = "1.80"
 authors = ["Florian Martins"]

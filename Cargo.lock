@@ -1887,7 +1887,7 @@ checksum = "e8cf8e6a8aa66ce33f63993ffc4ea4271eb5b0530a9002db8455ea6050c77bfa"
 
 [[package]]
 name = "prism"
-version = "0.9.7"
+version = "0.9.8"
 dependencies = [
  "embed-resource",
  "prism-core",
@@ -1899,7 +1899,7 @@ dependencies = [
 
 [[package]]
 name = "prism-core"
-version = "0.9.7"
+version = "0.9.8"
 dependencies = [
  "serde",
  "serde_json",
@@ -1909,7 +1909,7 @@ dependencies = [
 
 [[package]]
 name = "prism-setup"
-version = "0.9.7"
+version = "0.9.8"
 dependencies = [
  "eframe",
  "egui_kittest",
@@ -1921,7 +1921,7 @@ dependencies = [
 
 [[package]]
 name = "prism-ui"
-version = "0.9.7"
+version = "0.9.8"
 dependencies = [
  "eframe",
  "egui_kittest",
@@ -1934,7 +1934,7 @@ dependencies = [
 
 [[package]]
 name = "prism-win"
-version = "0.9.7"
+version = "0.9.8"
 dependencies = [
  "prism-core",
  "windows-sys 0.61.2",
