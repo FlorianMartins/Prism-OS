@@ -25,7 +25,31 @@ impl Drop for Kid {
     }
 }
 
+/// Les enfants héritent des priorités basses de leur parent, et le runner de la CI
+/// lance les jobs en `BelowNormal` avec une priorité mémoire basse. On part donc
+/// d'un parent remis en `Normal`, sinon les processus de test seraient déjà « en
+/// retrait » (et Prism, à raison, refuserait de les remonter).
+fn normalize_test_process() {
+    use std::ffi::c_void;
+    use windows_sys::Win32::System::Threading::{
+        GetCurrentProcess, ProcessMemoryPriority, SetPriorityClass, SetProcessInformation, MEMORY_PRIORITY_INFORMATION,
+        NORMAL_PRIORITY_CLASS,
+    };
+    let info = MEMORY_PRIORITY_INFORMATION { MemoryPriority: 5 };
+    // SAFETY: pseudo-handle du processus courant, structure locale de taille exacte.
+    unsafe {
+        SetPriorityClass(GetCurrentProcess(), NORMAL_PRIORITY_CLASS);
+        SetProcessInformation(
+            GetCurrentProcess(),
+            ProcessMemoryPriority,
+            &info as *const _ as *const c_void,
+            std::mem::size_of::<MEMORY_PRIORITY_INFORMATION>() as u32,
+        );
+    }
+}
+
 fn spawn(exe: &PathBuf) -> (Kid, Target) {
+    normalize_test_process();
     let child = Command::new(exe)
         .args(["-n", "300", "127.0.0.1"])
         .stdout(Stdio::null())
