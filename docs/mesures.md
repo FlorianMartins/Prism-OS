@@ -53,9 +53,48 @@ retenue est celle d'un Windows au calme, mesurée après restauration.
 Désactiver des services Windows rapporte peu (≈ 100 Mo, une dizaine de processus).
 Les gains importants viennent :
 1. du **Mode Jeu** (RAM des programmes inactifs rendue au jeu : 2,9 Go mesurés) ;
-2. des **applications lancées au démarrage**, absentes de cette VM neuve mais
-   présentes sur tout PC réel (Edge, OneDrive, Teams, lanceurs, utilitaires RGB) :
-   prochain chantier, à mesurer de la même façon.
+2. des **applications lancées au démarrage** : mesuré au §3 (jusqu'à −1,23 Go).
+
+## 3. Applications au démarrage et Mode Quotidien — 2026-10-04
+
+Même VM, avec quatre applications courantes installées par winget (Discord, Steam, Epic,
+Spotify). Au démarrage : Discord (deux entrées), Steam, OneDrive et le préchargement
+d'Edge (`MicrosoftEdgeAutoLaunch_…`). Relevés pris dans les mêmes conditions (9 par
+configuration, médiane).
+
+| Configuration | Processus | Services actifs | RAM utilisée | Écart avec A |
+|---|---|---|---|---|
+| Windows d'usine, sans ces applis (référence §2) | 113 | 78 | 2 065 Mo | |
+| **A** — applis installées, tout au démarrage | 142 | 86 | 3 257 Mo | |
+| **B** — `prism demarrage recommande` (préchargement d'Edge coupé) | 133 | 84 | 2 943 Mo | **−9 proc., −314 Mo** |
+| **C** — B + Discord, Steam, OneDrive coupés (`demarrage off`) | 116 | 80 | 2 023 Mo | **−26 proc., −1,23 Go (−38 %)** |
+| **D** — A avec `prism watch` (Mode Quotidien, tout gardé au démarrage) | 144 | 88 | 2 957 Mo | **−300 Mo (−9 %)** |
+
+Lecture :
+- **Le démarrage est le levier principal**. Un seul préchargement (Edge) pèse plus que
+  tout l'allègement des services ; en coupant les applis optionnelles, un PC équipé
+  revient au niveau d'un Windows nu tout en gardant ses applis installées.
+- **Le Mode Quotidien** gagne 300 Mo sans rien fermer ni désactiver : 16 applis
+  inactives allégées (Widgets, processus Edge WebView2, OneDrive, Steam, Discord…).
+  Pour la mesure, les délais étaient raccourcis à 1 et 2 minutes (5 et 30 par défaut).
+- `prism demarrage restore` a remis les 5 entrées à l'identique ; après un arrêt brutal
+  de `prism watch`, le redémarrage suivant a restauré les 32 réglages du Quotidien.
+
+## 4. Fonctionnement vérifié en VM (session interactive, comme en usage réel)
+
+| Vérification | Résultat |
+|---|---|
+| Mode Quotidien : inactif 1 min → EcoQoS + priorité mémoire basse | ✓ 12 applis (délais de test) |
+| Inactif 2 min → RAM rendue | ✓ 1,5 Go → 1 Mo |
+| Pas de faux « retour d'activité » causé par le rognage | ✓ après correctif (voir spec v0.2 §1) |
+| Mode Jeu : jeu détecté sous `C:\XboxGames` | ✓ |
+| Jeu jamais touché | ✓ |
+| Indexation (WSearch) arrêtée en jeu, relancée après | ✓ |
+| Mode Jeu : 48 actions puis 35 restaurations | ✓ 0 échec |
+| Processus de la session 0 (services) jamais touchés | ✓ après correctif |
+
+Constat annexe : le Planificateur de tâches lance ses tâches en priorité `BelowNormal`
+avec une priorité mémoire basse, et leurs enfants en héritent.
 
 ## Ce qui n'est pas mesurable en VM
 

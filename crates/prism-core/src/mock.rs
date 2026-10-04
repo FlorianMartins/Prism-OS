@@ -219,6 +219,9 @@ impl Platform for MockPlatform {
                     // Mesuré sur Windows 11 : une page privée rognée, une fois écrite
                     // dans le fichier d'échange, arrive en cache de priorité 0, quelle
                     // que soit la priorité mémoire du processus (1, 2 ou 5).
+                    // Mesuré en VM : le temps noyau du rognage est imputé au processus
+                    // rogné (environ 50 ms pour 1,5 Go).
+                    p.info.cpu_time += 50 * 10_000;
                     let pages = std::mem::take(&mut p.info.working_set);
                     self.standby[0] += pages;
                     Outcome::Done(None)

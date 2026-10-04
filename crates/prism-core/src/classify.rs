@@ -31,9 +31,15 @@ impl Class {
     }
 }
 
+/// Session des services Windows.
+pub const SERVICES_SESSION: u32 = 0;
+
 pub fn classify(p: &ProcInfo, snap: &Snapshot, cfg: &Config) -> Class {
     let lists = &cfg.lists;
-    if p.id.pid == snap.self_pid || p.id.pid <= 4 || p.session != snap.user_session {
+    // Session 0 = services Windows : jamais touchée, même si Prism y tourne lui-même
+    // (lancé par SSH, ou un jour en service). Constaté en VM : sinon wmiprvse.exe (WMI,
+    // interrogé par les anti-cheats) et sppsvc.exe (licence) passaient en arrière-plan.
+    if p.id.pid == snap.self_pid || p.id.pid <= 4 || p.session == SERVICES_SESSION || p.session != snap.user_session {
         return Class::Protected;
     }
     if any_matches(&lists.protected, &p.name) {
@@ -156,6 +162,23 @@ pub(crate) mod tests {
         for p in [&other, &me, &system] {
             assert_eq!(classify(p, &s, &cfg), Class::Protected, "{}", p.name);
         }
+    }
+
+    #[test]
+    fn session_zero_is_never_touched_even_when_prism_runs_there() {
+        let cfg = Config::builtin();
+        let mut wmi = proc(20, "wmiprvse.exe", None);
+        let mut sppsvc = proc(21, "sppsvc.exe", None);
+        wmi.session = 0;
+        sppsvc.session = 0;
+        let s = Snapshot {
+            procs: vec![wmi.clone(), sppsvc.clone()],
+            user_session: 0,
+            self_pid: 999,
+            ..Default::default()
+        };
+        assert_eq!(classify(&wmi, &s, &cfg), Class::Protected);
+        assert_eq!(classify(&sppsvc, &s, &cfg), Class::Protected);
     }
 
     #[test]

@@ -37,6 +37,9 @@ struct Track {
     idle_secs: u64,
     eased: bool,
     trimmed: bool,
+    /// Le rognage impute son temps noyau au processus rogné (mesuré en VM) : la
+    /// mesure suivante ne dit rien de son activité réelle.
+    skip_next: bool,
 }
 
 #[derive(Default)]
@@ -149,6 +152,10 @@ impl Daily {
             };
             let delta = p.cpu_time.saturating_sub(track.last_cpu);
             track.last_cpu = p.cpu_time;
+            if std::mem::take(&mut track.skip_next) {
+                track.idle_secs += elapsed_secs;
+                continue;
+            }
             let foreground = snap.foreground_pid == Some(p.id.pid);
             let busy = delta > elapsed_secs.max(1) * ACTIVE_PER_SECOND;
 
@@ -193,6 +200,7 @@ impl Daily {
             }
             if track.eased && !track.trimmed && track.idle_secs >= trim_after {
                 track.trimmed = true;
+                track.skip_next = true;
                 trimmed_now = true;
                 let a = Action::TrimWorkingSet { target: Target::of(p) };
                 let outcome = platform.apply(&a);

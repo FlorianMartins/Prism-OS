@@ -249,6 +249,11 @@ fn platform_command(cfg: &Config, args: &[&str]) -> Result<(), String> {
             if !w.can_purge {
                 println!("(sans droits administrateur : purge du cache indisponible, RAM libre approximative)");
             }
+            if snap.user_session == prism_core::classify::SERVICES_SESSION {
+                println!(
+                    "⚠ Prism tourne dans la session des services (SSH ou service) : aucun processus ne sera allégé. Lancez-le depuis votre session (prism autostart on)."
+                );
+            }
             let games = games_running(&snap, cfg);
             println!(
                 "Jeux : {}",

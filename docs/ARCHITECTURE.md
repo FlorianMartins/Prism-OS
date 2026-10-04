@@ -23,6 +23,7 @@ Le projet de noyau multiple from-scratch est devenu **MultiKernel**
 crates/
   prism-core/   logique pure, sans dépendance Windows — testée sous Linux
                  config (TOML) · classement · plan · moteur · journal · RAM · outils
+                 daily (Mode Quotidien) · cores (P/E, X3D) · allege · demarrage
   prism-win/    exécution sur Windows (windows-sys) : snapshot des processus,
                  application et restauration de chaque levier
   prism/        binaire prism.exe : CLI + boucle de surveillance (Mode Jeu auto)
@@ -41,11 +42,12 @@ mince, ce qui la rend auditable.
 
 | Version | Contenu |
 |---|---|
-| **v0.1** | moteur Mode Jeu + politique RAM + profils + catalogue cyber, CLI, CI Windows |
-| v0.2 | interface : tableau de bord ressources, lanceur de jeux, mode console au démarrage, affinité P-cores/E-cores et CCD X3D, service Windows |
-| v0.3 | vie privée : télémétrie (stratégies + services + tâches + pare-feu) avec tableau de bord de ce qui est bloqué, debloat réversible |
-| v0.4 | personnalisation : thèmes, gestionnaire de fenêtres en mosaïque, barres, profils exportables |
-| v0.5 | installateur, mises à jour signées, mesures FPS publiées |
+| **v0.1** ✓ | moteur Mode Jeu + politique RAM + profils + catalogue cyber, CLI, CI Windows |
+| **v0.2** ✓ | Mode Quotidien permanent, cœurs P/E et X3D, services en pause, gel, surveillance RAM, applis au démarrage, réglages jeu, allègement réversible |
+| v0.3 | interface : tableau de bord ressources, lanceur de jeux, mode console au démarrage ; Prism en service Windows ; tâches de démarrage des applis du Store |
+| v0.4 | vie privée : télémétrie (stratégies + services + tâches + pare-feu) avec tableau de bord de ce qui est bloqué |
+| v0.5 | personnalisation : thèmes, gestionnaire de fenêtres en mosaïque, barres, profils exportables |
+| v0.6 | installateur, mises à jour signées, mesures FPS publiées |
 
 ## Principes
 

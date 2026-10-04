@@ -76,6 +76,12 @@ fn an_idle_app_is_eased_after_5_minutes_then_its_ram_is_returned_after_30() {
     );
     b.run(25 * 60, false);
     assert_eq!(b.proc(word).info.working_set, 0, "31 min : RAM rendue");
+    b.run(2 * POLL, false);
+    assert_eq!(
+        b.proc(word).eco,
+        EcoState::On,
+        "le rognage lui-même ne doit pas faire croire à une reprise d'activité"
+    );
 }
 
 #[test]

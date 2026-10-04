@@ -87,6 +87,7 @@ protected = [
   "audiodg.exe", "startmenuexperiencehost.exe", "shellexperiencehost.exe",
   "textinputhost.exe", "runtimebroker.exe", "userinit.exe", "logonui.exe",
   "vmmem*", "vmcompute.exe", "vmwp.exe",
+  "wmiprvse.exe", "sppsvc.exe", "dllhost.exe", "searchhost.exe",
   # sécurité
   "msmpeng.exe", "mpdefendercoreservice.exe", "nissrv.exe", "mssense.exe",
   "securityhealthservice.exe", "securityhealthsystray.exe", "smartscreen.exe",
