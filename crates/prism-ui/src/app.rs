@@ -67,6 +67,10 @@ pub struct PrismApp {
     webview: prism_core::webview::Reglages,
     /// Saisie d'une appli à exclure.
     webview_new: String,
+    /// Page Outils : état lu au premier affichage ; désinstallation qui efface des
+    /// données en attente de confirmation.
+    tools_scan_asked: bool,
+    tools_confirm: Option<Vec<String>>,
     games: Vec<Game>,
     privacy: Vec<prism_core::privacy::Row>,
     privacy_conns: Vec<prism_core::privacy::TelemetryConnection>,
@@ -106,6 +110,8 @@ impl PrismApp {
             noyau,
             webview,
             webview_new: String::new(),
+            tools_scan_asked: false,
+            tools_confirm: None,
             games,
             privacy,
             privacy_conns,
@@ -1444,38 +1450,158 @@ impl PrismApp {
     // --- Outils -----------------------------------------------------------------
 
     fn tools_page(&mut self, ui: &mut egui::Ui) {
-        ui.label(RichText::new("Rien n'est installé par défaut et rien ne tourne pendant le jeu. Les outils gênants pour les anti-cheats sont signalés.").color(th::muted()));
+        if !self.tools_scan_asked {
+            self.backend.tools_scan();
+            self.tools_scan_asked = true;
+        }
+        let view = self.backend.tools_view();
+        let busy = view.scanning || view.job.as_ref().is_some_and(|j| !j.done);
+        if busy {
+            ui.ctx().request_repaint_after(std::time::Duration::from_millis(400));
+        }
+        ui.label(
+            RichText::new("Rien n'est installé par défaut. Installation et désinstallation se font ici, sans console. Pendant un jeu à anti-cheat noyau, les outils passent en veille tout seuls (page Allègement).")
+                .color(th::muted()),
+        );
         ui.add_space(8.0);
+        if let Some(j) = &view.job {
+            card(ui, false, |ui| {
+                if !j.done {
+                    ui.horizontal(|ui| {
+                        ui.spinner();
+                        ui.label(
+                            RichText::new(format!(
+                                "{} en cours : {} ({}/{})",
+                                if j.install { "Installation" } else { "Désinstallation" },
+                                j.current,
+                                j.step,
+                                j.total
+                            ))
+                            .strong(),
+                        );
+                    });
+                    ui.label(RichText::new("Vous pouvez continuer à utiliser Prism. Un outil peut prendre plusieurs minutes (téléchargement).").small().color(th::muted()));
+                } else {
+                    ui.label(
+                        RichText::new(format!(
+                            "{} terminée : {} réussi(s), {} échec(s)",
+                            if j.install { "Installation" } else { "Désinstallation" },
+                            j.ok.len(),
+                            j.errors.len()
+                        ))
+                        .strong()
+                        .color(if j.errors.is_empty() { th::ok() } else { th::warn() }),
+                    );
+                }
+                for e in &j.errors {
+                    ui.label(RichText::new(e).small().color(th::warn()));
+                }
+            });
+            ui.add_space(8.0);
+        }
         let packs = self.backend.packs();
-        let mut install = None;
+        let cfg = prism_core::config::Config::builtin();
+        let mut run: Option<(bool, Vec<String>)> = None;
+        let installed = |id: &str| view.installed.iter().any(|x| x == id);
         row(ui, 2, |c, col| {
             for p in packs.iter().skip(c).step_by(2) {
                 card(col, false, |ui| {
                     ui.horizontal(|ui| {
                         ui.label(RichText::new(&p.label).size(17.0).strong());
                         ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                            if ui.button("Installer").clicked() {
-                                install = Some(p.id.clone());
-                            }
+                            ui.add_enabled_ui(!busy, |ui| {
+                                let present: Vec<String> = p
+                                    .tools
+                                    .iter()
+                                    .filter(|t| installed(&t.0))
+                                    .map(|t| t.0.clone())
+                                    .collect();
+                                if !present.is_empty() && ui.button("Tout désinstaller").clicked() {
+                                    run = Some((false, present));
+                                }
+                                if p.tools.iter().any(|t| !installed(&t.0)) && ui.button("Tout installer").clicked() {
+                                    run = Some((true, p.tools.iter().map(|t| t.0.clone()).collect()));
+                                }
+                            });
                         });
                     });
-                    for (name, warn) in &p.tools {
+                    for (id, name, warn) in &p.tools {
+                        let on = installed(id);
                         ui.horizontal(|ui| {
-                            ui.label(RichText::new("•").color(th::accent()));
+                            let (mark, color) = if !view.scanned {
+                                ("…", th::muted())
+                            } else if on {
+                                ("✔", th::ok())
+                            } else {
+                                ("·", th::muted())
+                            };
+                            ui.label(RichText::new(mark).color(color));
                             ui.label(name);
                             if let Some(w) = warn {
                                 ui.label(RichText::new("⚠ anti-cheat").small().color(th::warn()))
                                     .on_hover_text(w);
                             }
+                            ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                                ui.add_enabled_ui(!busy && view.scanned, |ui| {
+                                    let label = if on { "Désinstaller" } else { "Installer" };
+                                    if ui.small_button(label).clicked() {
+                                        run = Some((!on, vec![id.clone()]));
+                                    }
+                                });
+                            });
                         });
                     }
                 });
                 col.add_space(10.0);
             }
         });
-        if let Some(p) = install {
-            let r = self.backend.install_pack(&p);
-            self.result(r);
+        if view.scanning {
+            ui.horizontal(|ui| {
+                ui.spinner();
+                ui.label(
+                    RichText::new("Lecture des outils installés…")
+                        .small()
+                        .color(th::muted()),
+                );
+            });
+        }
+        if let Some((install, ids)) = run {
+            let erases = !install
+                && ids
+                    .iter()
+                    .filter_map(|id| cfg.tool(id))
+                    .any(prism_core::tools::uninstall_erases_data);
+            if erases {
+                self.tools_confirm = Some(ids);
+            } else {
+                let r = self.backend.tools_run(install, ids);
+                self.result(r);
+            }
+        }
+        if let Some(ids) = self.tools_confirm.clone() {
+            let mut close = false;
+            egui::Window::new("Effacer Kali Linux ?")
+                .collapsible(false)
+                .resizable(false)
+                .anchor(egui::Align2::CENTER_CENTER, egui::vec2(0.0, 0.0))
+                .show(ui.ctx(), |ui| {
+                    ui.label("Désinstaller Kali Linux efface la distribution WSL et TOUS les fichiers qu'elle contient (dossier personnel, outils installés, résultats).");
+                    ui.label(RichText::new("Pour seulement libérer la mémoire pendant un jeu, inutile : Prism éteint WSL tout seul.").small().color(th::muted()));
+                    ui.add_space(8.0);
+                    ui.horizontal(|ui| {
+                        if ui.button("Effacer et désinstaller").clicked() {
+                            let r = self.backend.tools_run(false, ids.clone());
+                            self.result(r);
+                            close = true;
+                        }
+                        if ui.button("Annuler").clicked() {
+                            close = true;
+                        }
+                    });
+                });
+            if close {
+                self.tools_confirm = None;
+            }
         }
     }
 }

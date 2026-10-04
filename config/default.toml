@@ -258,7 +258,7 @@ processes = []
 
 [[tools]]
 id = "kali-essentiels"
-name = "Outils Kali essentiels (nmap, sqlmap, hashcat, john, gobuster)"
+name = "Outils Kali essentiels"
 source = "kali-apt"
 package = "nmap sqlmap hashcat john gobuster"
 gaming_conflict = "none"

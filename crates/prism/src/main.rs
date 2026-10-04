@@ -37,6 +37,7 @@ Utilisation : prism <commande>
   allege apply [niveaux]  applique : sur (défaut), avance, jeu, extreme (admin)
   jeu-noyau [on|off]      plan automatique pour les jeux à anti-cheat noyau
   webview [on|off]        WebView des applis sans fenêtre : liste, ou fermeture auto
+  tools uninstall <x>     désinstalle un outil ou un pack (Kali : efface la distribution)
   rapport                 où part la mémoire (fichier texte à envoyer, sans données personnelles)
   allege restore          remet toutes les valeurs d'origine (admin)
   vie-privee              tableau de bord : protections en place, télémétrie qui parle en ce moment
@@ -112,6 +113,7 @@ fn run(args: &[&str]) -> Result<(), String> {
             Ok(())
         }
         ["tools", "install", pack] => tools_install(&cfg, pack),
+        ["tools", "uninstall", what] => tools_uninstall(&cfg, what),
         ["allege"] => allege_list(),
         ["jeu-noyau", rest @ ..] => jeu_noyau(rest),
         ["webview", "on" | "off"] => {
@@ -360,6 +362,34 @@ fn tools_install(cfg: &Config, pack: &str) -> Result<(), String> {
                 .map_err(|e| format!("{} introuvable : {e}", cmd[0]))?;
             if !status.success() {
                 return Err(format!("{} : échec ({status}), installation arrêtée", t.name));
+            }
+        }
+    }
+    Ok(())
+}
+
+/// `prism tools uninstall <outil|pack>` : mêmes commandes que l'appli (silencieuses).
+fn tools_uninstall(cfg: &Config, what: &str) -> Result<(), String> {
+    use prism_core::tools::{uninstall_commands, uninstall_erases_data};
+    let tools: Vec<_> = match cfg.packs.get(what) {
+        Some(p) => p.tools.iter().filter_map(|id| cfg.tool(id).cloned()).collect(),
+        None => vec![cfg
+            .tool(what)
+            .cloned()
+            .ok_or_else(|| format!("outil ou pack inconnu « {what} »"))?],
+    };
+    for t in &tools {
+        if uninstall_erases_data(t) {
+            println!("⚠ {} : la distribution et tous ses fichiers vont être effacés.", t.name);
+        }
+        for cmd in uninstall_commands(t) {
+            println!("== {} : {}", t.name, cmd.join(" "));
+            let status = Command::new(&cmd[0])
+                .args(&cmd[1..])
+                .status()
+                .map_err(|e| format!("{} introuvable : {e}", cmd[0]))?;
+            if !status.success() {
+                println!("   échec ({status})");
             }
         }
     }

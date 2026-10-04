@@ -43,8 +43,10 @@ pub fn install_commands(t: &Tool) -> Vec<Vec<String>> {
             "winget",
             "--accept-package-agreements",
             "--accept-source-agreements",
+            "--silent",
+            "--disable-interactivity",
         ])],
-        ToolSource::WslDistro => vec![s(&["wsl", "--install", "-d", &t.package])],
+        ToolSource::WslDistro => vec![s(&["wsl", "--install", "-d", &t.package, "--no-launch"])],
         ToolSource::External => Vec::new(),
         ToolSource::KaliApt => {
             let mut install = s(&["wsl", "-d", KALI_DISTRO, "-u", "root", "--", "apt-get", "install", "-y"]);
@@ -57,6 +59,59 @@ pub fn install_commands(t: &Tool) -> Vec<Vec<String>> {
     }
 }
 
+/// Commandes (argv) qui désinstallent l'outil. Pour Kali (WSL), `--unregister` efface
+/// la distribution et tous ses fichiers : l'interface demande confirmation.
+pub fn uninstall_commands(t: &Tool) -> Vec<Vec<String>> {
+    let s = |v: &[&str]| v.iter().map(|x| x.to_string()).collect::<Vec<String>>();
+    match t.source {
+        ToolSource::Winget => vec![s(&[
+            "winget",
+            "uninstall",
+            "--id",
+            &t.package,
+            "--exact",
+            "--silent",
+            "--accept-source-agreements",
+            "--disable-interactivity",
+        ])],
+        ToolSource::WslDistro => vec![s(&["wsl", "--unregister", &t.package])],
+        ToolSource::KaliApt => {
+            let mut remove = s(&["wsl", "-d", KALI_DISTRO, "-u", "root", "--", "apt-get", "remove", "-y"]);
+            remove.extend(t.package.split_whitespace().map(String::from));
+            vec![remove]
+        }
+        ToolSource::External => Vec::new(),
+    }
+}
+
+/// Efface-t-on des données de l'utilisateur en désinstallant ?
+pub fn uninstall_erases_data(t: &Tool) -> bool {
+    t.source == ToolSource::WslDistro
+}
+
+/// Identifiants winget présents dans la sortie de `winget list` (colonne « Id »,
+/// insensible à la casse ; la sortie est un tableau aligné, localisé).
+pub fn winget_installed(list_output: &str, ids: &[&str]) -> Vec<String> {
+    let tokens: std::collections::HashSet<String> = list_output
+        .split_whitespace()
+        .map(|t| t.trim_matches(|c: char| c == '…').to_ascii_lowercase())
+        .collect();
+    ids.iter()
+        .filter(|id| tokens.contains(&id.to_ascii_lowercase()))
+        .map(|id| id.to_string())
+        .collect()
+}
+
+/// Distributions WSL dans la sortie de `wsl -l -q` (UTF-16 sur Windows : à décoder
+/// avant). Les octets nuls résiduels sont ignorés.
+pub fn wsl_distros(list_output: &str) -> Vec<String> {
+    list_output
+        .lines()
+        .map(|l| l.replace('\0', "").trim().to_string())
+        .filter(|l| !l.is_empty())
+        .collect()
+}
+
 /// Outils d'un pack, dépendances comprises et placées avant ceux qui les requièrent.
 pub fn resolve_pack(cfg: &Config, pack: &str) -> Result<Vec<Tool>, String> {
     let p = cfg.packs.get(pack).ok_or_else(|| {
@@ -65,6 +120,16 @@ pub fn resolve_pack(cfg: &Config, pack: &str) -> Result<Vec<Tool>, String> {
     })?;
     let mut out: Vec<Tool> = Vec::new();
     for id in &p.tools {
+        push_with_requirements(cfg, id, &mut out, 0)?;
+    }
+    Ok(out)
+}
+
+/// Outils demandés, dépendances comprises et placées avant (installer un outil Kali
+/// installe Kali d'abord).
+pub fn resolve_tools(cfg: &Config, ids: &[String]) -> Result<Vec<Tool>, String> {
+    let mut out: Vec<Tool> = Vec::new();
+    for id in ids {
         push_with_requirements(cfg, id, &mut out, 0)?;
     }
     Ok(out)
@@ -127,6 +192,33 @@ mod tests {
             ["winget", "install", "--id", "WiresharkFoundation.Wireshark"]
         );
         assert!(cmd.contains(&"--exact".to_string()));
+    }
+
+    #[test]
+    fn uninstall_is_silent_and_erasing_kali_is_flagged() {
+        let cfg = Config::builtin();
+        let w = &uninstall_commands(cfg.tool("wireshark").unwrap())[0];
+        assert_eq!(
+            &w[..4],
+            ["winget", "uninstall", "--id", "WiresharkFoundation.Wireshark"]
+        );
+        assert!(w.contains(&"--silent".to_string()));
+        let kali = cfg.tool("kali").unwrap();
+        assert_eq!(uninstall_commands(kali)[0], ["wsl", "--unregister", "kali-linux"]);
+        assert!(uninstall_erases_data(kali));
+        assert!(!uninstall_erases_data(cfg.tool("x64dbg").unwrap()));
+        assert!(uninstall_commands(cfg.tool("cheatengine").unwrap()).is_empty());
+    }
+
+    #[test]
+    fn installed_tools_are_read_from_winget_and_wsl_lists() {
+        let list = "Name                 Id                              Version   Source\n\
+                    ---------------------------------------------------------------\n\
+                    Wireshark 4.4.1      WiresharkFoundation.Wireshark   4.4.1     winget\n\
+                    PuTTY release 0.81   PuTTY.PuTTY                     0.81.0.0  winget\n";
+        let found = winget_installed(list, &["WiresharkFoundation.Wireshark", "x64dbg.x64dbg", "putty.putty"]);
+        assert_eq!(found, ["WiresharkFoundation.Wireshark", "putty.putty"]);
+        assert_eq!(wsl_distros("Ubuntu\r\nkali-linux\r\n\r\n"), ["Ubuntu", "kali-linux"]);
     }
 
     #[test]

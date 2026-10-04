@@ -426,7 +426,17 @@ the arrow keys and Enter (Esc to leave).
 prism tools                  # packs: reseau (network), web, reverse, kali
 prism tools reverse          # what a pack installs, with the exact commands
 prism tools install kali     # Kali Linux under WSL + essential tools (nmap, sqlmap, hashcat…)
+prism tools uninstall x64dbg # uninstall a tool or a whole pack
 ```
+
+In the app (*Outils cyber*), every tool shows whether it is installed and has its own
+*Installer* / *Désinstaller* button, plus *Tout installer* / *Tout désinstaller* per
+pack. Installing and uninstalling run in the background without any console window
+(winget silent mode), with *Installation en cours : Wireshark (2/3)* and a summary of
+successes and failures; you can keep using Prism meanwhile. A tool installs its
+requirements first (Kali before the Kali tools). Uninstalling Kali Linux erases the WSL
+distribution and every file in it, so the app asks for confirmation — to free its memory
+during a game this is not needed, Prism shuts WSL down by itself.
 
 Nothing is installed by default and nothing runs while you play (the gaming profile
 stops WSL when a game starts). Tools that can upset anti-cheats (debuggers, kernel-driver

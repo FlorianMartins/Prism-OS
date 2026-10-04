@@ -78,7 +78,33 @@ pub struct PresetInfo {
 pub struct PackInfo {
     pub id: String,
     pub label: String,
-    pub tools: Vec<(String, Option<String>)>,
+    /// (identifiant, nom, raison du conflit anti-cheat).
+    pub tools: Vec<(String, String, Option<String>)>,
+}
+
+/// Installation ou désinstallation d'outils en cours (sans console).
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct ToolJob {
+    pub install: bool,
+    /// Outil en cours et rang (1 à `total`).
+    pub current: String,
+    pub step: usize,
+    pub total: usize,
+    pub done: bool,
+    /// Outils réussis et erreurs, en clair.
+    pub ok: Vec<String>,
+    pub errors: Vec<String>,
+}
+
+/// État de la page Outils cyber.
+#[derive(Clone, Debug, Default)]
+pub struct ToolsView {
+    /// Identifiants des outils installés (connus après une lecture).
+    pub installed: Vec<String>,
+    /// Lecture de l'état en cours (winget list, wsl -l).
+    pub scanning: bool,
+    pub scanned: bool,
+    pub job: Option<ToolJob>,
 }
 
 pub trait Backend {
@@ -154,4 +180,9 @@ pub trait Backend {
 
     fn packs(&self) -> Vec<PackInfo>;
     fn install_pack(&mut self, pack: &str) -> Result<String, String>;
+    /// Lit quels outils sont installés (en arrière-plan).
+    fn tools_scan(&mut self);
+    fn tools_view(&mut self) -> ToolsView;
+    /// Installe (avec leurs dépendances) ou désinstalle ces outils, sans console.
+    fn tools_run(&mut self, install: bool, ids: Vec<String>) -> Result<String, String>;
 }

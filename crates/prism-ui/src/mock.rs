@@ -28,6 +28,7 @@ pub struct MockBackend {
     pub autostart_on: bool,
     pub noyau: prism_core::noyau::Reglages,
     pub webview: prism_core::webview::Reglages,
+    pub tools_installed: Vec<String>,
 }
 
 impl Default for MockBackend {
@@ -132,6 +133,7 @@ impl Default for MockBackend {
             autostart_on: false,
             noyau: Default::default(),
             webview: Default::default(),
+            tools_installed: vec!["wireshark".into(), "x64dbg".into()],
             log: Vec::new(),
         }
     }
@@ -514,10 +516,35 @@ impl Backend for MockBackend {
                 tools: prism_core::tools::resolve_pack(&cfg, id)
                     .unwrap_or_default()
                     .into_iter()
-                    .map(|t| (t.name, t.reason))
+                    .map(|t| (t.id, t.name, t.reason))
                     .collect(),
             })
             .collect()
+    }
+
+    fn tools_scan(&mut self) {}
+    fn tools_view(&mut self) -> crate::backend::ToolsView {
+        crate::backend::ToolsView {
+            installed: self.tools_installed.clone(),
+            scanned: true,
+            ..Default::default()
+        }
+    }
+    fn tools_run(&mut self, install: bool, ids: Vec<String>) -> Result<String, String> {
+        for id in &ids {
+            if install {
+                if !self.tools_installed.contains(id) {
+                    self.tools_installed.push(id.clone());
+                }
+            } else {
+                self.tools_installed.retain(|x| x != id);
+            }
+        }
+        Ok(format!(
+            "{} outil(s) {}",
+            ids.len(),
+            if install { "installé(s)" } else { "désinstallé(s)" }
+        ))
     }
 
     fn install_pack(&mut self, pack: &str) -> Result<String, String> {

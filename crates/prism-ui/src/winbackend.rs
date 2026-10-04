@@ -21,6 +21,8 @@ pub struct WinBackend {
     cfg: Config,
     platform: WindowsPlatform,
     previous: Option<(Snapshot, Instant)>,
+    /// Page Outils cyber : état partagé avec les fils de lecture et d'installation.
+    tools: std::sync::Arc<std::sync::Mutex<crate::backend::ToolsView>>,
 }
 
 impl WinBackend {
@@ -29,8 +31,55 @@ impl WinBackend {
             cfg: load_config().unwrap_or_else(|_| Config::builtin()),
             platform: WindowsPlatform::new(),
             previous: None,
+            tools: Default::default(),
         }
     }
+}
+
+/// Outils installés : un seul `winget list` (quelques secondes) et `wsl -l -q`.
+fn scan_tools(cfg: &Config) -> Vec<String> {
+    use prism_core::config::ToolSource;
+    let winget = hidden("winget.exe")
+        .args(["list", "--accept-source-agreements", "--disable-interactivity"])
+        .output()
+        .map(|o| String::from_utf8_lossy(&o.stdout).into_owned())
+        .unwrap_or_default();
+    // `wsl -l -q` écrit en UTF-16.
+    let wsl = hidden("wsl.exe")
+        .args(["-l", "-q"])
+        .output()
+        .map(|o| {
+            let u: Vec<u16> = o
+                .stdout
+                .chunks_exact(2)
+                .map(|c| u16::from_le_bytes([c[0], c[1]]))
+                .collect();
+            String::from_utf16_lossy(&u)
+        })
+        .unwrap_or_default();
+    let distros = prism_core::tools::wsl_distros(&wsl);
+    let ids: Vec<&str> = cfg
+        .tools
+        .iter()
+        .filter(|t| t.source == ToolSource::Winget)
+        .map(|t| t.package.as_str())
+        .collect();
+    let found = prism_core::tools::winget_installed(&winget, &ids);
+    let kali = distros
+        .iter()
+        .any(|d| d.eq_ignore_ascii_case(prism_core::tools::KALI_DISTRO));
+    cfg.tools
+        .iter()
+        .filter(|t| match t.source {
+            ToolSource::Winget => found.iter().any(|f| f.eq_ignore_ascii_case(&t.package)),
+            ToolSource::WslDistro => distros.iter().any(|d| d.eq_ignore_ascii_case(&t.package)),
+            // Paquets dans Kali : supposés présents avec Kali (les lire demanderait de
+            // démarrer la machine virtuelle).
+            ToolSource::KaliApt => kali,
+            ToolSource::External => false,
+        })
+        .map(|t| t.id.clone())
+        .collect()
 }
 
 impl Default for WinBackend {
@@ -562,21 +611,118 @@ impl Backend for WinBackend {
                 tools: prism_core::tools::resolve_pack(&self.cfg, id)
                     .unwrap_or_default()
                     .into_iter()
-                    .map(|t| (t.name, t.reason))
+                    .map(|t| (t.id, t.name, t.reason))
                     .collect(),
             })
             .collect()
     }
 
+    fn tools_scan(&mut self) {
+        let state = self.tools.clone();
+        {
+            let Ok(mut s) = state.lock() else { return };
+            if s.scanning {
+                return;
+            }
+            s.scanning = true;
+        }
+        let cfg = self.cfg.clone();
+        std::thread::spawn(move || {
+            let installed = scan_tools(&cfg);
+            if let Ok(mut s) = state.lock() {
+                s.installed = installed;
+                s.scanning = false;
+                s.scanned = true;
+            }
+        });
+    }
+
+    fn tools_view(&mut self) -> crate::backend::ToolsView {
+        self.tools.lock().map(|s| s.clone()).unwrap_or_default()
+    }
+
+    fn tools_run(&mut self, install: bool, ids: Vec<String>) -> Result<String, String> {
+        use crate::backend::ToolJob;
+        let tools = if install {
+            // Dépendances d'abord ; celles déjà installées sont sautées.
+            let have = self.tools_view().installed;
+            prism_core::tools::resolve_tools(&self.cfg, &ids)?
+                .into_iter()
+                .filter(|t| ids.contains(&t.id) || !have.contains(&t.id))
+                .collect::<Vec<_>>()
+        } else {
+            ids.iter().filter_map(|id| self.cfg.tool(id).cloned()).collect()
+        };
+        {
+            let mut s = self.tools.lock().map_err(|_| "verrou".to_string())?;
+            if s.job.as_ref().is_some_and(|j| !j.done) {
+                return Err("Une installation est déjà en cours".into());
+            }
+            s.job = Some(ToolJob {
+                install,
+                total: tools.len(),
+                ..Default::default()
+            });
+        }
+        let state = self.tools.clone();
+        let cfg = self.cfg.clone();
+        let count = tools.len();
+        std::thread::spawn(move || {
+            for (i, t) in tools.iter().enumerate() {
+                if let Ok(mut s) = state.lock() {
+                    if let Some(j) = s.job.as_mut() {
+                        j.current = t.name.clone();
+                        j.step = i + 1;
+                    }
+                }
+                let cmds = if install {
+                    prism_core::tools::install_commands(t)
+                } else {
+                    prism_core::tools::uninstall_commands(t)
+                };
+                let mut error = None;
+                for cmd in &cmds {
+                    match hidden(&cmd[0]).args(&cmd[1..]).output() {
+                        Ok(o) if o.status.success() => {}
+                        Ok(o) => {
+                            let out = String::from_utf8_lossy(&o.stdout);
+                            let last = out.lines().rev().find(|l| !l.trim().is_empty()).unwrap_or("").trim();
+                            error = Some(format!("{} : échec (code {:?}) {last}", t.name, o.status.code()));
+                            break;
+                        }
+                        Err(e) => {
+                            error = Some(format!("{} : {} introuvable ({e})", t.name, cmd[0]));
+                            break;
+                        }
+                    }
+                }
+                if let Ok(mut s) = state.lock() {
+                    if let Some(j) = s.job.as_mut() {
+                        match error {
+                            Some(e) => j.errors.push(e),
+                            None => j.ok.push(t.name.clone()),
+                        }
+                    }
+                }
+            }
+            let installed = scan_tools(&cfg);
+            if let Ok(mut s) = state.lock() {
+                s.installed = installed;
+                s.scanned = true;
+                if let Some(j) = s.job.as_mut() {
+                    j.done = true;
+                }
+            }
+        });
+        Ok(format!(
+            "{} en cours ({} outil(s)) : vous pouvez continuer à utiliser Prism",
+            if install { "Installation" } else { "Désinstallation" },
+            count
+        ))
+    }
+
     fn install_pack(&mut self, pack: &str) -> Result<String, String> {
-        // Une console visible : l'installation montre sa progression et ses questions.
-        let exe = prism_exe();
-        Command::new("cmd.exe")
-            .args(["/c", "start", "Prism - outils"])
-            .arg(exe)
-            .args(["tools", "install", pack])
-            .spawn()
-            .map_err(|e| e.to_string())?;
-        Ok(format!("Installation du pack {pack} lancée dans une console"))
+        let ids = self.cfg.packs.get(pack).map(|p| p.tools.clone()).unwrap_or_default();
+        self.tools_run(true, ids)
     }
 }
