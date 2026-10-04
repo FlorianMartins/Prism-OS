@@ -41,6 +41,7 @@ Utilisation : prism <commande>
   config init|check|path  copie modifiable de la configuration
   autostart on|off        lance le Mode Jeu à l'ouverture de session (admin)
   bar on|off              lance / arrête la Prism Bar ; bar autostart on|off
+  fx demo | fx stats      démonstration mesurée des effets ; mesures des dernières animations
   demo                    partie simulée de bout en bout (tout système)
   version
 ";
@@ -544,6 +545,24 @@ fn platform_command(cfg: &Config, args: &[&str]) -> Result<(), String> {
             } else {
                 Err("restauration incomplète, relancez en administrateur".into())
             }
+        }
+        ["fx", "demo"] => {
+            if !prism_win::bar_app::fx_demo() {
+                return Err("la Prism Bar doit tourner (prism bar on)".into());
+            }
+            println!("Démonstration lancée sur la fenêtre au premier plan ; mesures dans quelques secondes…");
+            std::thread::sleep(Duration::from_secs(6));
+            print!("{}", prism_core::fx::summarize(&prism_core::fx::load_stats()));
+            Ok(())
+        }
+        ["fx", "stats"] => {
+            let stats = prism_core::fx::load_stats();
+            if stats.is_empty() {
+                println!("Aucune mesure : activez les effets (prism-ui, Apparence) ou lancez prism fx demo.");
+            } else {
+                print!("{}", prism_core::fx::summarize(&stats));
+            }
+            Ok(())
         }
         ["bar", "on"] => {
             let exe = std::env::current_exe()

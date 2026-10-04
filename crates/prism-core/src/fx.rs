@@ -391,6 +391,80 @@ fn zoom(a: &Animation, t: f32, out: &mut Image) {
     }
 }
 
+/// Mesure d'une animation jouée sous Windows (écrite par la barre, lue par
+/// `prism fx stats`), pour ne jamais affirmer « fluide » sans chiffres.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct FxStat {
+    pub effect: Effect,
+    /// Ce qui a déclenché l'effet (clic sur la barre, réduction, ouverture…).
+    pub trigger: String,
+    pub width: u32,
+    pub height: u32,
+    /// Copie de la fenêtre.
+    pub capture_ms: f32,
+    /// Du déclencheur à la première image affichée.
+    pub latency_ms: f32,
+    pub frames: u32,
+    /// Calcul + envoi à l'écran, par image.
+    pub avg_frame_ms: f32,
+    pub max_frame_ms: f32,
+    /// Images dont le travail a dépassé l'intervalle de rafraîchissement mesuré.
+    pub missed: u32,
+    /// Cadence réellement obtenue.
+    pub fps: f32,
+}
+
+pub const STATS_KEEP: usize = 50;
+
+pub fn stats_path() -> std::path::PathBuf {
+    crate::paths::data_dir().join("fx-stats.json")
+}
+
+pub fn load_stats() -> Vec<FxStat> {
+    std::fs::read(stats_path())
+        .ok()
+        .and_then(|b| serde_json::from_slice(&b).ok())
+        .unwrap_or_default()
+}
+
+pub fn push_stat(list: &mut Vec<FxStat>, stat: FxStat) {
+    list.push(stat);
+    let excess = list.len().saturating_sub(STATS_KEEP);
+    list.drain(..excess);
+}
+
+pub fn save_stats(list: &[FxStat]) -> Result<(), String> {
+    let path = stats_path();
+    if let Some(dir) = path.parent() {
+        std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
+    }
+    std::fs::write(path, serde_json::to_vec_pretty(list).map_err(|e| e.to_string())?).map_err(|e| e.to_string())
+}
+
+/// Tableau lisible des mesures.
+pub fn summarize(list: &[FxStat]) -> String {
+    let mut out = format!(
+        "{:<8} {:<22} {:>9} {:>8} {:>9} {:>7} {:>7} {:>6} {:>6}\n",
+        "effet", "déclencheur", "taille", "capture", "latence", "moy/img", "max/img", "ratées", "i/s"
+    );
+    for s in list {
+        out.push_str(&format!(
+            "{:<8} {:<22} {:>9} {:>6.1}ms {:>7.1}ms {:>5.1}ms {:>5.1}ms {:>3}/{:<3} {:>5.0}\n",
+            format!("{:?}", s.effect),
+            s.trigger,
+            format!("{}x{}", s.width, s.height),
+            s.capture_ms,
+            s.latency_ms,
+            s.avg_frame_ms,
+            s.max_frame_ms,
+            s.missed,
+            s.frames,
+            s.fps
+        ));
+    }
+    out
+}
+
 /// Image de test : damier coloré avec une barre de titre (prévisualisation, tests).
 pub fn sample_window(width: u32, height: u32) -> Image {
     let mut img = Image::new(width, height);
@@ -543,6 +617,33 @@ mod tests {
             };
             frame(&a, 0.5);
         }
+    }
+
+    #[test]
+    fn stats_are_bounded_and_summarized() {
+        let mut list = Vec::new();
+        let stat = FxStat {
+            effect: Effect::Genie,
+            trigger: "clic barre".into(),
+            width: 1280,
+            height: 720,
+            capture_ms: 8.0,
+            latency_ms: 12.5,
+            frames: 19,
+            avg_frame_ms: 3.1,
+            max_frame_ms: 6.0,
+            missed: 0,
+            fps: 59.8,
+        };
+        for _ in 0..(STATS_KEEP + 5) {
+            push_stat(&mut list, stat.clone());
+        }
+        assert_eq!(list.len(), STATS_KEEP);
+        let text = summarize(&list[..1]);
+        assert!(
+            text.contains("Genie") && text.contains("1280x720") && text.contains("12.5ms"),
+            "{text}"
+        );
     }
 
     #[test]

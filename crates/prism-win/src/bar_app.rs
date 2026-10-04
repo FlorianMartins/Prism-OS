@@ -2,8 +2,10 @@
 //! choisi. Légère par construction : elle tourne en permanence.
 
 use std::cell::RefCell;
+use std::collections::HashMap;
 use std::ffi::c_void;
 use std::ptr::{null, null_mut};
+use std::time::{Duration, Instant};
 
 use prism_core::bar::{bar_rect, layout, BarConfig, DeskKind, Edge, History, Placed, Rect, Widget};
 use prism_core::etat::Etat;
@@ -81,15 +83,43 @@ struct Bar {
     game_cfg: prism_core::config::Config,
     /// Fenêtres rendues transparentes : style étendu d'origine et opacité posée.
     translucent: std::collections::HashMap<isize, (isize, u8)>,
+    overlay: Option<crate::fx_overlay::Overlay>,
+    /// Dernière copie de chaque fenêtre (pour réduire, restaurer, fermer avec effet).
+    snaps: HashMap<isize, crate::fx_overlay::Snap>,
+    /// Événements provoqués par Prism lui-même (à ignorer quand Windows les renvoie).
+    skip: HashMap<isize, Instant>,
+    stats: Vec<prism_core::fx::FxStat>,
+}
+
+/// Ce qu'on fait à la fenêtre : apparition (ouverture, restauration) ou disparition.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum FxKind {
+    Appear,
+    Disappear,
 }
 
 thread_local! {
     static BAR: RefCell<Option<Bar>> = const { RefCell::new(None) };
+    /// Événements de fenêtres en attente pour les effets (traités hors de tout
+    /// emprunt de `BAR` : une animation ne peut jamais être réentrée).
+    static FX_QUEUE: RefCell<Vec<(u32, isize, Instant)>> = const { RefCell::new(Vec::new()) };
+    static BAR_HWND: std::cell::Cell<isize> = const { std::cell::Cell::new(0) };
 }
 
+/// Accès à l'état de la barre ; `None` si elle est déjà en cours d'utilisation
+/// (un rappel Windows arrivé pendant un traitement ne doit pas paniquer).
 fn with_bar<R>(f: impl FnOnce(&mut Bar) -> R) -> Option<R> {
-    BAR.with(|b| b.borrow_mut().as_mut().map(f))
+    BAR.with(|b| b.try_borrow_mut().ok()?.as_mut().map(f))
 }
+
+const WM_FX: u32 = WM_APP + 3;
+/// Démonstration mesurée des effets (`prism fx demo`).
+pub const WM_FX_DEMO: u32 = WM_APP + 2;
+const EVENT_SYSTEM_FOREGROUND_ID: u32 = 0x0003;
+const EVENT_SYSTEM_MINIMIZESTART_ID: u32 = 0x0016;
+const EVENT_SYSTEM_MINIMIZEEND_ID: u32 = 0x0017;
+const EVENT_OBJECT_SHOW_ID: u32 = 0x8002;
+const EVENT_OBJECT_HIDE_ID: u32 = 0x8003;
 
 fn edge_code(e: Edge) -> u32 {
     match e {
@@ -572,13 +602,347 @@ impl Bar {
         match p.widget {
             Widget::Start => press_win_key(),
             Widget::Windows => {
-                if let Some(w) = p.index.and_then(|i| self.windows.get(i)) {
-                    activate(w.hwnd);
+                if let Some(h) = p.index.and_then(|i| self.windows.get(i)).map(|w| w.hwnd) {
+                    if !self.fx_click(h, "clic barre") {
+                        activate(h);
+                    }
                 }
             }
             Widget::GameMode | Widget::Cpu | Widget::Ram | Widget::Gpu => open_prism_ui(),
             _ => {}
         }
+    }
+
+    // --- Effets ---------------------------------------------------------------
+
+    /// La fenêtre peut-elle recevoir un effet ? (jamais un jeu, ni en plein écran,
+    /// ni pendant le Mode Jeu, ni une petite fenêtre outil.)
+    fn fx_allowed(&self, hwnd: HWND, need_visible: bool) -> bool {
+        if !self.cfg.fx.enabled || self.game || hwnd.is_null() || hwnd == self.hwnd {
+            return false;
+        }
+        // SAFETY: lectures d'attributs d'une fenêtre.
+        unsafe {
+            if need_visible && IsWindowVisible(hwnd) == 0 {
+                return false;
+            }
+            if !GetWindow(hwnd, GW_OWNER).is_null() {
+                return false;
+            }
+            let style = GetWindowLongPtrW(hwnd, GWL_STYLE) as u32;
+            let ex = GetWindowLongPtrW(hwnd, GWL_EXSTYLE) as u32;
+            if style & WS_CAPTION != WS_CAPTION || ex & WS_EX_TOOLWINDOW != 0 {
+                return false;
+            }
+            let mut pid = 0u32;
+            GetWindowThreadProcessId(hwnd, &mut pid);
+            if pid == std::process::id() {
+                return false;
+            }
+            let path = crate::win::process_path(pid);
+            let exe = path
+                .as_deref()
+                .and_then(|p| p.rsplit('\\').next())
+                .unwrap_or_default()
+                .to_string();
+            if prism_core::classify::is_game_process(&exe, path.as_deref(), &self.game_cfg) {
+                return false;
+            }
+        }
+        match crate::fx_overlay::visible_rect(hwnd) {
+            Some(r) => r.width() >= 200 && r.height() >= 120 && !is_fullscreen(hwnd),
+            None => false,
+        }
+    }
+
+    /// Bouton de la fenêtre dans la barre, en coordonnées écran (cible du génie).
+    fn target_for(&self, hwnd: HWND) -> Rect {
+        let mut br = RECT {
+            left: 0,
+            top: 0,
+            right: 0,
+            bottom: 0,
+        };
+        // SAFETY: sortie locale.
+        unsafe { GetWindowRect(self.hwnd, &mut br) };
+        let idx = self.windows.iter().position(|w| w.hwnd == hwnd);
+        let item = self
+            .items
+            .iter()
+            .find(|p| p.widget == Widget::Windows && p.index.is_some() && p.index == idx);
+        match item {
+            Some(p) => Rect {
+                left: br.left + p.rect.left,
+                top: br.top + p.rect.top,
+                right: br.left + p.rect.right,
+                bottom: br.top + p.rect.bottom,
+            },
+            None => {
+                let (cx, cy) = ((br.left + br.right) / 2, (br.top + br.bottom) / 2);
+                Rect {
+                    left: cx - 20,
+                    top: cy - 10,
+                    right: cx + 20,
+                    bottom: cy + 10,
+                }
+            }
+        }
+    }
+
+    /// Joue un effet sur une copie de fenêtre et enregistre sa mesure.
+    #[allow(clippy::too_many_arguments)]
+    fn play_effect(
+        &mut self,
+        effect: prism_core::fx::Effect,
+        kind: FxKind,
+        snap: &crate::fx_overlay::Snap,
+        target: Rect,
+        trigger: Instant,
+        name: &str,
+        after_first: impl FnOnce(),
+    ) {
+        use prism_core::fx::{Animation, Effect};
+        if effect == Effect::None {
+            after_first();
+            return;
+        }
+        let Some(overlay) = self.overlay.as_mut() else {
+            after_first();
+            return;
+        };
+        let w = snap.rect;
+        // Zone de la couche : fenêtre + cible + marge pour le dépassement de la gélatine.
+        let (mx, my) = (w.width() / 6 + 40, w.height() / 6 + 40);
+        // SAFETY: lectures de métriques système.
+        let (vx, vy, vw, vh) = unsafe {
+            (
+                GetSystemMetrics(SM_XVIRTUALSCREEN),
+                GetSystemMetrics(SM_YVIRTUALSCREEN),
+                GetSystemMetrics(SM_CXVIRTUALSCREEN),
+                GetSystemMetrics(SM_CYVIRTUALSCREEN),
+            )
+        };
+        let left = (w.left - mx).min(target.left).max(vx);
+        let top = (w.top - my).min(target.top).max(vy);
+        let right = (w.right + mx).max(target.right).min(vx + vw);
+        let bottom = (w.bottom + my).max(target.bottom).min(vy + vh);
+        if right <= left || bottom <= top {
+            after_first();
+            return;
+        }
+        let shift = |r: Rect| Rect {
+            left: r.left - left,
+            top: r.top - top,
+            right: r.right - left,
+            bottom: r.bottom - top,
+        };
+        // Génie et zoom se jouent à l'envers pour une apparition, la gélatine pour une disparition.
+        let reverse = (kind == FxKind::Appear) ^ (effect == Effect::Jelly);
+        let anim = Animation {
+            effect,
+            source: snap.img.clone(),
+            window: shift(w),
+            target: shift(target),
+            edge: self.cfg.edge,
+            reverse,
+            intensity: self.cfg.fx.intensity as f32 / 100.0,
+        };
+        let duration = Duration::from_millis(self.cfg.fx.duration_ms as u64);
+        let stat = overlay.play(
+            &anim,
+            (left, top),
+            ((right - left) as u32, (bottom - top) as u32),
+            duration,
+            trigger,
+            name,
+            snap.capture_ms,
+            after_first,
+        );
+        prism_core::fx::push_stat(&mut self.stats, stat);
+        let _ = prism_core::fx::save_stats(&self.stats);
+    }
+
+    /// Clic sur une fenêtre de la barre : réduction ou restauration avec effet.
+    /// `false` si aucun effet ne s'applique (le clic active alors la fenêtre).
+    fn fx_click(&mut self, h: HWND, name: &str) -> bool {
+        if !self.fx_allowed(h, false) {
+            return false;
+        }
+        let key = h as isize;
+        let trigger = Instant::now();
+        // SAFETY: lectures d'état d'une fenêtre.
+        let (iconic, foreground) = unsafe { (IsIconic(h) != 0, GetForegroundWindow() == h) };
+        let fx = self.cfg.fx.clone();
+        if foreground && !iconic && fx.minimize != prism_core::fx::Effect::None {
+            let Some(snap) = crate::fx_overlay::capture(h) else {
+                return false;
+            };
+            self.skip.insert(key, Instant::now());
+            let target = self.target_for(h);
+            // La fenêtre est réduite dès que la couche la recouvre.
+            self.play_effect(
+                fx.minimize,
+                FxKind::Disappear,
+                &snap,
+                target,
+                trigger,
+                name,
+                || unsafe {
+                    ShowWindow(h, SW_MINIMIZE);
+                },
+            );
+            self.snaps.insert(key, snap);
+            return true;
+        }
+        if iconic && fx.restore != prism_core::fx::Effect::None {
+            let Some(snap) = self.snaps.remove(&key) else {
+                return false;
+            };
+            self.skip.insert(key, Instant::now());
+            let target = self.target_for(h);
+            let hidden = crate::fx_overlay::hide_temp(h);
+            // Restaurée invisible sous la couche, rendue visible à la dernière image.
+            self.play_effect(fx.restore, FxKind::Appear, &snap, target, trigger, name, || unsafe {
+                ShowWindow(h, SW_RESTORE);
+            });
+            if let Some(ex) = hidden {
+                crate::fx_overlay::unhide(h, ex);
+            }
+            activate(h);
+            self.snaps.insert(key, snap);
+            return true;
+        }
+        false
+    }
+
+    /// Traite les événements de fenêtres en attente.
+    fn process_fx(&mut self) {
+        let events: Vec<(u32, isize, Instant)> = FX_QUEUE.with(|q| std::mem::take(&mut *q.borrow_mut()));
+        if !self.cfg.fx.enabled {
+            return;
+        }
+        for (ev, key, at) in events {
+            let h = key as HWND;
+            if let Some(t) = self.skip.get(&key) {
+                if t.elapsed() < Duration::from_millis(2000)
+                    && matches!(ev, EVENT_SYSTEM_MINIMIZESTART_ID | EVENT_SYSTEM_MINIMIZEEND_ID)
+                {
+                    self.skip.remove(&key);
+                    continue;
+                }
+            }
+            let fx = self.cfg.fx.clone();
+            match ev {
+                EVENT_SYSTEM_FOREGROUND_ID if self.fx_allowed(h, true) => {
+                    if let Some(s) = crate::fx_overlay::capture(h) {
+                        self.snaps.insert(key, s);
+                    }
+                    if self.snaps.len() > 16 {
+                        if let Some(oldest) = self.snaps.iter().min_by_key(|(_, s)| s.at).map(|(k, _)| *k) {
+                            self.snaps.remove(&oldest);
+                        }
+                    }
+                }
+                EVENT_SYSTEM_MINIMIZESTART_ID if self.fx_allowed(h, false) => {
+                    if let Some(snap) = self.snaps.remove(&key) {
+                        let target = self.target_for(h);
+                        self.play_effect(fx.minimize, FxKind::Disappear, &snap, target, at, "réduction", || {});
+                        self.snaps.insert(key, snap);
+                    }
+                }
+                EVENT_SYSTEM_MINIMIZEEND_ID if self.fx_allowed(h, false) => {
+                    if let Some(snap) = self.snaps.remove(&key) {
+                        if let Some(ex) = crate::fx_overlay::hide_temp(h) {
+                            let target = self.target_for(h);
+                            self.play_effect(fx.restore, FxKind::Appear, &snap, target, at, "restauration", || {});
+                            crate::fx_overlay::unhide(h, ex);
+                        }
+                        self.snaps.insert(key, snap);
+                    }
+                }
+                EVENT_OBJECT_SHOW_ID
+                    if fx.open != prism_core::fx::Effect::None
+                        && !self.snaps.contains_key(&key)
+                        && self.fx_allowed(h, true) =>
+                {
+                    if let Some(ex) = crate::fx_overlay::hide_temp(h) {
+                        // Laisse l'appli dessiner sa première image avant de la copier.
+                        std::thread::sleep(Duration::from_millis(40));
+                        if let Some(snap) = crate::fx_overlay::capture(h) {
+                            let target = self.target_for(h);
+                            self.play_effect(fx.open, FxKind::Appear, &snap, target, at, "ouverture", || {});
+                            self.snaps.insert(key, snap);
+                        }
+                        crate::fx_overlay::unhide(h, ex);
+                    }
+                }
+                EVENT_OBJECT_HIDE_ID if fx.close != prism_core::fx::Effect::None && !self.game => {
+                    // SAFETY: lectures d'état ; la fenêtre peut déjà être détruite.
+                    let gone = unsafe { IsWindow(h) == 0 || (IsWindowVisible(h) == 0 && IsIconic(h) == 0) };
+                    if gone {
+                        if let Some(snap) = self.snaps.remove(&key) {
+                            let target = self.target_for(h);
+                            self.play_effect(fx.close, FxKind::Disappear, &snap, target, at, "fermeture", || {});
+                        }
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+
+    /// Démonstration mesurée : réduction, restauration, fermeture et ouverture
+    /// simulées sur la fenêtre au premier plan (rien n'est réellement fermé).
+    fn fx_demo(&mut self) {
+        let saved = self.cfg.fx.clone();
+        if !self.cfg.fx.enabled {
+            self.cfg.fx = prism_core::fx::FxConfig {
+                enabled: true,
+                ..Default::default()
+            };
+        }
+        // SAFETY: lecture de la fenêtre au premier plan.
+        let fg = unsafe { GetForegroundWindow() };
+        let h = if self.fx_allowed(fg, true) {
+            Some(fg)
+        } else {
+            self.windows.iter().map(|w| w.hwnd).find(|w| self.fx_allowed(*w, true))
+        };
+        if let Some(h) = h {
+            activate(h);
+            std::thread::sleep(Duration::from_millis(300));
+            self.fx_click(h, "démo : réduire");
+            std::thread::sleep(Duration::from_millis(500));
+            self.fx_click(h, "démo : restaurer");
+            std::thread::sleep(Duration::from_millis(500));
+            if let Some(snap) = crate::fx_overlay::capture(h) {
+                let target = self.target_for(h);
+                let fx = self.cfg.fx.clone();
+                if let Some(ex) = crate::fx_overlay::hide_temp(h) {
+                    self.play_effect(
+                        fx.close,
+                        FxKind::Disappear,
+                        &snap,
+                        target,
+                        Instant::now(),
+                        "démo : fermer",
+                        || {},
+                    );
+                    std::thread::sleep(Duration::from_millis(300));
+                    self.play_effect(
+                        fx.open,
+                        FxKind::Appear,
+                        &snap,
+                        target,
+                        Instant::now(),
+                        "démo : ouvrir",
+                        || {},
+                    );
+                    crate::fx_overlay::unhide(h, ex);
+                }
+            }
+        }
+        self.cfg.fx = saved;
     }
 
     fn paint(&self, hdc: HDC) {
@@ -1026,7 +1390,7 @@ fn open_prism_ui() {
 /// l'appli : aucune injection). On lui applique l'opacité de sa catégorie.
 unsafe extern "system" fn on_object_show(
     _hook: windows_sys::Win32::UI::Accessibility::HWINEVENTHOOK,
-    _event: u32,
+    event: u32,
     hwnd: HWND,
     id_object: i32,
     id_child: i32,
@@ -1034,6 +1398,17 @@ unsafe extern "system" fn on_object_show(
     _time: u32,
 ) {
     if hwnd.is_null() || id_object != OBJID_WINDOW || id_child != 0 {
+        return;
+    }
+    // Effets : l'événement est mis en file et traité par la barre juste après.
+    if GetAncestor(hwnd, GA_ROOT) == hwnd {
+        FX_QUEUE.with(|q| q.borrow_mut().push((event, hwnd as isize, Instant::now())));
+        let bar = BAR_HWND.with(|b| b.get());
+        if bar != 0 {
+            PostMessageW(bar as HWND, WM_FX, 0, 0);
+        }
+    }
+    if event != EVENT_OBJECT_SHOW_ID {
         return;
     }
     let mut buf = [0u16; 64];
@@ -1094,6 +1469,14 @@ unsafe extern "system" fn desk_wndproc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPA
 
 unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) -> LRESULT {
     match msg {
+        WM_FX => {
+            with_bar(|b| b.process_fx());
+            0
+        }
+        WM_FX_DEMO => {
+            with_bar(|b| b.fx_demo());
+            0
+        }
         WM_TIMER => {
             with_bar(|b| b.tick());
             0
@@ -1262,6 +1645,10 @@ pub fn run() -> Result<(), String> {
                     c
                 },
                 translucent: std::collections::HashMap::new(),
+                overlay: crate::fx_overlay::Overlay::new(),
+                snaps: HashMap::new(),
+                skip: HashMap::new(),
+                stats: prism_core::fx::load_stats(),
             })
         });
         with_bar(|b| {
@@ -1271,22 +1658,46 @@ pub fn run() -> Result<(), String> {
         ShowWindow(hwnd, SW_SHOWNOACTIVATE);
         SetTimer(hwnd, TIMER_ID, 1000, None);
         use windows_sys::Win32::UI::Accessibility::{SetWinEventHook, UnhookWinEvent};
+        BAR_HWND.with(|b| b.set(hwnd as isize));
+        let flags = WINEVENT_OUTOFCONTEXT | WINEVENT_SKIPOWNPROCESS;
+        // Apparitions/disparitions (transparence par élément, ouverture/fermeture),
+        // premier plan, réduction/restauration (effets).
         let hook = SetWinEventHook(
             EVENT_OBJECT_SHOW,
-            EVENT_OBJECT_SHOW,
+            EVENT_OBJECT_HIDE,
             null_mut(),
             Some(on_object_show),
             0,
             0,
-            WINEVENT_OUTOFCONTEXT | WINEVENT_SKIPOWNPROCESS,
+            flags,
+        );
+        let hook_fg = SetWinEventHook(
+            EVENT_SYSTEM_FOREGROUND,
+            EVENT_SYSTEM_FOREGROUND,
+            null_mut(),
+            Some(on_object_show),
+            0,
+            0,
+            flags,
+        );
+        let hook_min = SetWinEventHook(
+            EVENT_SYSTEM_MINIMIZESTART,
+            EVENT_SYSTEM_MINIMIZEEND,
+            null_mut(),
+            Some(on_object_show),
+            0,
+            0,
+            flags,
         );
         let mut msg: MSG = std::mem::zeroed();
         while GetMessageW(&mut msg, null_mut(), 0, 0) > 0 {
             TranslateMessage(&msg);
             DispatchMessageW(&msg);
         }
-        if !hook.is_null() {
-            UnhookWinEvent(hook);
+        for h in [hook, hook_fg, hook_min] {
+            if !h.is_null() {
+                UnhookWinEvent(h);
+            }
         }
     }
     Ok(())
@@ -1302,6 +1713,20 @@ pub fn stop() -> bool {
             return false;
         }
         PostMessageW(h, WM_CLOSE, 0, 0);
+        true
+    }
+}
+
+/// Demande à la barre une démonstration mesurée des effets. `false` si elle ne tourne pas.
+pub fn fx_demo() -> bool {
+    let class = wide(CLASS);
+    // SAFETY: recherche par nom de classe puis message à notre propre barre.
+    unsafe {
+        let h = FindWindowW(class.as_ptr(), null());
+        if h.is_null() {
+            return false;
+        }
+        PostMessageW(h, WM_FX_DEMO, 0, 0);
         true
     }
 }

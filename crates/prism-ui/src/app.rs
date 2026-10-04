@@ -806,6 +806,69 @@ impl PrismApp {
                 });
             });
         });
+        ui.add_space(12.0);
+        ui.horizontal(|ui| {
+            section(ui, "Effets de fenêtres");
+            ui.label(
+                RichText::new("Lampe de génie, gélatine, zoom : dessinés par Prism (la Prism Bar doit tourner), jamais sur un jeu ni en plein écran.")
+                    .small()
+                    .color(MUTED),
+            );
+        });
+        let was_enabled = cfg.fx.enabled;
+        card(ui, false, |ui| {
+            ui.checkbox(&mut cfg.fx.enabled, "Activer les effets");
+            ui.add_enabled_ui(cfg.fx.enabled, |ui| {
+                egui::Grid::new("fx")
+                    .num_columns(2)
+                    .spacing([16.0, 8.0])
+                    .show(ui, |ui| {
+                        let rows: [(&str, &mut prism_core::fx::Effect); 4] = [
+                            ("Réduire", &mut cfg.fx.minimize),
+                            ("Restaurer", &mut cfg.fx.restore),
+                            ("Ouvrir", &mut cfg.fx.open),
+                            ("Fermer", &mut cfg.fx.close),
+                        ];
+                        for (label, value) in rows {
+                            ui.label(label);
+                            ui.horizontal(|ui| {
+                                for e in prism_core::fx::Effect::ALL {
+                                    let sel = *value == e;
+                                    let b =
+                                        egui::Button::new(RichText::new(e.label()).color(if sel { BG } else { TEXT }))
+                                            .fill(if sel { ACCENT } else { CARD_HI });
+                                    if ui.add(b).clicked() {
+                                        *value = e;
+                                    }
+                                }
+                            });
+                            ui.end_row();
+                        }
+                    });
+                ui.add(
+                    egui::Slider::new(
+                        &mut cfg.fx.duration_ms,
+                        prism_core::fx::DURATION_MIN..=prism_core::fx::DURATION_MAX,
+                    )
+                    .text("durée")
+                    .suffix(" ms"),
+                );
+                ui.add(
+                    egui::Slider::new(&mut cfg.fx.intensity, 0..=100)
+                        .text("intensité de la déformation")
+                        .suffix(" %"),
+                );
+            });
+        });
+        if cfg.fx.enabled && !was_enabled {
+            // Coupe l'animation de réduction de Windows pour ne pas la superposer à celle
+            // de Prism (réglage d'Apparence journalisé : « Réglages d'origine » la remet).
+            if let Some(row) = self.backend.appearance().into_iter().find(|r| r.id == "anim_minmax") {
+                if let Some(i) = row.options.iter().position(|o| o == "Instantanée") {
+                    let _ = self.backend.appearance_set("anim_minmax", i);
+                }
+            }
+        }
         if cfg != before {
             if let Err(e) = self.backend.set_bar_config(&cfg) {
                 *action = Some(Err(e));

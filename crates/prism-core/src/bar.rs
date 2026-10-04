@@ -250,6 +250,8 @@ pub struct BarConfig {
     pub opacity_rules: Vec<OpacityRule>,
     /// Transparence par type d'élément (menus, listes, infobulles, dialogues).
     pub element_opacity: ElementOpacity,
+    /// Effets de fenêtres (génie, gélatine, zoom) joués par la barre.
+    pub fx: crate::fx::FxConfig,
 }
 
 impl Default for BarConfig {
@@ -274,6 +276,7 @@ impl Default for BarConfig {
             desktop_opacity: 85,
             opacity_rules: Vec::new(),
             element_opacity: ElementOpacity::default(),
+            fx: crate::fx::FxConfig::default(),
         }
     }
 }
@@ -311,6 +314,7 @@ impl BarConfig {
             r.process = r.process.trim().to_lowercase();
             r.opacity = r.opacity.clamp(RULE_OPACITY_MIN, 100);
         }
+        self.fx = self.fx.clone().sanitized();
         for k in ElementKind::ALL {
             let o = self.element_opacity.get_mut(k);
             *o = (*o).clamp(RULE_OPACITY_MIN, 100);
