@@ -152,3 +152,23 @@ fn hovered_card_shows_its_3d_effect() {
     let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../target/ui-shots");
     img.save(dir.join("carte-survolee.png")).unwrap();
 }
+
+/// Survoler une carte ne déplace pas son contenu : seuls l'ombre, la bordure et le
+/// reflet bougent (une parallaxe faisait glisser boutons et cases sous le pointeur).
+#[test]
+fn hovering_a_card_never_moves_its_content() {
+    let app = PrismApp::new(Box::new(MockBackend::default()));
+    let mut harness = Harness::builder()
+        .with_size(egui::vec2(1280.0, 820.0))
+        .wgpu()
+        .build_ui_state(|ui, app: &mut PrismApp| app.show(ui), app);
+    prism_ui::theme::apply(&harness.ctx);
+    harness.run_steps(20);
+    let before = harness.get_by_label("Libérer la RAM maintenant").rect();
+    // Pointeur sur la carte, en haut à droite du bouton (inclinaison maximale).
+    let over_card = before.right_top() + egui::vec2(40.0, -30.0);
+    harness.input_mut().events.push(egui::Event::PointerMoved(over_card));
+    harness.run_steps(20);
+    let after = harness.get_by_label("Libérer la RAM maintenant").rect();
+    assert_eq!(before, after, "le bouton a bougé au survol de sa carte");
+}

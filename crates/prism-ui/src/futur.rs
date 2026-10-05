@@ -38,22 +38,15 @@ fn card3d_inner<R>(ui: &mut egui::Ui, highlighted: bool, add: impl FnOnce(&mut e
     let tx = ctx.animate_value_with_time(id.with("x"), target.x, 0.14);
     let ty = ctx.animate_value_with_time(id.with("y"), target.y, 0.14);
     let hover = ctx.animate_bool_with_time(id.with("h"), target != Vec2::ZERO, 0.16);
-    // Le contenu glisse un peu dans le sens de l'inclinaison (parallaxe).
-    let px = (tx * 3.0).round() as i8;
-    let py = (ty * 3.0).round() as i8;
+    // Le contenu ne bouge jamais : seuls l'ombre, la bordure et le reflet suivent la
+    // souris. (Une parallaxe le faisait glisser sous le pointeur : viser une case ou un
+    // bouton devenait pénible — retour d'un utilisateur.)
     let bg_idx = ui.painter().add(Shape::Noop);
     let fill = if highlighted { th::accent_dim() } else { th::card() };
-    let inner = egui::Frame::new()
-        .inner_margin(Margin {
-            left: (14 + px).max(8),
-            right: (14 - px).max(8),
-            top: (14 + py).max(8),
-            bottom: (14 - py).max(8),
-        })
-        .show(ui, |ui| {
-            ui.set_width(ui.available_width());
-            add(ui)
-        });
+    let inner = egui::Frame::new().inner_margin(Margin::same(14)).show(ui, |ui| {
+        ui.set_width(ui.available_width());
+        add(ui)
+    });
     let rect = inner.response.rect;
     let resp = ui.interact(rect, id.with("hit"), egui::Sense::hover());
     // Nouvelle inclinaison selon la souris.
