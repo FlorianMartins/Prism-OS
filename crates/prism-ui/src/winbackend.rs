@@ -476,6 +476,24 @@ impl Backend for WinBackend {
         self.allege_toggle(&format!("svc:{}", name.to_ascii_lowercase()), false)
     }
 
+    fn compression(&mut self) -> Option<bool> {
+        prism_win::memory_compression()
+    }
+
+    fn set_compression(&mut self, on: bool) -> Result<String, String> {
+        let dir = data_dir();
+        let mut avant = allege::CompressionAvant::charger(&dir);
+        if avant.etait_active.is_none() {
+            avant.etait_active = prism_win::memory_compression();
+            avant.enregistrer(&dir)?;
+        }
+        prism_win::set_memory_compression(on)?;
+        Ok(format!(
+            "Compression de la mémoire {} — pris en compte au prochain redémarrage",
+            if on { "activée" } else { "désactivée" }
+        ))
+    }
+
     fn allege_toggle(&mut self, key: &str, on: bool) -> Result<String, String> {
         let c = AllegeCatalog::builtin();
         let path = data_dir().join("allegement.json");
@@ -523,6 +541,13 @@ impl Backend for WinBackend {
     }
 
     fn allege_restore(&mut self) -> Result<String, String> {
+        // Compression de la mémoire remise comme avant Prism.
+        let dir = data_dir();
+        let avant = allege::CompressionAvant::charger(&dir);
+        if let Some(v) = avant.etait_active {
+            let _ = prism_win::set_memory_compression(v);
+            let _ = allege::CompressionAvant::default().enregistrer(&dir);
+        }
         let path = data_dir().join("allegement.json");
         let mut journal = allege::AllegeJournal::load(&path)?;
         let r = allege::restore(&mut WindowsSystemConfig, &mut journal);

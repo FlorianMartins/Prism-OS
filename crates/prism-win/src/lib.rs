@@ -56,7 +56,7 @@ pub use privacy::{telemetry_connections, WindowsPrivacy};
 #[cfg(windows)]
 pub use startup::WindowsStartup;
 #[cfg(windows)]
-pub use sysconfig::{is_elevated, relaunch_elevated, WindowsSystemConfig};
+pub use sysconfig::{is_elevated, memory_compression, relaunch_elevated, set_memory_compression, WindowsSystemConfig};
 #[cfg(windows)]
 pub use topology::cpus as cpu_topology;
 

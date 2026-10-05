@@ -82,6 +82,9 @@ pub struct PrismApp {
     webview: prism_core::webview::Reglages,
     /// Nettoyage automatique de la RAM.
     ram_auto: prism_core::ram_auto::Reglages,
+    /// Compression de la mémoire (lue à l'ouverture de la page Allègement).
+    compression: Option<Option<bool>>,
+    compression_loading: Option<std::sync::Arc<std::sync::Mutex<Option<Option<bool>>>>>,
     /// Ce que « Appliquer le thème à tout Windows » applique : accent, fond, sombre, titres.
     design: (bool, bool, bool, bool),
     /// Saisie d'une appli à exclure.
@@ -147,6 +150,8 @@ impl PrismApp {
             webview,
             ram_auto,
             design: (true, true, true, true),
+            compression: None,
+            compression_loading: None,
             webview_new: String::new(),
             tools_scan_asked: false,
             services: None,
@@ -1163,6 +1168,8 @@ impl PrismApp {
             });
         });
         ui.add_space(10.0);
+        self.compression_section(ui);
+        ui.add_space(10.0);
         self.noyau_section(ui, &mut action);
         ui.add_space(12.0);
         self.webview_section(ui, &mut action);
@@ -1238,6 +1245,64 @@ impl PrismApp {
         }
         if let Some(r) = action {
             self.result(r);
+        }
+    }
+
+    /// Compression de la mémoire de Windows : désactivée, la RAM rendue par Prism quitte
+    /// vraiment la mémoire au lieu d'y rester compressée.
+    fn compression_section(&mut self, ui: &mut egui::Ui) {
+        // Lue en arrière-plan (PowerShell, environ une seconde).
+        if self.compression.is_none() && self.compression_loading.is_none() {
+            match self.factory {
+                Some(factory) => {
+                    let slot = std::sync::Arc::new(std::sync::Mutex::new(None));
+                    let out = slot.clone();
+                    std::thread::spawn(move || {
+                        let v = factory().compression();
+                        if let Ok(mut o) = out.lock() {
+                            *o = Some(v);
+                        }
+                    });
+                    self.compression_loading = Some(slot);
+                }
+                None => self.compression = Some(self.backend.compression()),
+            }
+        }
+        if let Some(slot) = &self.compression_loading {
+            match slot.lock().ok().and_then(|mut o| o.take()) {
+                Some(v) => {
+                    self.compression = Some(v);
+                    self.compression_loading = None;
+                }
+                None => ui.ctx().request_repaint_after(std::time::Duration::from_millis(300)),
+            }
+        }
+        let Some(state) = self.compression.flatten() else {
+            return;
+        };
+        let total = self.live.mem.total;
+        section(ui, "Compression de la mémoire");
+        let mut toggle = None;
+        card(ui, false, |ui| {
+            ui.horizontal(|ui| {
+                let mut on = !state;
+                if ui.add(toggle_switch(&mut on)).changed() {
+                    toggle = Some(!on);
+                }
+                ui.label(RichText::new("Désactiver la compression de la mémoire").strong());
+            });
+            ui.label(
+                RichText::new(format!(
+                    "Quand Prism rend la RAM d'une appli inactive, Windows la compresse et la garde en mémoire (processus « Memory Compression »), elle compte toujours comme utilisée. Désactivée, elle part vraiment. Conseillé à partir de 16 Go de RAM (ce PC : {}). Pris en compte au prochain redémarrage ; « Tout restaurer » remet le réglage d'origine.",
+                    human_bytes(total)
+                ))
+                .small()
+                .color(th::muted()),
+            );
+        });
+        if let Some(on) = toggle {
+            self.compression = None;
+            self.bg("Compression de la mémoire", move |b| b.set_compression(on));
         }
     }
 

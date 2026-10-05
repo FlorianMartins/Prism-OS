@@ -160,6 +160,15 @@ prism top               # what is using CPU and RAM right now
 `ram clean` frees the memory of apps you left open but are not using (measured: 2.9 GB
 returned in a test VM) and keeps the cache that holds your game's files.
 
+**Memory compression** (*Allègement* page, top): when Prism gives back the RAM of an
+idle app, Windows can compress part of it and keep it in memory (the *Memory
+Compression* process), still counted as used. Switching compression off sends it to the
+page file instead. Measured in the VM: trimming a 1.5 GB app lowered used memory by
+1.67 GB and *Memory Compression* grew by only 106 MB — so the gain is that share (up to
+a few hundred MB on a PC where *Memory Compression* is large), not gigabytes. Suggested
+from 16 GB of RAM; takes effect at the next restart; *Tout restaurer* and uninstalling
+put the original setting back.
+
 **Automatic RAM cleaning** (dashboard, *Nettoyage automatique*, on by default): the engine
 runs the same action as *Libérer la RAM des applis inactives* by itself — every 15
 minutes and whenever used memory goes above 75 % (both adjustable: 5–120 min, 50–95 %),

@@ -1118,3 +1118,30 @@ mod tests {
         let _ = fs::remove_file(path);
     }
 }
+
+/// Compression de la mémoire avant Prism (journal à part : ce n'est ni un service ni une
+/// stratégie). `None` dans le fichier : jamais changée par Prism.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CompressionAvant {
+    pub etait_active: Option<bool>,
+}
+
+impl CompressionAvant {
+    pub const FICHIER: &'static str = "compression-memoire.json";
+
+    pub fn charger(dir: &std::path::Path) -> CompressionAvant {
+        fs::read(dir.join(Self::FICHIER))
+            .ok()
+            .and_then(|b| serde_json::from_slice(&b).ok())
+            .unwrap_or_default()
+    }
+
+    pub fn enregistrer(&self, dir: &std::path::Path) -> Result<(), String> {
+        fs::create_dir_all(dir).map_err(|e| e.to_string())?;
+        fs::write(
+            dir.join(Self::FICHIER),
+            serde_json::to_vec_pretty(self).map_err(|e| e.to_string())?,
+        )
+        .map_err(|e| e.to_string())
+    }
+}

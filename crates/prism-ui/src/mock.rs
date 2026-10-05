@@ -452,6 +452,10 @@ impl Backend for MockBackend {
         Ok(format!("{name} : origine remise"))
     }
 
+    fn compression(&mut self) -> Option<bool> {
+        Some(true)
+    }
+
     fn allege_toggle(&mut self, key: &str, on: bool) -> Result<String, String> {
         Ok(format!("{key} {}", if on { "appliqué" } else { "remis" }))
     }

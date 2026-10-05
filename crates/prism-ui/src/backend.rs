@@ -159,6 +159,13 @@ pub trait Backend {
     fn allege_restore(&mut self) -> Result<String, String>;
     /// Applique (`on`) ou remet (`!on`) un seul élément.
     fn allege_toggle(&mut self, key: &str, on: bool) -> Result<String, String>;
+    /// Compression de la mémoire de Windows (`None` : illisible).
+    fn compression(&mut self) -> Option<bool> {
+        None
+    }
+    fn set_compression(&mut self, _on: bool) -> Result<String, String> {
+        Err("non disponible".into())
+    }
 
     /// Réglages par jeu (lit les dossiers des jeux : à appeler à l'ouverture de la page).
     fn game_cfgs(&mut self) -> Vec<GameCfg>;

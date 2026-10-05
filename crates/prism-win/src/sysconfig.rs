@@ -630,3 +630,25 @@ pub(crate) fn reg_delete(key: &str, value: &str) -> Result<(), String> {
         }
     }
 }
+
+/// Compression de la mémoire de Windows (`Get-MMAgent`). `None` : illisible.
+pub fn memory_compression() -> Option<bool> {
+    let out = powershell("(Get-MMAgent).MemoryCompression").ok()?;
+    match String::from_utf8_lossy(&out.stdout).trim() {
+        "True" => Some(true),
+        "False" => Some(false),
+        _ => None,
+    }
+}
+
+/// Active ou désactive la compression de la mémoire (pris en compte au redémarrage).
+/// Avec SysMain désactivé, Windows répond une erreur de service mais enregistre bien le
+/// réglage (vérifié en VM) : on juge sur la relecture.
+pub fn set_memory_compression(on: bool) -> Result<(), String> {
+    let verb = if on { "Enable-MMAgent" } else { "Disable-MMAgent" };
+    let _ = powershell(&format!("{verb} -MemoryCompression -ErrorAction SilentlyContinue"));
+    match memory_compression() {
+        Some(v) if v == on => Ok(()),
+        _ => Err("Windows a refusé le réglage de la compression de la mémoire".into()),
+    }
+}

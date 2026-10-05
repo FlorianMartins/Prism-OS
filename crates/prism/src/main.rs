@@ -1498,6 +1498,13 @@ fn uninstall(args: &[&str]) -> Result<(), String> {
         println!("✓ allègement : {} remis, {} échec(s)", r.done.len(), r.failed.len());
     }
     {
+        // Compression de la mémoire remise comme avant Prism.
+        let avant = prism_core::allege::CompressionAvant::charger(&sys::data_dir());
+        if let Some(v) = avant.etait_active {
+            let _ = prism_win::set_memory_compression(v);
+        }
+    }
+    {
         // Réglages Windows par jeu (carte graphique, plein écran).
         let dir = prism_core::paths::user_dir();
         let mut j = prism_core::jeux::Journal::charger(&dir);
