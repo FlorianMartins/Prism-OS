@@ -23,6 +23,8 @@ mod library;
 #[cfg(windows)]
 pub mod metrics;
 #[cfg(windows)]
+pub mod nettoyage;
+#[cfg(windows)]
 mod privacy;
 #[cfg(windows)]
 pub mod rapport;

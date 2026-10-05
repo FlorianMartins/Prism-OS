@@ -614,24 +614,30 @@ impl PrismApp {
             0 => {
                 card(col, false, |ui| {
                     stat_title(ui, "Mémoire");
-                    let used = m.total.saturating_sub(m.free);
+                    // Mémoire utilisée, comme le Gestionnaire des tâches : la mémoire
+                    // « libre » est presque toujours minuscule (Windows garde tout en
+                    // cache, rendu à la demande) et alarmait pour rien.
+                    let used = m.used();
                     ui.label(
-                        RichText::new(format!("{} libres", human_bytes(m.free)))
+                        RichText::new(format!("{} utilisés", human_bytes(used)))
                             .size(22.0)
                             .strong(),
                     );
                     bar(ui, if m.total > 0 { used as f32 / m.total as f32 } else { 0.0 });
                     ui.label(
                         RichText::new(format!(
-                            "sur {} · cache {} dont {} libérable",
+                            "sur {} · cache {} (rendu à la demande)",
                             human_bytes(m.total),
-                            human_bytes(m.standby_total),
-                            human_bytes(m.standby_low)
+                            human_bytes(m.standby_total)
                         ))
                         .small()
                         .color(th::muted()),
                     );
-                    if ui.button("Libérer la RAM des applis inactives").clicked() {
+                    if ui
+                        .button("Libérer la RAM maintenant")
+                        .on_hover_text("Arrête les services désactivés ou mis à la demande qui tournent encore, rend la mémoire des applis en arrière-plan et purge le cache. Résultat affiché tout de suite, sans redémarrer.")
+                        .clicked()
+                    {
                         clean = true;
                     }
                     if ui

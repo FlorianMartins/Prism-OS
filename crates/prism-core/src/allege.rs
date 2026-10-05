@@ -691,6 +691,25 @@ pub fn superflu(catalog: &Catalog, name: &str) -> Option<(String, StartType)> {
         .map(|(_, why)| (why.to_string(), StartType::Manual))
 }
 
+/// Services à arrêter pour un nettoyage de la RAM immédiat : un service désactivé ou mis
+/// à la demande ne s'arrête pas de lui-même, il garde sa mémoire jusqu'au redémarrage
+/// (retour d'un utilisateur : « le nettoyage ne fait rien tant qu'on ne redémarre
+/// pas »). Arrêtés : ceux qui tournent alors qu'ils sont **désactivés**, et ceux que
+/// **Prism** a mis à la demande (journal d'allègement). Jamais un service protégé, ni un
+/// service par utilisateur. Windows relance à la demande un service dont un programme a
+/// besoin.
+pub fn services_to_stop(catalog: &Catalog, journal: &AllegeJournal, list: &[ServiceInfo]) -> Vec<String> {
+    list.iter()
+        .filter(|s| s.running && !s.per_user && catalog.protection(&s.name).is_none())
+        .filter(|s| match s.start {
+            Some(StartType::Disabled) => true,
+            Some(StartType::Manual) => journaled(journal, &format!("svc:{}", s.name.to_ascii_lowercase())),
+            _ => false,
+        })
+        .map(|s| s.name.clone())
+        .collect()
+}
+
 /// Règle un service quelconque (page Services) au mode exact demandé — y compris
 /// Désactivé → Manuel, que l'allègement considère déjà fait. Refusé pour un service
 /// protégé ; la valeur d'origine est journalisée une seule fois (« Tout restaurer » et
@@ -943,6 +962,35 @@ mod tests {
         );
         assert_eq!(tier("google\\chrome", "HighEfficiencyModeEnabled"), Some(Tier::Avance));
         assert_eq!(tier("microsoft\\edge", "SleepingTabsEnabled"), Some(Tier::Avance));
+    }
+
+    #[test]
+    fn cleaning_stops_disabled_and_prism_on_demand_services_still_running() {
+        let c = Catalog::builtin();
+        let mut m = MockSystem::default();
+        m.services.insert("sysmain".into(), StartType::Auto);
+        let mut j = AllegeJournal::default();
+        set_service(&mut m, &c, &mut j, "SysMain", StartType::Manual, &mut |_| Ok(())).unwrap();
+        let svc = |name: &str, start: StartType, running: bool| ServiceInfo {
+            name: name.into(),
+            display: name.into(),
+            start: Some(start),
+            running,
+            per_user: false,
+        };
+        let list = vec![
+            svc("SysMain", StartType::Manual, true),         // mis à la demande par Prism
+            svc("Spooler", StartType::Manual, true),         // à la demande d'usine : laissé
+            svc("DiagTrack", StartType::Disabled, true),     // désactivé mais lancé
+            svc("WSearch", StartType::Disabled, false),      // déjà arrêté
+            svc("Audiosrv", StartType::Auto, true),          // automatique : laissé
+            svc("EasyAntiCheat", StartType::Disabled, true), // protégé : jamais
+            ServiceInfo {
+                per_user: true,
+                ..svc("CDPUserSvc_1a2b", StartType::Disabled, true)
+            },
+        ];
+        assert_eq!(services_to_stop(&c, &j, &list), ["SysMain", "DiagTrack"]);
     }
 
     #[test]

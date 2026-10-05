@@ -555,12 +555,13 @@ fn platform_command(cfg: &Config, args: &[&str]) -> Result<(), String> {
             Ok(())
         }
         ["ram", "clean"] | ["ram", "clean", "--deep"] => {
-            let mut w = WindowsPlatform::new();
-            let report = prism_core::engine::clean(&mut w, cfg, args.len() == 3)?;
-            render::report(&report, "");
-            if let Some(after) = report.mem_after {
-                println!("{}", render::memory(&after));
+            let n = prism_win::nettoyage::nettoyer(cfg, args.len() == 3)?;
+            if !n.services.is_empty() {
+                println!("Services arrêtés : {}", n.services.join(", "));
             }
+            render::report(&n.report, "");
+            println!("{}", n.resume());
+            println!("{}", render::memory(&n.after));
             Ok(())
         }
         ["watch"] => watch(cfg, false),
@@ -1945,7 +1946,7 @@ fn watch(cfg: &Config, quiet: bool) -> Result<(), String> {
                     lines.push(l);
                 }
                 // Nettoyage automatique de la RAM, hors partie : la même action que le bouton
-                // « Libérer la RAM des applis inactives ».
+                // « Libérer la RAM maintenant ».
                 if !watcher.engaged() {
                     let ra = prism_core::ram_auto::Reglages::charger(&prism_core::paths::user_dir());
                     let m = snap.mem;
@@ -1954,18 +1955,10 @@ fn watch(cfg: &Config, quiet: bool) -> Result<(), String> {
                         .unwrap_or(0);
                     if ra.du(last_ram_clean.elapsed().as_secs(), used) {
                         last_ram_clean = std::time::Instant::now();
-                        if let Ok(r) = prism_core::engine::clean(&mut w, cfg, false) {
-                            let freed = match (r.mem_before, r.mem_after) {
-                                (Some(a), Some(b)) => {
-                                    (b.free + b.standby_total).saturating_sub(a.free + a.standby_total)
-                                }
-                                _ => 0,
-                            };
-                            let l = format!(
-                                "Nettoyage RAM auto (utilisée {used} %) : {} appli(s) allégée(s), ≈ {} Mo rendus",
-                                r.done.len(),
-                                freed >> 20
-                            );
+                        // Comme le bouton : services désactivés encore lancés arrêtés,
+                        // applis en arrière-plan allégées, cache purgé.
+                        if let Ok(n) = prism_win::nettoyage::nettoyer(cfg, false) {
+                            let l = format!("Nettoyage RAM auto (utilisée {used} %) : {}", n.resume());
                             out.line(&l);
                             lines.push(l);
                         }

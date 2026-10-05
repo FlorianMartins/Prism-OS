@@ -168,35 +168,14 @@ fn notify(hwnd: isize, title: &str, body: &str) {
     unsafe { Shell_NotifyIconW(NIM_MODIFY, &d) };
 }
 
-fn gb(bytes: u64) -> String {
-    format!("{:.1}", bytes as f64 / (1024.0 * 1024.0 * 1024.0)).replace('.', ",")
-}
-
-/// « Mémoire utilisée : 9,9 → 7,4 Go (−2,5 Go) ».
-fn used_line(before: u64, after: u64) -> String {
-    // Écart calculé sur les valeurs affichées (au dixième) : 3,8 → 3,7 dit bien −0,1.
-    const STEP: u64 = 1024 * 1024 * 1024 / 10;
-    let round = |b: u64| (b + STEP / 2) / STEP * STEP;
-    let (b, a) = (round(before), round(after));
-    let mut s = format!("Mémoire utilisée : {} → {} Go", gb(b), gb(a));
-    if b > a {
-        s.push_str(&format!(" (−{} Go)", gb(b - a)));
-    }
-    s
-}
-
-/// Libère la RAM (même nettoyage que `prism ram clean`) dans un fil à part, puis
-/// annonce le résultat en notification.
+/// Libère la RAM (même nettoyage que `prism ram clean` : services arrêtés, applis en
+/// arrière-plan, cache) dans un fil à part, puis annonce le résultat en notification.
 fn clean_ram(hwnd: HWND) {
     let h = hwnd as isize;
     std::thread::spawn(move || {
         let cfg = prism_core::paths::load_config().unwrap_or_else(|_| prism_core::config::Config::builtin());
-        let mut w = crate::WindowsPlatform::new();
-        let body = match prism_core::engine::clean(&mut w, &cfg, false) {
-            Ok(r) => match (r.mem_before, r.mem_after) {
-                (Some(a), Some(b)) => used_line(a.used(), b.used()),
-                _ => "Nettoyage fait.".to_string(),
-            },
+        let body = match crate::nettoyage::nettoyer(&cfg, false) {
+            Ok(n) => n.resume(),
             Err(e) => format!("Échec : {e}"),
         };
         notify(h, "Prism : mémoire libérée", &body);

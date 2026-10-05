@@ -177,8 +177,22 @@ prism ram clean --deep  # also empty the whole file cache (rarely useful)
 prism top               # what is using CPU and RAM right now
 ```
 
-`ram clean` frees the memory of apps you left open but are not using (measured: 2.9 GB
-returned in a test VM) and keeps the cache that holds your game's files.
+`ram clean` (and *Libérer la RAM maintenant* on the dashboard, or a middle click on the
+notification icon) works **right away, no restart needed**:
+
+1. services that are **disabled**, or that Prism set to **on demand**, but still run
+   are stopped — they otherwise kept their memory until the next restart (protected
+   services are never touched; Windows starts an on-demand service again when a
+   program needs it);
+2. the memory of apps you left open but are not using is returned (measured: 2.9 GB in
+   a test VM), keeping the cache that holds your game's files;
+3. the low-priority cache is purged.
+
+The result is given in **memory in use**, the Task Manager figure: "Mémoire utilisée :
+9,9 → 7,4 Go (−2,5 Go) · 3 services arrêtés". Free memory alone is always small on
+Windows (it keeps everything in cache and hands it back on demand), so it is no longer
+shown as the headline. Verified in the VM: a service Prism had set to on demand,
+restarted by Windows, was stopped by the clean.
 
 **Memory compression** (*Allègement* page, top): when Prism gives back the RAM of an
 idle app, Windows can compress part of it and keep it in memory (the *Memory
@@ -190,7 +204,7 @@ from 16 GB of RAM; takes effect at the next restart; *Tout restaurer* and uninst
 put the original setting back.
 
 **Automatic RAM cleaning** (dashboard, *Nettoyage automatique*, on by default): the engine
-runs the same action as *Libérer la RAM des applis inactives* by itself — every 15
+runs the same action as *Libérer la RAM maintenant* by itself — every 15
 minutes and whenever used memory goes above 75 % (both adjustable: 5–120 min, 50–95 %),
 at least 2 minutes apart, never during a game. Settings in
 `%LOCALAPPDATA%\Prism\ram-auto.json`.

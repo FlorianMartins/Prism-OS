@@ -10,7 +10,7 @@ use prism_core::config::Config;
 use prism_core::demarrage::{self, Catalog as StartupCatalog, Source, StartupConfig, StartupJournal, StartupReport};
 use prism_core::etat::Etat;
 use prism_core::library::{Game, Launch};
-use prism_core::model::{human_bytes, Snapshot};
+use prism_core::model::Snapshot;
 use prism_core::paths::{active_profile, data_dir, load_config, save_state, State};
 use prism_core::platform::Platform;
 use prism_win::{installed_games, WindowsPlatform, WindowsStartup, WindowsSystemConfig};
@@ -238,12 +238,12 @@ impl Backend for WinBackend {
     }
 
     fn ram_clean(&mut self) -> Result<String, String> {
-        let r = prism_core::engine::clean(&mut self.platform, &self.cfg, false)?;
-        let freed = match (r.mem_before, r.mem_after) {
-            (Some(a), Some(b)) if b.free > a.free => human_bytes(b.free - a.free),
-            _ => "0 Mo".into(),
-        };
-        Ok(format!("{freed} libérés"))
+        let n = prism_win::nettoyage::nettoyer(&self.cfg, false)?;
+        let mut msg = n.resume();
+        if !n.services.is_empty() {
+            msg.push_str(&format!(" ({})", n.services.join(", ")));
+        }
+        Ok(msg)
     }
 
     fn startup(&mut self) -> Result<Vec<StartupRow>, String> {

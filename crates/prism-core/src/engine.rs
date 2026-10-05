@@ -132,6 +132,27 @@ pub fn recover(platform: &mut dyn Platform, store: &mut dyn JournalStore) -> Res
     }
 }
 
+/// Résultat d'un nettoyage, en mémoire **utilisée** (le chiffre du Gestionnaire des
+/// tâches ; la mémoire « libre » ne dit rien, Windows garde tout en cache) : « Mémoire
+/// utilisée : 9,9 → 7,4 Go (−2,5 Go) · 3 services arrêtés ». L'écart est calculé sur
+/// les valeurs affichées (au dixième).
+pub fn clean_summary(used_before: u64, used_after: u64, services: usize) -> String {
+    const STEP: u64 = 1024 * 1024 * 1024 / 10;
+    let round = |b: u64| (b + STEP / 2) / STEP;
+    let gb = |tenths: u64| format!("{},{}", tenths / 10, tenths % 10);
+    let (b, a) = (round(used_before), round(used_after));
+    let mut s = format!("Mémoire utilisée : {} → {} Go", gb(b), gb(a));
+    if b > a {
+        s.push_str(&format!(" (−{} Go)", gb(b - a)));
+    }
+    match services {
+        0 => {}
+        1 => s.push_str(" · 1 service arrêté"),
+        n => s.push_str(&format!(" · {n} services arrêtés")),
+    }
+    s
+}
+
 /// Nettoyage RAM manuel : priorité mémoire basse, rognage, purge, puis priorité
 /// mémoire remise aussitôt à sa valeur d'origine.
 pub fn clean(platform: &mut dyn Platform, cfg: &Config, deep: bool) -> Result<Report, String> {
@@ -202,4 +223,25 @@ pub fn watch_ram_below(
     report.record(format!("surveillance RAM : {}", action.describe()), &outcome);
     report.mem_after = platform.snapshot().ok().map(|s| s.mem);
     Some(report)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::clean_summary;
+
+    const GB: u64 = 1024 * 1024 * 1024;
+
+    #[test]
+    fn clean_summary_speaks_in_memory_used_and_counts_stopped_services() {
+        assert_eq!(
+            clean_summary(99 * GB / 10, 74 * GB / 10, 3),
+            "Mémoire utilisée : 9,9 → 7,4 Go (−2,5 Go) · 3 services arrêtés"
+        );
+        // L'écart suit les valeurs affichées : 3,8 → 3,7 dit −0,1, pas −0,2.
+        assert_eq!(
+            clean_summary(3_840 * GB / 1000, 3_660 * GB / 1000, 1),
+            "Mémoire utilisée : 3,8 → 3,7 Go (−0,1 Go) · 1 service arrêté"
+        );
+        assert_eq!(clean_summary(2 * GB, 2 * GB, 0), "Mémoire utilisée : 2,0 → 2,0 Go");
+    }
 }
