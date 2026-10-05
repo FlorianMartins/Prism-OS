@@ -39,7 +39,12 @@ fn right_margin_is_clear(img: &image::RgbaImage) -> bool {
     // droite est comparée à ses voisines tout au bord (même fond), pas à une couleur fixe.
     let x = img.width() - 18;
     let near = |a: &image::Rgba<u8>, b: &image::Rgba<u8>| {
-        a.0[..3].iter().zip(&b.0[..3]).map(|(p, q)| (*p as i32 - *q as i32).abs()).sum::<i32>() < 18
+        a.0[..3]
+            .iter()
+            .zip(&b.0[..3])
+            .map(|(p, q)| (*p as i32 - *q as i32).abs())
+            .sum::<i32>()
+            < 18
     };
     (120..img.height() - 20)
         .filter(|y| {
