@@ -1168,9 +1168,19 @@ fn platform_command(cfg: &Config, args: &[&str]) -> Result<(), String> {
         }
         // Démarrage avec Windows : moteur au démarrage (compte système, avant la
         // connexion) et barre à l'ouverture de session — les deux ensemble.
+        ["bar", "autostart", "on"] => {
+            prism_win::install::bar_autostart(&install_dir()?, true)?;
+            println!("La Prism Bar démarrera à chaque ouverture de session.");
+            Ok(())
+        }
+        ["bar", "autostart", "off"] => {
+            prism_win::install::bar_autostart(&install_dir()?, false)?;
+            println!("La Prism Bar ne démarrera plus à l'ouverture de session.");
+            Ok(())
+        }
         ["autostart" | "bar", ..] if args.last() == Some(&"on") && args.len() <= 3 => {
             prism_win::install::autostart_install(&install_dir()?)?;
-            println!("Prism démarrera avec Windows (moteur avant la connexion, barre à l'ouverture de session).");
+            println!("Prism démarrera avec Windows (moteur avant la connexion ; barre : prism bar autostart on).");
             Ok(())
         }
         ["autostart" | "bar", ..] if args.last() == Some(&"off") && args.len() <= 3 => {
@@ -1191,12 +1201,12 @@ fn platform_command(cfg: &Config, args: &[&str]) -> Result<(), String> {
             // d'un vrai utilisateur). `--depuis-tache` empêche toute boucle de relance.
             let quiet =
                 rest.get(1).and_then(|l| l.parse::<u32>().ok()).map_or(true, |l| l < 5) && rest.get(2) != Some(&"1");
-            // Démarrage avec Windows activé d'office (on le coupe dans l'appli) : le moteur
-            // part tout de suite, et à chaque démarrage avant même l'écran de connexion.
+            // Moteur au démarrage de Windows (on le coupe dans l'appli) : il part tout de
+            // suite, et à chaque démarrage avant même l'écran de connexion. La Prism Bar,
+            // elle, ne démarre que si l'utilisateur la lance (elle remplace sa barre).
             match prism_win::install::autostart_install(&dir) {
                 Ok(()) => {
                     let _ = prism_win::install::run_task(prism_core::autostart::ENGINE_TASK);
-                    let _ = prism_win::install::run_task(prism_core::autostart::BAR_TASK);
                     println!("Démarrage avec Windows activé, moteur lancé");
                 }
                 Err(e) => println!("démarrage automatique non installé : {e}"),

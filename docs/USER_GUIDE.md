@@ -37,8 +37,9 @@ changes): <https://hivey.be/prism> (short), or <https://github.com/FlorianMartin
    the Start menu (the app), adds the folder to the system `PATH` (so `prism` works in
    any terminal) and registers *Prism OS* in **Settings › Apps › Installed apps**.
    Installing a newer version upgrades in place. When installation ends, the Prism app
-   opens by itself; on first launch it offers **Lancer la Prism Bar et activer les
-   effets** (start the bar and turn the effects on) so you see the difference at once.
+   opens by itself. Nothing visible changes until you choose it: on first launch it
+   offers two separate buttons, **Lancer la Prism Bar** (replace the taskbar) and
+   **Activer les effets de fenêtres** (window animations).
    Windows SmartScreen warns on first run because Prism is not code-signed yet: choose
    *More info* › *Run anyway*.
 2. Open a terminal **as administrator**.
@@ -55,7 +56,9 @@ that task, with administrator rights and no confirmation window. **Start with Wi
 `prism autostart on|off`): the engine — Daily Mode, Game Mode, automatic RAM cleaning —
 starts **when Windows boots, before the sign-in screen**, under the system account (a
 scheduled task with no time limit, normal priority, also on battery, restarted if it
-stops); the Prism Bar starts at every sign-in, for any user. Measured in the VM: engine
+stops). The Prism Bar is **not** started by the installer: once you start it from the
+app it comes back at every sign-in, and stopping it from the app (Appearance › Prism Bar)
+also stops it from coming back (`prism bar autostart on|off`). Measured in the VM: engine
 running as `NT AUTHORITY\SYSTEM` 5 seconds after boot. Running as the system account,
 the engine acts on the session of whoever is signed in at the console and reads that
 person's settings (`%LOCALAPPDATA%\Prism`); at the sign-in screen it touches no app.
@@ -664,7 +667,7 @@ Journals are never exported (they describe the original state of *this* PC).
 
 | Symptom | Cause / fix |
 |---|---|
-| The engine does not start with Windows | `prism autostart on` in an administrator terminal (recreates both scheduled tasks) |
+| The engine does not start with Windows | `prism autostart on` in an administrator terminal (recreates the engine's scheduled task) |
 | "droits administrateur requis" (administrator rights required) | Open the terminal as administrator, or use "Relancer en administrateur" in prism-ui |
 | Widgets setting refused by Windows | Recent Windows 11 builds lock some settings; Prism does not bypass Windows protections |
 | GPU widget shows "—" | No GPU performance counters available on this machine |

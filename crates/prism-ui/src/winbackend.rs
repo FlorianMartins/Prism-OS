@@ -710,12 +710,13 @@ impl Backend for WinBackend {
                 .map(|d| d.display().to_string())
                 .ok_or("dossier d'installation introuvable")?;
             prism_win::install::autostart_install(&dir)?;
+            // La barre suit seulement si l'utilisateur s'en sert.
+            if prism_win::bar_app::running() {
+                let _ = prism_win::install::bar_autostart(&dir, true);
+            }
             // Le moteur part tout de suite (sous le compte système, comme au démarrage).
             let _ = prism_win::install::run_task(prism_core::autostart::ENGINE_TASK);
-            Ok(
-                "Prism démarrera avec Windows : moteur avant même l'écran de connexion, barre à l'ouverture de session"
-                    .into(),
-            )
+            Ok("Prism démarrera avec Windows, avant même l'écran de connexion".into())
         } else {
             prism_win::install::autostart_remove();
             Ok("Démarrage avec Windows désactivé".into())
@@ -751,12 +752,27 @@ impl Backend for WinBackend {
         Command::new(&exe)
             .spawn()
             .map_err(|e| format!("{} : {e}", exe.display()))?;
-        Ok("Prism Bar lancée".into())
+        // Lancée par l'utilisateur : elle revient à chaque ouverture de session.
+        if let Some(dir) = exe.parent() {
+            let _ = prism_win::install::bar_autostart(&dir.display().to_string(), true);
+        }
+        Ok("Prism Bar lancée (elle reviendra à chaque ouverture de session)".into())
     }
 
     fn bar_stop(&mut self) -> Result<String, String> {
+        if let Some(dir) = prism_exe().parent() {
+            let _ = prism_win::install::bar_autostart(&dir.display().to_string(), false);
+        }
         if prism_win::bar_app::stop() {
-            Ok("Prism Bar arrêtée, barre Windows remise".into())
+            Ok("Prism Bar arrêtée, barre Windows remise ; elle ne redémarrera plus d'elle-même".into())
+        } else {
+            Ok("Prism Bar arrêtée ; elle ne redémarrera plus d'elle-même".into())
+        }
+    }
+
+    fn bar_pause(&mut self) -> Result<String, String> {
+        if prism_win::bar_app::stop() {
+            Ok("Prism Bar arrêtée".into())
         } else {
             Err("Prism Bar ne tournait pas".into())
         }

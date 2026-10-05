@@ -216,11 +216,24 @@ fn create_task_xml(name: &str, xml: &str) -> Result<(), String> {
 
 /// Démarrage automatique : moteur au démarrage de Windows (compte système, avant la
 /// connexion), barre à chaque ouverture de session. Droits administrateur requis.
+/// Moteur au démarrage de Windows. La Prism Bar a sa propre tâche ([`bar_autostart`]) :
+/// elle remplace la barre des tâches, elle ne démarre que si l'utilisateur l'a lancée.
 pub fn autostart_install(dir: &str) -> Result<(), String> {
-    use prism_core::autostart::{bar_task_xml, engine_task_xml, BAR_TASK, ENGINE_TASK};
+    use prism_core::autostart::{engine_task_xml, ENGINE_TASK};
     let dir = dir.trim_end_matches('\\');
-    create_task_xml(ENGINE_TASK, &engine_task_xml(dir))?;
-    create_task_xml(BAR_TASK, &bar_task_xml(dir))
+    create_task_xml(ENGINE_TASK, &engine_task_xml(dir))
+}
+
+/// Prism Bar à chaque ouverture de session : posée quand l'utilisateur lance la barre,
+/// retirée quand il l'arrête.
+pub fn bar_autostart(dir: &str, on: bool) -> Result<(), String> {
+    use prism_core::autostart::{bar_task_xml, BAR_TASK};
+    if on {
+        create_task_xml(BAR_TASK, &bar_task_xml(dir.trim_end_matches('\\')))
+    } else {
+        let _ = schtasks_hidden(&["/Delete", "/TN", BAR_TASK, "/F"]);
+        Ok(())
+    }
 }
 
 pub fn autostart_remove() {

@@ -305,6 +305,8 @@ pub trait Backend {
     fn welcome_done(&mut self) -> bool;
     fn set_welcome_done(&mut self);
     fn bar_stop(&mut self) -> Result<String, String>;
+    /// Arrête la barre sans toucher à son démarrage automatique (« Désactiver Prism »).
+    fn bar_pause(&mut self) -> Result<String, String>;
 
     fn packs(&self) -> Vec<PackInfo>;
     fn install_pack(&mut self, pack: &str) -> Result<String, String>;

@@ -642,6 +642,10 @@ impl Backend for MockBackend {
         Ok("Prism Bar lancée".into())
     }
 
+    fn bar_pause(&mut self) -> Result<String, String> {
+        self.bar_stop()
+    }
+
     fn bar_stop(&mut self) -> Result<String, String> {
         self.bar_on = false;
         Ok("Prism Bar arrêtée".into())

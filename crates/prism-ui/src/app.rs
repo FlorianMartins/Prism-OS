@@ -516,7 +516,7 @@ impl PrismApp {
                         self.bar_resume = self.backend.bar_running();
                         let mut r = self.backend.stop_watch();
                         if self.bar_resume {
-                            r = r.and_then(|m| self.backend.bar_stop().map(|_| format!("{m}, Prism Bar arrêtée")));
+                            r = r.and_then(|m| self.backend.bar_pause().map(|_| format!("{m}, Prism Bar arrêtée")));
                         }
                         self.result(r);
                     }
@@ -1212,21 +1212,35 @@ impl PrismApp {
             );
             ui.label(
                 RichText::new(
-                    "Prism ne change rien tant que vous ne le demandez pas. Pour voir la différence tout de suite : \
-                     la Prism Bar remplace votre barre des tâches, et les fenêtres s'animent (lampe de génie, \
-                     gélatine au déplacement, glisse en agrandissant). Tout se règle dans Apparence et s'annule d'un clic.",
+                    "Le moteur allège déjà la mémoire des applis inactives. Le reste ne s'active que si vous le \
+                     choisissez : la Prism Bar remplace votre barre des tâches, les effets animent les fenêtres \
+                     (lampe de génie, gélatine, glisse). Tout se règle dans Apparence et s'annule d'un clic.",
                 )
                 .color(th::text()),
             );
             ui.add_space(6.0);
-            ui.horizontal(|ui| {
-                let go = egui::Button::new(
-                    RichText::new("Lancer la Prism Bar et activer les effets")
-                        .color(th::on_accent())
-                        .strong(),
-                )
-                .fill(th::accent());
-                if ui.add(go).clicked() {
+            ui.horizontal_wrapped(|ui| {
+                // Deux choix séparés : la barre remplace celle de Windows, les effets
+                // animent les fenêtres ; rien n'est activé sans un clic sur l'un d'eux.
+                let bar = egui::Button::new(RichText::new("Lancer la Prism Bar").color(th::on_accent()).strong())
+                    .fill(th::accent());
+                if ui
+                    .add(bar)
+                    .on_hover_text("Remplace la barre des tâches de Windows (elle revient d'un clic : Apparence › Prism Bar › Arrêter)")
+                    .clicked()
+                {
+                    action = Some(if self.backend.bar_running() {
+                        Ok("Prism Bar déjà lancée".into())
+                    } else {
+                        self.backend.bar_start()
+                    });
+                    self.page = Page::Appearance;
+                }
+                if ui
+                    .button("Activer les effets de fenêtres")
+                    .on_hover_text("Lampe de génie, gélatine, glisse en agrandissant (joués par la Prism Bar)")
+                    .clicked()
+                {
                     let mut cfg = self.backend.bar_config();
                     cfg.fx.enabled = true;
                     let saved = self.backend.set_bar_config(&cfg);
@@ -1237,24 +1251,16 @@ impl PrismApp {
                             let _ = self.backend.appearance_set("anim_minmax", i);
                         }
                     }
-                    let started = if self.backend.bar_running() {
-                        Ok("Prism Bar déjà lancée".into())
-                    } else {
-                        self.backend.bar_start()
-                    };
-                    // Et au démarrage de Windows : c'est le moteur qui allège la RAM.
-                    let boot = self.backend.set_autostart(true);
-                    action = Some(
-                        saved
-                            .and(started)
-                            .and(boot)
-                            .map(|_| "Prism Bar lancée, effets activés, Prism au démarrage de Windows".into()),
-                    );
-                    self.backend.set_welcome_done();
-                    self.welcome_done = true;
+                    action = Some(saved.map(|_| {
+                        if self.backend.bar_running() {
+                            "Effets activés".into()
+                        } else {
+                            "Effets activés : ils se jouent quand la Prism Bar tourne".into()
+                        }
+                    }));
                     self.page = Page::Appearance;
                 }
-                if ui.button("Plus tard").clicked() {
+                if ui.button("Fermer").clicked() {
                     self.backend.set_welcome_done();
                     self.welcome_done = true;
                 }
