@@ -1,174 +1,156 @@
-//! Logo Prism, partagé par l'appli et le programme d'installation : un octaèdre en fil
-//! de lumière (arêtes fines cyan → violet, faces de verre sombre), un anneau orbital fin
-//! et un trait de balayage. Épuré : ni halo flou, ni dégradés lourds, ni arc-en-ciel.
+//! Logo Prism, partagé par l'appli et le programme d'installation : un triangle aux
+//! coins arrondis découpé en trois facettes éclairées (une pyramide vue de dessus) —
+//! cyan côté lumière, violet, indigo dans l'ombre — et deux arêtes de lumière. Même
+//! géométrie que `installer/make_icons.py`, qui produit les icônes des exécutables.
 
-use eframe::egui::{self, Color32, Pos2, Shape, Stroke};
+use eframe::egui::{self, Color32, Mesh, Pos2, Shape, Stroke, Vec2};
 
-const CYAN: (f32, f32, f32) = (34.0, 211.0, 238.0);
-const VIOLET: (f32, f32, f32) = (167.0, 139.0, 250.0);
+const CYAN: Color32 = Color32::from_rgb(34, 211, 238);
+const SKY: Color32 = Color32::from_rgb(56, 189, 248);
+const VIOLET: Color32 = Color32::from_rgb(167, 139, 250);
+const PURPLE: Color32 = Color32::from_rgb(139, 92, 246);
+const INDIGO: Color32 = Color32::from_rgb(91, 84, 230);
+const DEEP: Color32 = Color32::from_rgb(55, 48, 163);
 
-fn mix(k: f32, alpha: f32) -> Color32 {
-    let k = k.clamp(0.0, 1.0);
-    let m = |a: f32, b: f32| (a + (b - a) * k) as u8;
+/// Facettes, dans l'ordre des contours : droite (haut → bas droit), bas, gauche.
+const FACETS: [(Color32, Color32); 3] = [(VIOLET, PURPLE), (INDIGO, DEEP), (CYAN, SKY)];
+
+fn mix(a: Color32, b: Color32, t: f32, alpha: f32) -> Color32 {
+    let t = t.clamp(0.0, 1.0);
+    let m = |x: u8, y: u8| (x as f32 + (y as f32 - x as f32) * t) as u8;
     Color32::from_rgba_unmultiplied(
-        m(CYAN.0, VIOLET.0),
-        m(CYAN.1, VIOLET.1),
-        m(CYAN.2, VIOLET.2),
+        m(a.r(), b.r()),
+        m(a.g(), b.g()),
+        m(a.b(), b.b()),
         (alpha.clamp(0.0, 1.0) * 255.0) as u8,
     )
 }
 
-fn lerp(a: Pos2, b: Pos2, k: f32) -> Pos2 {
-    Pos2::new(a.x + (b.x - a.x) * k, a.y + (b.y - a.y) * k)
+/// Sommet de la pyramide, contours des trois facettes (de pointe à pointe, coins
+/// arrondis) et pointes. `r` : rayon du cercle circonscrit.
+pub fn geometry(c: Pos2, r: f32) -> (Pos2, [Vec<Pos2>; 3], [Pos2; 3]) {
+    let round = 0.16 * r;
+    // Centre de gravité plus bas que `c`, pour que la forme (pointe du haut raccourcie
+    // par l'arrondi) soit centrée : haut à c − 0,67 r, bas à c + 0,67 r.
+    let g = Pos2::new(c.x, c.y + 0.17 * r);
+    let dir = |deg: f32| Vec2::angled(deg.to_radians());
+    let inner: [Pos2; 3] = std::array::from_fn(|k| g + dir(-90.0 + 120.0 * k as f32) * (r - 2.0 * round));
+    let tip_angle = |k: usize| (-90.0 + 120.0 * k as f32).to_radians();
+    let arc = |i: usize, a0: f32, a1: f32| -> Vec<Pos2> {
+        (0..=10)
+            .map(|t| inner[i] + Vec2::angled(a0 + (a1 - a0) * t as f32 / 10.0) * round)
+            .collect()
+    };
+    let chains = std::array::from_fn(|k| {
+        let j = (k + 1) % 3;
+        let normal = (-30.0 + 120.0 * k as f32).to_radians();
+        let mut end = tip_angle(j);
+        if end < normal {
+            end += std::f32::consts::TAU;
+        }
+        let mut chain = arc(k, tip_angle(k), normal);
+        chain.extend(arc(j, normal, end).into_iter().skip(1));
+        chain
+    });
+    let tips = std::array::from_fn(|k| inner[k] + Vec2::angled(tip_angle(k)) * round);
+    let apex = Pos2::new(g.x - 0.07 * r, g.y - 0.08 * r);
+    (apex, chains, tips)
 }
 
-/// Dessine le logo centré en `c` (`size` ≈ demi-hauteur / 1,15).
-/// `angle` : rotation ; `build` : secondes depuis l'apparition (les arêtes se tracent
-/// une à une, puis les faces apparaissent) ; `done` : balayage lumineux de fin
-/// d'installation ; `t` : horloge (anneau, balayage).
-pub fn draw_prism(p: &egui::Painter, c: Pos2, size: f32, angle: f32, build: f32, done: bool, t: f32) {
-    let ring_r = size * 0.66;
-    let h = size * 1.15;
-    let tilt: f32 = 0.24;
-    let (st, ct) = tilt.sin_cos();
-    // Projection avec légère perspective ; rend le point et sa profondeur (z > 0 : loin).
-    let project = |x: f32, y: f32, z: f32| -> (Pos2, f32) {
-        let y2 = y * ct - z * st;
-        let z2 = y * st + z * ct;
-        let k = 6.0 * size / (6.0 * size + z2);
-        (Pos2::new(c.x + x * k, c.y + y2 * k), z2)
-    };
-    let ring: Vec<(Pos2, f32)> = (0..4)
-        .map(|k| {
-            let a = angle + k as f32 * std::f32::consts::FRAC_PI_2;
-            project(a.cos() * ring_r, 0.0, a.sin() * ring_r)
-        })
-        .collect();
-    let top = project(0.0, -h, 0.0);
-    let bot = project(0.0, h, 0.0);
-    let large = size >= 24.0;
-
-    // Anneau orbital : moitié arrière avant le prisme, moitié avant après.
-    let orbit = |front: bool| {
-        if !large {
-            return;
+/// Découpe le polygone convexe `poly` par le demi-plan à gauche de a→b (Sutherland–Hodgman).
+fn clip(poly: &[Pos2], a: Pos2, b: Pos2) -> Vec<Pos2> {
+    let side = |p: Pos2| (b.x - a.x) * (p.y - a.y) - (b.y - a.y) * (p.x - a.x);
+    let mut out = Vec::new();
+    for i in 0..poly.len() {
+        let (p, q) = (poly[i], poly[(i + 1) % poly.len()]);
+        let (sp, sq) = (side(p), side(q));
+        if sp >= 0.0 {
+            out.push(p);
         }
-        let reveal = ((build - 0.9) / 0.6).clamp(0.0, 1.0);
-        if reveal <= 0.0 {
-            return;
-        }
-        let (rx, ry) = (size * 1.62, size * 0.44);
-        let n = 64;
-        let pts: Vec<(Pos2, bool)> = (0..=n)
-            .map(|i| {
-                let a = i as f32 / n as f32 * std::f32::consts::TAU;
-                let (s, co) = a.sin_cos();
-                // Ellipse légèrement inclinée (−8°).
-                let (x, y) = (co * rx, s * ry);
-                let (si, ci) = (-0.14f32).sin_cos();
-                (Pos2::new(c.x + x * ci - y * si, c.y + x * si + y * ci), s > 0.0)
-            })
-            .collect();
-        for w in pts.windows(2) {
-            let (a, fa) = w[0];
-            let (b, _) = w[1];
-            if fa == front {
-                let alpha = if front { 0.55 } else { 0.18 } * reveal;
-                p.line_segment([a, b], Stroke::new(1.0, mix(0.5, alpha)));
-            }
-        }
-        // Point lumineux qui parcourt l'anneau.
-        let a = t * 0.9;
-        let (s, co) = a.sin_cos();
-        if (s > 0.0) == front {
-            let (x, y) = (co * rx, s * ry);
-            let (si, ci) = (-0.14f32).sin_cos();
-            let dot = Pos2::new(c.x + x * ci - y * si, c.y + x * si + y * ci);
-            p.circle_filled(dot, 2.2, mix(0.1, 0.95 * reveal));
-            p.circle_filled(dot, 5.0, mix(0.1, 0.12 * reveal));
-        }
-    };
-    orbit(false);
-
-    // Faces de verre sombre (visibles seulement), éclaircies côté lumière.
-    let faces_reveal = ((build - 1.0) / 0.5).clamp(0.0, 1.0);
-    let mut faces: Vec<(f32, [Pos2; 3], f32, f32)> = Vec::new();
-    for k in 0..4 {
-        let j = (k + 1) % 4;
-        for (half, apex) in [(0.0f32, top), (1.0f32, bot)] {
-            let (a, b) = if half == 0.0 {
-                (ring[k], ring[j])
-            } else {
-                (ring[j], ring[k])
-            };
-            let tri = [apex.0, a.0, b.0];
-            let cross = (tri[1].x - tri[0].x) * (tri[2].y - tri[0].y) - (tri[1].y - tri[0].y) * (tri[2].x - tri[0].x);
-            // Face de dos, ou vue presque de profil : un triangle quasi plat fait
-            // partir le lissage des bords en pointe démesurée (vu à l'écran).
-            if cross >= -size * size * 0.05 {
-                continue;
-            }
-            let mid = angle + (k as f32 + 0.5) * std::f32::consts::FRAC_PI_2;
-            let light = (0.5 - 0.5 * mid.sin()).clamp(0.0, 1.0);
-            faces.push(((a.1 + b.1) / 2.0, tri, half, light));
+        if (sp >= 0.0) != (sq >= 0.0) {
+            out.push(p + (q - p) * (sp / (sp - sq)));
         }
     }
-    faces.sort_by(|a, b| b.0.partial_cmp(&a.0).unwrap_or(std::cmp::Ordering::Equal));
-    if faces_reveal > 0.0 {
-        for (_, tri, half, light) in &faces {
-            let base = Color32::from_rgba_unmultiplied(12, 18, 36, (200.0 * faces_reveal) as u8);
-            p.add(Shape::convex_polygon(tri.to_vec(), base, Stroke::NONE));
-            let tint = mix(*half, (0.10 + 0.22 * light) * faces_reveal);
-            p.add(Shape::convex_polygon(tri.to_vec(), tint, Stroke::NONE));
-        }
-    }
+    out
+}
 
-    // Arêtes : les 12, celles de derrière en filigrane ; tracées une à une au début.
-    let mut edges: Vec<(Pos2, Pos2, f32, f32)> = Vec::new(); // (a, b, couleur, profondeur)
-    for k in 0..4 {
-        let j = (k + 1) % 4;
-        edges.push((top.0, ring[k].0, 0.0, ring[k].1));
-        edges.push((ring[k].0, ring[j].0, 0.5, (ring[k].1 + ring[j].1) / 2.0));
-        edges.push((ring[k].0, bot.0, 1.0, ring[k].1));
-    }
-    for (i, (a, b, col, depth)) in edges.iter().enumerate() {
-        let k = ((build - i as f32 * 0.06) / 0.28).clamp(0.0, 1.0);
-        if k <= 0.0 {
+/// Dessine le logo centré en `c`. `r` : rayon (hauteur du logo ≈ 1,5 × r).
+/// `build` : secondes depuis l'apparition (les facettes arrivent une à une) ;
+/// `shine` : avancée (0 → 1) d'un reflet qui balaie le logo en diagonale, hors de
+/// [0, 1] : pas de reflet.
+pub fn draw_logo(p: &egui::Painter, c: Pos2, r: f32, build: f32, shine: f32) {
+    let ease = |x: f32| 1.0 - (1.0 - x.clamp(0.0, 1.0)).powi(3);
+    let r = r * (0.88 + 0.12 * ease(build / 0.5));
+    let (apex, chains, tips) = geometry(c, r);
+    for (k, chain) in chains.iter().enumerate() {
+        let alpha = ease((build - 0.12 * k as f32) / 0.3);
+        if alpha <= 0.0 {
             continue;
         }
-        let back = *depth > 0.0;
-        let alpha = if back { 0.22 } else { 0.95 };
-        let width = if back { 0.8 } else { (size / 14.0).clamp(1.0, 1.8) };
-        let end = lerp(*a, *b, k);
-        p.line_segment([*a, end], Stroke::new(width, mix(*col, alpha)));
-    }
-    // Sommets avant : petits points lumineux.
-    if large && faces_reveal > 0.0 {
-        for (v, z) in ring.iter().chain([&top, &bot]) {
-            if *z <= 0.0 {
-                p.circle_filled(*v, 1.6, mix(0.2, 0.9 * faces_reveal));
-            }
+        let (c0, c1) = FACETS[k];
+        let mut mesh = Mesh::default();
+        mesh.colored_vertex(apex, mix(c0, c1, 0.5, alpha));
+        let n = chain.len();
+        for (i, q) in chain.iter().enumerate() {
+            mesh.colored_vertex(*q, mix(c0, c1, i as f32 / (n - 1) as f32, alpha));
         }
+        for i in 1..n as u32 {
+            mesh.add_triangle(0, i, i + 1);
+        }
+        p.add(Shape::mesh(mesh));
+        // Bord lissé (un maillage n'est pas anticrénelé, un trait l'est).
+        p.add(Shape::line(chain.clone(), Stroke::new(1.0, mix(c0, c1, 0.6, alpha))));
     }
-
-    // Balayage : un trait horizontal fin descend à travers le prisme (en continu une
-    // fois construit dans l'installateur, une fois par cycle de 3 s).
-    if large && (done || build > 1.6) {
-        let cycle = (t / 3.0).fract();
-        let y = c.y - h + cycle * 2.0 * h;
-        let dy = (y - c.y).abs() / h;
-        if dy < 1.0 {
-            let w = ring_r * (1.0 - dy);
-            let fade = (1.0 - dy).powf(0.6) * if done { 0.9 } else { 0.5 };
+    // Arêtes de lumière (côté éclairé), une fois les facettes posées.
+    let ridge = ease((build - 0.45) / 0.3);
+    if ridge > 0.0 && r >= 12.0 {
+        let w = (r * 0.02).clamp(0.8, 2.0);
+        for k in [0, 2] {
+            let end = apex + (tips[k] - apex) * 0.96;
             p.line_segment(
-                [Pos2::new(c.x - w, y), Pos2::new(c.x + w, y)],
-                Stroke::new(
-                    1.2,
-                    Color32::from_rgba_unmultiplied(220, 250, 255, (200.0 * fade) as u8),
-                ),
+                [apex, end],
+                Stroke::new(w, Color32::from_white_alpha((70.0 * ridge) as u8)),
             );
         }
     }
+    // Reflet : une bande claire qui traverse la silhouette en diagonale.
+    if (0.0..=1.0).contains(&shine) {
+        let outline: Vec<Pos2> = chains
+            .iter()
+            .flat_map(|ch| ch[..ch.len() - 1].iter().copied())
+            .collect();
+        let span = 2.4 * r;
+        let x = c.x - span / 2.0 + span * shine;
+        let d = Vec2::new(0.55 * r, 1.6 * r);
+        for (half, a) in [(0.16 * r, 18u8), (0.08 * r, 26), (0.03 * r, 34)] {
+            let (l, rr) = (x - half, x + half);
+            let mut band = clip(&outline, Pos2::new(l + d.x, c.y + d.y), Pos2::new(l - d.x, c.y - d.y));
+            band = clip(&band, Pos2::new(rr - d.x, c.y - d.y), Pos2::new(rr + d.x, c.y + d.y));
+            if band.len() >= 3 {
+                p.add(Shape::convex_polygon(band, Color32::from_white_alpha(a), Stroke::NONE));
+            }
+        }
+    }
+}
 
-    orbit(true);
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn outline_closes_and_facets_meet_at_the_tips() {
+        let (apex, chains, tips) = geometry(Pos2::new(100.0, 100.0), 50.0);
+        for k in 0..3 {
+            let j = (k + 1) % 3;
+            assert!((chains[k][0] - tips[k]).length() < 0.01);
+            assert!((*chains[k].last().unwrap() - tips[j]).length() < 0.01);
+        }
+        // Le sommet est à l'intérieur, la forme tient dans le cercle et paraît centrée.
+        let all: Vec<Pos2> = chains.iter().flatten().copied().collect();
+        let (top, bottom) = all
+            .iter()
+            .fold((f32::MAX, f32::MIN), |(t, b), p| (t.min(p.y), b.max(p.y)));
+        assert!(apex.y > top && apex.y < bottom);
+        assert!(((top + bottom) / 2.0 - 100.0).abs() < 3.0, "{top} {bottom}");
+    }
 }

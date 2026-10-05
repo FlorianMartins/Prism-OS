@@ -2315,7 +2315,15 @@ impl Bar {
                 let r = inset(p.rect, 3);
                 match p.widget {
                     Widget::Start => {
-                        text(mem, bold, colors().accent, r, "◆", DT_CENTER);
+                        // Le logo de Prism (icône de l'exécutable).
+                        let isz = scaled(22);
+                        if let Some(ic) = prism_icon(isz) {
+                            let x = (r.left + r.right - isz) / 2;
+                            let y = (r.top + r.bottom - isz) / 2;
+                            DrawIconEx(mem, x, y, ic, isz, isz, 0, null_mut(), DI_NORMAL);
+                        } else {
+                            text(mem, bold, colors().accent, r, "◆", DT_CENTER);
+                        }
                     }
                     Widget::Overflow => {
                         let hidden = panel.wins.len().saturating_sub(p.index.unwrap_or(0));
@@ -3055,6 +3063,29 @@ fn press_win_key() {
     let inputs = [key(0), key(KEYEVENTF_KEYUP)];
     // SAFETY: tableau local de deux entrées clavier.
     unsafe { SendInput(2, inputs.as_ptr(), size_of::<INPUT>() as i32) };
+}
+
+/// Logo de Prism (icône n° 1 des ressources) à la taille demandée, chargé une fois.
+fn prism_icon(size: i32) -> Option<HICON> {
+    thread_local! {
+        static CACHE: RefCell<HashMap<i32, isize>> = RefCell::new(HashMap::new());
+    }
+    let h = CACHE.with(|c| {
+        *c.borrow_mut().entry(size).or_insert_with(|| {
+            // SAFETY: ressource de notre propre exécutable ; gardée toute la vie de la barre.
+            unsafe {
+                LoadImageW(
+                    GetModuleHandleW(null()),
+                    1 as _,
+                    IMAGE_ICON,
+                    size,
+                    size,
+                    LR_DEFAULTCOLOR,
+                ) as isize
+            }
+        })
+    });
+    (h != 0).then_some(h as HICON)
 }
 
 pub(crate) fn open_prism_ui() {

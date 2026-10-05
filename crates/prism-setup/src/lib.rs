@@ -7,7 +7,7 @@
 use std::sync::{Arc, Mutex};
 
 use eframe::egui::{self, RichText, Sense, Vec2};
-use prism_ui::logo::draw_prism;
+use prism_ui::logo::draw_logo;
 use prism_ui::theme as th;
 
 /// Étapes montrées pendant l'installation, dans l'ordre.
@@ -60,9 +60,6 @@ pub struct SetupApp {
     launch: bool,
     /// Heure (secondes egui) du début de l'écran, pour les animations.
     since: Option<f64>,
-    /// Angle du logo, intégré image par image (la vitesse change selon l'écran).
-    angle: f32,
-    last_time: Option<f64>,
     themed: bool,
     /// Tests : temps figé (captures reproductibles).
     pub frozen_time: Option<f64>,
@@ -81,8 +78,6 @@ impl SetupApp {
             progress: Arc::new(Mutex::new(Progress::default())),
             launch: true,
             since: None,
-            angle: 0.6,
-            last_time: None,
             themed: false,
             frozen_time: None,
             auto: None,
@@ -111,8 +106,6 @@ impl SetupApp {
             .since
             .get_or_insert(if self.frozen_time.is_some() { 0.0 } else { now });
         let t = (now - since) as f32;
-        let dt = self.last_time.map_or(0.0, |l| (now - l) as f32).clamp(0.0, 0.1);
-        self.last_time = Some(now);
 
         if let (Some(folder), Screen::Welcome) = (self.auto.clone(), self.screen) {
             if t > 2.0 {
@@ -128,14 +121,13 @@ impl SetupApp {
         if self.screen == Screen::Installing && matches!(p.done, Some(Ok(()))) {
             self.go(Screen::Finished);
         }
-        // Vitesse de rotation : calme à l'accueil, rapide pendant l'installation,
-        // ralentit jusqu'à l'arrêt à la fin.
-        let speed = match self.screen {
-            Screen::Welcome => 0.6,
-            Screen::Installing => 1.6 + 1.2 * p.fraction,
-            Screen::Finished => 1.6 * (1.0 - (t / 1.6).min(1.0)).powi(2),
+        // Reflet sur le logo : toutes les 3 s pendant l'installation, en continu
+        // (toutes les 1,6 s) une fois finie ; à l'accueil, un seul à l'ouverture.
+        let shine = match self.screen {
+            Screen::Welcome => (t - 0.8) / 0.9,
+            Screen::Installing => (t / 3.0).fract() * 1.6 - 0.3,
+            Screen::Finished => (t / 1.6).fract() * 1.3 - 0.15,
         };
-        self.angle += speed * dt;
 
         egui::Frame::new()
             .fill(th::bg())
@@ -148,15 +140,7 @@ impl SetupApp {
                         Screen::Welcome => t,
                         _ => 10.0,
                     };
-                    draw_prism(
-                        ui.painter(),
-                        rect.center(),
-                        74.0,
-                        self.angle,
-                        build,
-                        self.screen == Screen::Finished,
-                        t,
-                    );
+                    draw_logo(ui.painter(), rect.center(), 100.0, build, shine);
                     ui.add_space(4.0);
                     ui.label(RichText::new("Prism OS").size(30.0).strong().color(th::text()));
                     ui.label(

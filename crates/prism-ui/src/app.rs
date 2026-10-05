@@ -388,21 +388,23 @@ impl PrismApp {
 
     fn nav(&mut self, ui: &mut egui::Ui) {
         ui.horizontal(|ui| {
-            // Logo : se construit à l'ouverture (2,5 s), tourne au survol, immobile sinon.
+            // Logo : ses facettes arrivent à l'ouverture, un reflet le traverse ensuite
+            // et à chaque survol ; immobile le reste du temps (aucun rafraîchissement).
             let now = ui.input(|i| i.time);
             let opened = *self.opened_at.get_or_insert(now);
             let (rect, resp) = ui.allocate_exact_size(Vec2::new(40.0, 46.0), Sense::hover());
             let since = (now - opened) as f32;
-            let spin_id = ui.id().with("logo-spin");
-            let spin = ui.ctx().animate_bool_with_time(spin_id, resp.hovered(), 0.4);
-            let angle_id = ui.id().with("logo-angle");
-            let mut angle: f32 = ui.ctx().data(|d| d.get_temp(angle_id)).unwrap_or(0.6);
-            if since < 2.5 || spin > 0.0 {
-                angle += 0.03 * (1.0 + spin * 1.5);
-                ui.ctx().data_mut(|d| d.insert_temp(angle_id, angle));
+            let shine_id = ui.id().with("logo-shine");
+            let mut shine_at: f64 = ui.ctx().data(|d| d.get_temp(shine_id)).unwrap_or(opened + 0.7);
+            if resp.hovered() && now - shine_at > 1.2 {
+                shine_at = now;
+                ui.ctx().data_mut(|d| d.insert_temp(shine_id, shine_at));
+            }
+            let shine = ((now - shine_at) / 0.8) as f32;
+            if since < 1.0 || (-0.2..1.0).contains(&shine) {
                 ui.ctx().request_repaint();
             }
-            crate::logo::draw_prism(ui.painter(), rect.center(), 15.0, angle, since * 2.0, false, now as f32);
+            crate::logo::draw_logo(ui.painter(), rect.center() + Vec2::new(0.0, 1.0), 21.0, since, shine);
             ui.vertical(|ui| {
                 ui.label(RichText::new("PRISM").size(20.0).strong().color(th::text()));
                 ui.label(RichText::new("gaming · cybersécurité").small().color(th::muted()));

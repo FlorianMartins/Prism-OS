@@ -1,3 +1,5 @@
+<p align="center"><img src="docs/images/logo.png" width="128" alt="Prism logo"></p>
+
 # Prism OS
 
 **The gaming and cybersecurity layer for a genuine Windows.**

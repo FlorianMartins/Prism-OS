@@ -1,5 +1,5 @@
 //! Fond d'écran futuriste aux couleurs du thème : dégradé profond, horizon lumineux,
-//! grille en perspective qui s'éloigne, grand losange en filigrane. Calculé ici (pur,
+//! grille en perspective qui s'éloigne, grand prisme (le logo) en filigrane. Calculé ici (pur,
 //! testé), écrit en BMP 24 bits par la plateforme puis posé comme fond d'écran.
 
 use crate::theme::{mix, Palette, Rgb};
@@ -51,21 +51,25 @@ pub fn render(w: usize, h: usize, p: &Palette) -> Vec<u8> {
             px[(y * w + x) * 3..(y * w + x) * 3 + 3].copy_from_slice(&c);
         }
     }
-    // Grand losange en filigrane au-dessus de l'horizon (arêtes fines).
-    let s = h as f32 * 0.22;
-    let top = (cx, horizon - s * 2.05);
-    let mid_l = (cx - s * 0.62, horizon - s * 1.05);
-    let mid_r = (cx + s * 0.62, horizon - s * 1.05);
-    let bot = (cx, horizon - s * 0.05);
-    for (a, b, col) in [
-        (top, mid_l, p.accent),
-        (top, mid_r, p.accent),
-        (mid_l, bot, accent2),
-        (mid_r, bot, accent2),
-        (mid_l, mid_r, mix(p.accent, accent2, 0.5)),
-        (top, bot, mix(p.accent, accent2, 0.5)),
+    // Grand prisme en filigrane au-dessus de l'horizon : le logo de Prism en fil de
+    // lumière (contour aux couleurs d'accent, arêtes vers le sommet plus discrètes).
+    let s = h as f32 * 0.24;
+    let g = (cx, horizon - s * 0.62);
+    let corner = |deg: f32| {
+        let a = deg.to_radians();
+        (g.0 + s * a.cos(), g.1 + s * a.sin())
+    };
+    let (top, right, left) = (corner(-90.0), corner(30.0), corner(150.0));
+    let apex = (g.0 - 0.07 * s, g.1 - 0.08 * s);
+    for (a, b, col, alpha) in [
+        (left, top, p.accent, 0.7),
+        (top, right, accent2, 0.7),
+        (right, left, mix(p.accent, accent2, 0.5), 0.7),
+        (apex, top, p.accent, 0.3),
+        (apex, left, p.accent, 0.3),
+        (apex, right, accent2, 0.3),
     ] {
-        line(&mut px, w, h, a, b, col, if a == top && b == bot { 0.18 } else { 0.7 });
+        line(&mut px, w, h, a, b, col, alpha);
     }
     px
 }
