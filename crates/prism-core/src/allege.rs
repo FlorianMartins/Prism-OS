@@ -926,6 +926,26 @@ mod tests {
     }
 
     #[test]
+    fn browsers_stop_running_in_background_safely_and_save_memory_at_advanced_level() {
+        let c = Catalog::builtin();
+        let tier = |key: &str, value: &str| {
+            c.policies
+                .iter()
+                .find(|p| p.key.to_ascii_lowercase().ends_with(key) && p.value == value)
+                .map(|p| p.tier)
+        };
+        for b in ["microsoft\\edge", "bravesoftware\\brave", "google\\chrome"] {
+            assert_eq!(tier(b, "BackgroundModeEnabled"), Some(Tier::Sur), "{b}");
+        }
+        assert_eq!(
+            tier("bravesoftware\\brave", "HighEfficiencyModeEnabled"),
+            Some(Tier::Avance)
+        );
+        assert_eq!(tier("google\\chrome", "HighEfficiencyModeEnabled"), Some(Tier::Avance));
+        assert_eq!(tier("microsoft\\edge", "SleepingTabsEnabled"), Some(Tier::Avance));
+    }
+
+    #[test]
     fn anticheat_critical_services_are_protected() {
         let c = Catalog::builtin();
         for name in [

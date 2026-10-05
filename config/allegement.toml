@@ -462,6 +462,46 @@ tier = "sur"
 why = "Edge garde sinon des processus actifs après fermeture de la dernière fenêtre."
 
 [[registry]]
+key = 'SOFTWARE\Policies\Microsoft\Edge'
+value = "SleepingTabsEnabled"
+data = 1
+label = "Edge : onglets inactifs mis en veille"
+tier = "avance"
+why = "Libère la mémoire des onglets inutilisés ; ils se rechargent au clic. Edge affiche « géré par votre organisation »."
+
+[[registry]]
+key = 'SOFTWARE\Policies\BraveSoftware\Brave'
+value = "BackgroundModeEnabled"
+data = 0
+label = "Brave : pas d'exécution en arrière-plan"
+tier = "sur"
+why = "Brave garde sinon des processus actifs après fermeture de la dernière fenêtre."
+
+[[registry]]
+key = 'SOFTWARE\Policies\BraveSoftware\Brave'
+value = "HighEfficiencyModeEnabled"
+data = 1
+label = "Brave : économiseur de mémoire"
+tier = "avance"
+why = "Met en veille les onglets inactifs (stratégie Chromium officielle) ; ils se rechargent au clic. Brave affiche « géré par votre organisation »."
+
+[[registry]]
+key = 'SOFTWARE\Policies\Google\Chrome'
+value = "BackgroundModeEnabled"
+data = 0
+label = "Chrome : pas d'exécution en arrière-plan"
+tier = "sur"
+why = "Chrome garde sinon des processus actifs après fermeture de la dernière fenêtre."
+
+[[registry]]
+key = 'SOFTWARE\Policies\Google\Chrome'
+value = "HighEfficiencyModeEnabled"
+data = 1
+label = "Chrome : économiseur de mémoire"
+tier = "avance"
+why = "Met en veille les onglets inactifs (stratégie officielle) ; ils se rechargent au clic. Chrome affiche « géré par votre organisation »."
+
+[[registry]]
 key = 'SOFTWARE\Policies\Microsoft\Windows\AdvertisingInfo'
 value = "DisabledByGroupPolicy"
 data = 1

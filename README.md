@@ -24,8 +24,8 @@ tools. Every change is journaled and reversible.
   The game process itself is never touched.
 - **Startup apps** (`prism demarrage`) — advice and reversible disabling, the same
   mechanism as Task Manager, including Microsoft Store apps.
-- **Debloat** (`prism allege`) — telemetry services and scheduled tasks, Edge
-  background processes, Recall, delivery-optimisation upload, plus gaming settings;
+- **Debloat** (`prism allege`) — telemetry services and scheduled tasks, Edge/Brave/Chrome
+  background processes and memory saver, Recall, delivery-optimisation upload, plus gaming settings;
   72 services that anti-cheats and updates need are protected.
 - **Privacy** (`prism vie-privee`) — Windows telemetry, ads and suggestions, Bing in
   Start, typing collection, Edge reporting turned off through official policies, plus

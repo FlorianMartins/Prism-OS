@@ -229,8 +229,8 @@ processes** when the optional apps were disabled too.
 
 ```powershell
 prism allege                 # catalogue with the current state of every entry
-prism allege apply           # "sur" (safe): telemetry, useless services, Edge background, telemetry tasks
-prism allege apply avance    # "advanced": SysMain, Search indexing, Print Spooler… each with its trade-off
+prism allege apply           # "sur" (safe): telemetry, useless services, Edge/Brave/Chrome background, telemetry tasks
+prism allege apply avance    # "advanced": SysMain, Search indexing, Print Spooler, browser memory saver… each with its trade-off
 prism allege apply jeu       # gaming settings: Windows Game Mode, GPU scheduling, windowed games, mouse acceleration off
 prism allege apply extreme   # "extreme": background services on demand, Copilot, preinstalled apps removed
 prism allege restore         # put back every original value
@@ -239,6 +239,12 @@ prism allege restore         # put back every original value
 72 services that anti-cheats, updates and security need are protected and can never be
 changed, even by editing the catalogue. Be realistic: disabling services saves about
 100 MB; startup apps and Daily Mode are where the big gains are.
+
+**Browsers**: the safe level stops Edge, Brave and Chrome from staying in the background
+once their last window is closed. The advanced level turns on their memory saver
+(sleeping tabs in Edge): inactive tabs release their memory and reload when you click
+them. Both use the browsers' official policies, so the browser shows "managed by your
+organisation" — untick the item to remove the policy.
 
 **One item at a time**: every line of the *Allègement* page has its own checkbox —
 tick to apply that single item, untick to put its original value back (only for items
