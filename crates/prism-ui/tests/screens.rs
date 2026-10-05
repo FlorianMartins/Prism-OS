@@ -35,11 +35,17 @@ fn shot_sized(name: &str, page: Page, console: bool, backend: MockBackend, heigh
 /// Rien ne déborde dans la marge droite de la page (régression vue sur capture :
 /// une colonne trop large poussait toute la page hors de la fenêtre).
 fn right_margin_is_clear(img: &image::RgbaImage) -> bool {
-    // Fond du thème par défaut (il a changé avec la palette Prism futuriste).
-    let bg = prism_core::theme::ThemeConfig::default().palette().bg;
+    // Le fond des pages a une grille fine et des halos : une colonne de la marge de
+    // droite est comparée à ses voisines tout au bord (même fond), pas à une couleur fixe.
     let x = img.width() - 18;
+    let near = |a: &image::Rgba<u8>, b: &image::Rgba<u8>| {
+        a.0[..3].iter().zip(&b.0[..3]).map(|(p, q)| (*p as i32 - *q as i32).abs()).sum::<i32>() < 18
+    };
     (120..img.height() - 20)
-        .filter(|y| img.get_pixel(x, *y).0[..3] != bg)
+        .filter(|y| {
+            let p = img.get_pixel(x, *y);
+            !near(p, img.get_pixel(img.width() - 10, *y)) && !near(p, img.get_pixel(img.width() - 12, *y))
+        })
         .count()
         < 20
 }

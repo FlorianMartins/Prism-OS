@@ -110,7 +110,11 @@ prism-ui            # the graphical app
 
 Cards react to the mouse: they tilt towards the pointer, a soft light follows it, the
 shadow shifts and the border lights up cyan → violet; animations only run while you
-hover, so the app does not redraw on its own. The dashboard opens with live gauges for
+hover, so the app does not redraw on its own. Every page sits on a subtle tech backdrop (fine grid,
+soft cyan and violet glows); cards arrive in a short cascade when you open a page; a
+glowing line unfolds under the page title; the active menu entry has a glowing marker;
+messages slide in as floating notifications at the bottom right and fade out; an
+indicator next to the title shows an action running in the background. The dashboard opens with live gauges for
 the processor, memory and graphics card (same measurements as the Prism Bar).
 
 ## 4. Profiles

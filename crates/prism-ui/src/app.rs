@@ -112,6 +112,8 @@ pub struct PrismApp {
     /// Prism au démarrage de Windows.
     autostart_on: bool,
     toast: Option<(String, bool)>,
+    /// Notification affichée et depuis quand (animation d'entrée et de sortie).
+    toast_shown: Option<(String, f64)>,
     /// Animations : ouverture de l'appli (logo qui se construit), page affichée et
     /// instant où elle l'a été (fondu à l'arrivée). Rien n'anime en continu : au repos,
     /// l'appli ne redessine qu'une fois par seconde (données en direct).
@@ -169,6 +171,7 @@ impl PrismApp {
             welcome_done,
             autostart_on,
             toast: None,
+            toast_shown: None,
             opened_at: None,
             shown_page: Page::Dashboard,
             page_since: 0.0,
@@ -314,9 +317,16 @@ impl PrismApp {
             ctx.request_repaint();
         }
         let ease = 1.0 - (1.0 - k).powi(3);
+        // Cartes en cascade : instant du changement de page, compteur remis à zéro.
+        ctx.data_mut(|d| {
+            d.insert_temp(egui::Id::new("prism-page-since"), self.page_since);
+            d.insert_temp(egui::Id::new("prism-card-idx"), 0u32);
+        });
         egui::CentralPanel::no_frame()
             .frame(egui::Frame::new().fill(th::bg()).inner_margin(Margin::symmetric(24, 8)))
             .show(root, |ui| {
+                // Fond technologique (grille fine, halos), statique.
+                crate::futur::backdrop(ui.painter(), ui.clip_rect());
                 ui.set_opacity(ease);
                 ui.add_space((1.0 - ease) * 12.0);
                 egui::ScrollArea::vertical()
@@ -330,6 +340,64 @@ impl PrismApp {
                         Page::Services => self.services_page(ui),
                         Page::Appearance => self.appearance_page(ui),
                         Page::Tools => self.tools_page(ui),
+                    });
+            });
+        self.toast_area(&ctx);
+    }
+
+    /// Notification flottante : glisse depuis le bas à droite, s'efface après 6 s.
+    fn toast_area(&mut self, ctx: &egui::Context) {
+        let now = ctx.input(|i| i.time);
+        let Some((msg, ok)) = self.toast.clone() else {
+            self.toast_shown = None;
+            return;
+        };
+        let start = match &self.toast_shown {
+            Some((m, t)) if *m == msg => *t,
+            _ => {
+                self.toast_shown = Some((msg.clone(), now));
+                now
+            }
+        };
+        let age = now - start;
+        if age > 6.4 {
+            self.toast = None;
+            self.toast_shown = None;
+            return;
+        }
+        let k_in = (age / 0.25).clamp(0.0, 1.0) as f32;
+        let k_out = ((6.4 - age) / 0.4).clamp(0.0, 1.0) as f32;
+        let a = (1.0 - (1.0 - k_in).powi(3)) * k_out;
+        ctx.request_repaint_after(std::time::Duration::from_millis(if k_in < 1.0 || k_out < 1.0 {
+            16
+        } else {
+            300
+        }));
+        let col = if ok { th::ok() } else { th::bad() };
+        egui::Area::new(egui::Id::new("prism-toast"))
+            .anchor(egui::Align2::RIGHT_BOTTOM, Vec2::new(-20.0 + (1.0 - a) * 40.0, -20.0))
+            .order(egui::Order::Foreground)
+            .interactable(false)
+            .show(ctx, |ui| {
+                ui.set_opacity(a);
+                egui::Frame::new()
+                    .fill(th::card_hi())
+                    .stroke(Stroke::new(1.0, col.gamma_multiply(0.7)))
+                    .corner_radius(CornerRadius::same(10))
+                    .inner_margin(Margin::symmetric(14, 10))
+                    .shadow(egui::epaint::Shadow {
+                        offset: [0, 6],
+                        blur: 18,
+                        spread: 0,
+                        color: Color32::from_black_alpha(90),
+                    })
+                    .show(ui, |ui| {
+                        ui.set_max_width(420.0);
+                        ui.horizontal(|ui| {
+                            let (r, _) = ui.allocate_exact_size(Vec2::new(4.0, 30.0), Sense::hover());
+                            ui.painter().rect_filled(r, 2.0, col);
+                            ui.label(RichText::new(&msg).color(th::text()));
+                        });
                     });
             });
     }
@@ -383,6 +451,16 @@ impl PrismApp {
                 })
                 .response
                 .interact(Sense::click());
+            if selected {
+                // Repère lumineux à gauche de l'entrée active.
+                let r = resp.rect;
+                let bar = egui::Rect::from_min_max(
+                    egui::pos2(r.left() - 6.0, r.top() + 8.0),
+                    egui::pos2(r.left() - 3.0, r.bottom() - 8.0),
+                );
+                ui.painter().rect_filled(bar, 2.0, th::accent());
+                crate::futur::glow(ui.painter(), bar.center(), 18.0, th::accent(), 40);
+            }
             ui.ctx().data_mut(|d| d.insert_temp(hid, resp.hovered()));
             if resp.clicked() {
                 self.page = p;
@@ -399,8 +477,28 @@ impl PrismApp {
     }
 
     fn header(&mut self, ui: &mut egui::Ui) {
+        let now = ui.input(|i| i.time);
+        let since = self.page_since;
+        let job = self.job.as_ref().map(|(l, _)| l.clone());
         ui.horizontal_centered(|ui| {
-            ui.heading(self.page.label());
+            let title = ui.heading(self.page.label());
+            // Trait lumineux qui se déploie sous le titre à chaque page.
+            let k = ((now - since) / 0.45).clamp(0.0, 1.0) as f32;
+            if k < 1.0 {
+                ui.ctx().request_repaint();
+            }
+            crate::futur::underline(
+                ui.painter(),
+                title.rect.left_bottom() + Vec2::new(0.0, 4.0),
+                title.rect.width() + 24.0,
+                1.0 - (1.0 - k).powi(3),
+            );
+            // Action en cours (fil d'arrière-plan).
+            if let Some(label) = &job {
+                ui.add_space(12.0);
+                ui.spinner();
+                ui.label(RichText::new(format!("{label}…")).small().color(th::accent()));
+            }
             ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                 if !self.backend.elevated() && ui.button("Relancer en administrateur").clicked() {
                     let r = self.backend.relaunch_elevated();
@@ -419,9 +517,6 @@ impl PrismApp {
                     if !e.game.is_empty() {
                         pill(ui, &format!("🎮 Mode Jeu : {}", e.game.join(", ")), th::accent());
                     }
-                }
-                if let Some((msg, ok)) = &self.toast {
-                    ui.label(RichText::new(msg).color(if *ok { th::ok() } else { th::bad() }));
                 }
             });
         });

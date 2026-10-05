@@ -18,6 +18,19 @@ fn lerp_color(a: Color32, b: Color32, k: f32) -> Color32 {
 
 /// Carte en relief. `highlighted` : carte active (profil choisi…).
 pub fn card3d<R>(ui: &mut egui::Ui, highlighted: bool, add: impl FnOnce(&mut egui::Ui) -> R) -> egui::Response {
+    // Apparition en cascade au changement de page.
+    let a = appear(ui);
+    if a < 1.0 {
+        ui.add_space((1.0 - a) * 10.0);
+    }
+    ui.scope(|ui| {
+        ui.set_opacity(a);
+        card3d_inner(ui, highlighted, add)
+    })
+    .inner
+}
+
+fn card3d_inner<R>(ui: &mut egui::Ui, highlighted: bool, add: impl FnOnce(&mut egui::Ui) -> R) -> egui::Response {
     let id = ui.next_auto_id().with("card3d");
     let ctx = ui.ctx().clone();
     // Inclinaison de l'image précédente (de −1 à 1 sur chaque axe), lissée.
@@ -184,4 +197,98 @@ pub fn ring(ui: &mut egui::Ui, value: Option<f32>, label: &str, detail: &str) {
             ui.label(egui::RichText::new(detail).small().color(th::muted()));
         });
     }
+}
+
+/// Fond « technologique » derrière les pages : dégradé, grille fine, deux halos doux,
+/// vignette. Statique : ne demande aucun redessin.
+pub fn backdrop(painter: &egui::Painter, rect: Rect) {
+    let bg = th::bg();
+    painter.rect_filled(rect, 0.0, bg);
+    // Grille fine (accent très transparent), plus nette vers le haut.
+    let step = 44.0;
+    let grid = th::accent().gamma_multiply(0.035);
+    let mut x = rect.left() + (rect.left() % step);
+    while x < rect.right() {
+        painter.line_segment(
+            [Pos2::new(x, rect.top()), Pos2::new(x, rect.bottom())],
+            Stroke::new(1.0, grid),
+        );
+        x += step;
+    }
+    let mut y = rect.top();
+    while y < rect.bottom() {
+        painter.line_segment(
+            [Pos2::new(rect.left(), y), Pos2::new(rect.right(), y)],
+            Stroke::new(1.0, grid),
+        );
+        y += step;
+    }
+    // Halos : cyan en haut à droite, violet en bas à gauche.
+    glow(
+        painter,
+        Pos2::new(rect.right() - 80.0, rect.top() + 40.0),
+        rect.width() * 0.45,
+        CYAN,
+        22,
+    );
+    glow(
+        painter,
+        Pos2::new(rect.left() + 60.0, rect.bottom() - 30.0),
+        rect.width() * 0.40,
+        VIOLET,
+        18,
+    );
+}
+
+/// Halo radial lisse (un maillage du centre coloré au bord transparent).
+pub fn glow(painter: &egui::Painter, c: Pos2, radius: f32, col: Color32, alpha: u8) {
+    let mut mesh = egui::epaint::Mesh::default();
+    mesh.colored_vertex(c, Color32::from_rgba_unmultiplied(col.r(), col.g(), col.b(), alpha));
+    let n = 48u32;
+    for k in 0..=n {
+        let a = k as f32 / n as f32 * std::f32::consts::TAU;
+        mesh.colored_vertex(c + Vec2::angled(a) * radius, Color32::TRANSPARENT);
+    }
+    for k in 1..=n {
+        mesh.add_triangle(0, k, k + 1);
+    }
+    painter.add(Shape::mesh(mesh));
+}
+
+/// Trait lumineux dégradé cyan → violet, de longueur `k` (0 à 1) : sous les titres.
+pub fn underline(painter: &egui::Painter, left: Pos2, width: f32, k: f32) {
+    let w = width * k.clamp(0.0, 1.0);
+    if w <= 1.0 {
+        return;
+    }
+    let n = 24;
+    for i in 0..n {
+        let a = left + Vec2::new(w * i as f32 / n as f32, 0.0);
+        let b = left + Vec2::new(w * (i + 1) as f32 / n as f32, 0.0);
+        let col = lerp_color(CYAN, VIOLET, i as f32 / n as f32);
+        painter.line_segment([a, b], Stroke::new(2.0, col));
+        painter.line_segment([a, b], Stroke::new(6.0, col.gamma_multiply(0.12)));
+    }
+}
+
+/// Apparition en cascade des cartes d'une page : chaque carte arrive un peu après la
+/// précédente (opacité et léger glissement). L'appli note l'instant du changement de
+/// page ; les cartes se numérotent à chaque image.
+pub fn appear(ui: &mut egui::Ui) -> f32 {
+    let ctx = ui.ctx().clone();
+    let (since, now) = (
+        ctx.data(|d| d.get_temp::<f64>(egui::Id::new("prism-page-since")))
+            .unwrap_or(0.0),
+        ctx.input(|i| i.time),
+    );
+    let idx = ctx.data_mut(|d| {
+        let n = d.get_temp_mut_or_default::<u32>(egui::Id::new("prism-card-idx"));
+        *n += 1;
+        *n - 1
+    });
+    let k = ((now - since - idx.min(12) as f64 * 0.035) / 0.28).clamp(0.0, 1.0) as f32;
+    if k < 1.0 {
+        ctx.request_repaint();
+    }
+    1.0 - (1.0 - k).powi(3)
 }
