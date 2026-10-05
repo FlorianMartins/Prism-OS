@@ -39,6 +39,11 @@ fn run(renderer: eframe::Renderer) -> eframe::Result<()> {
 /// session qui refuse l'un n'empêche pas l'appli de s'ouvrir. Si rien ne marche,
 /// l'erreur est montrée (sans console, l'appli se fermait sans rien dire).
 fn main() {
+    // Prism est déjà ouvert : sa fenêtre revient au premier plan, pas de deuxième fenêtre.
+    #[cfg(windows)]
+    if prism_win::single::signal_existing() {
+        return;
+    }
     // Sans droits administrateur, l'appli se relance par la tâche « Prism (admin) » posée
     // à l'installation : droits obtenus sans fenêtre de confirmation. Lancée par cette
     // tâche (`--depuis-tache`), elle ne recommence jamais (compte standard : mode limité).
@@ -56,6 +61,8 @@ fn main() {
             return;
         }
     }
+    #[cfg(windows)]
+    prism_win::single::listen("Prism");
     let Err(first) = run(eframe::Renderer::Wgpu) else {
         return;
     };

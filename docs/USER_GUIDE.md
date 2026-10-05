@@ -109,6 +109,10 @@ prism demo          # a simulated gaming session, end to end (works on any compu
 prism-ui            # the graphical app
 ```
 
+**One window**: opening Prism again (Start menu, shortcut, notification icon) brings
+the window that is already open back to the front, restored if it was minimized,
+instead of opening a second one.
+
 ### The app's look
 
 Cards react to the mouse: they tilt towards the pointer, a soft light follows it, the
