@@ -273,6 +273,8 @@ pub struct BarConfig {
     pub prism_start_menu: bool,
     /// Applis épinglées en haut du menu Démarrer de Prism (identifiants `shell:AppsFolder`).
     pub start_pinned: Vec<String>,
+    /// Icône de Prism dans la zone de notification de Windows (icônes cachées).
+    pub prism_icon: bool,
     /// La zone système a déjà été ajoutée une fois aux barres existantes (migration).
     /// Absent d'un ancien `bar.json` : faux (la valeur par défaut de la structure, vraie
     /// pour une barre neuve, ne doit pas s'appliquer ici).
@@ -331,6 +333,7 @@ impl Default for BarConfig {
             tiling: crate::tiling::TilingConfig::default(),
             prism_start_menu: true,
             start_pinned: Vec::new(),
+            prism_icon: true,
             tray_added: true,
         }
     }

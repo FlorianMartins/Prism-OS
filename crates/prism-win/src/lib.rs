@@ -41,6 +41,8 @@ mod tiler;
 #[cfg(windows)]
 mod topology;
 #[cfg(windows)]
+mod tray_icon;
+#[cfg(windows)]
 pub mod veille;
 #[cfg(windows)]
 mod win;

@@ -1894,6 +1894,8 @@ impl PrismApp {
                         ui.checkbox(&mut cfg.prism_start_menu, "Menu Démarrer de Prism (Alt+F1)")
                             .on_hover_text("Le bouton Démarrer ouvre le menu de Prism : recherche, applis épinglées (clic droit), alimentation. Décoché : le menu de Windows.");
                         ui.checkbox(&mut cfg.hide_in_fullscreen, "Se cacher en plein écran");
+                        ui.checkbox(&mut cfg.prism_icon, "Icône Prism dans la zone de notification")
+                            .on_hover_text("Dans les icônes cachées de Windows (et de la zone système de la barre) : clic pour ouvrir Prism, clic droit pour libérer la RAM.");
                     });
                     field(ui, "Plusieurs écrans");
                     ui.horizontal_wrapped(|ui| {

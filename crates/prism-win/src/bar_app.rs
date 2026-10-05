@@ -1004,6 +1004,7 @@ impl Bar {
             self.cfg_stamp = stamp;
             let new = BarConfig::load();
             set_colors(&new.theme);
+            crate::tray_icon::set(self.hwnd, new.prism_icon);
             if self.cfg.tiling.enabled && !new.tiling.enabled {
                 self.tiler.restore_all();
             }
@@ -1201,6 +1202,7 @@ impl Bar {
         self.sample = self.metrics.sample();
         self.cpu.push(self.sample.cpu);
         self.ram.push(self.sample.ram);
+        crate::tray_icon::update_tip(self.hwnd, crate::tray_icon::tip_text(self.game, self.sample.ram));
         if let Some(g) = self.sample.gpu {
             self.gpu.push(g);
         }
@@ -3055,7 +3057,7 @@ fn press_win_key() {
     unsafe { SendInput(2, inputs.as_ptr(), size_of::<INPUT>() as i32) };
 }
 
-fn open_prism_ui() {
+pub(crate) fn open_prism_ui() {
     if let Some(dir) = std::env::current_exe()
         .ok()
         .and_then(|p| p.parent().map(|d| d.to_path_buf()))
@@ -3163,6 +3165,15 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) 
         WM_FX_DRAG => {
             with_bar(|b| b.drag_frame());
             0
+        }
+        crate::tray_icon::WM_TRAY => {
+            let game = with_bar(|b| b.game).unwrap_or(false);
+            crate::tray_icon::on_message(hwnd, lp, game);
+            0
+        }
+        m if m != 0 && m == crate::tray_icon::taskbar_created() => {
+            crate::tray_icon::explorer_restarted(hwnd);
+            DefWindowProcW(hwnd, msg, wp, lp)
         }
         WM_HOTKEY => {
             with_bar(|b| {
@@ -3280,6 +3291,7 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) 
         // Barre d'un écran débranché : rien d'autre à faire.
         WM_DESTROY if BAR_HWND.with(|b| b.get()) != hwnd as isize => 0,
         WM_DESTROY => {
+            crate::tray_icon::remove(hwnd);
             with_bar(|b| {
                 b.drag_end();
                 b.tiler.restore_all();
@@ -3428,6 +3440,9 @@ pub fn run() -> Result<(), String> {
             b.tick();
         });
         ShowWindow(hwnd, SW_SHOWNOACTIVATE);
+        if with_bar(|b| b.cfg.prism_icon).unwrap_or(true) {
+            crate::tray_icon::set(hwnd, true);
+        }
         SetTimer(hwnd, TIMER_ID, 2000, None);
         {
             use windows_sys::Win32::UI::Input::KeyboardAndMouse::{

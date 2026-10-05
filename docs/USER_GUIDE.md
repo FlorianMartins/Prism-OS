@@ -502,6 +502,21 @@ Prism cannot host the notification area itself (Windows keeps it for Explorer wh
 runs). The widget is added once, before the clock, to bars configured before it existed;
 remove it in the widget list if you do not want it.
 
+### Prism icon in the notification area
+
+While the Prism Bar runs, Prism has its own icon in the Windows notification area. On
+Windows 11 a new icon goes to the **hidden icons** (the arrow next to the clock, or the
+arrow of the *Zone système* widget); drag it onto the taskbar to keep it in view.
+
+- **click** → opens Prism (the window already open, if any);
+- **middle click** → frees RAM now, and a notification shows the result ("Memory in use:
+  9.9 → 7.4 GB (−2.5 GB)");
+- **right click** → menu: current mode (Daily or Game), *Open Prism*, *Free RAM now*,
+  *Quit the Prism Bar*.
+
+Hovering the icon shows the current mode and memory use. Untick *Icône Prism dans la zone
+de notification* (Appearance › Prism Bar › Options) to remove it.
+
 ### Window effects
 
 Beyond Windows' own animations, the Prism Bar draws its own window effects. Turn them on

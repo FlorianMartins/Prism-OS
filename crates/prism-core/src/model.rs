@@ -54,6 +54,12 @@ pub struct MemStatus {
 }
 
 impl MemStatus {
+    /// Mémoire utilisée, comme « En cours d'utilisation » du Gestionnaire des tâches :
+    /// ni libre ni cache en attente (que Windows reprend à la demande).
+    pub fn used(&self) -> u64 {
+        self.total.saturating_sub(self.free.saturating_add(self.standby_total))
+    }
+
     pub fn free_percent(&self) -> u64 {
         if self.total == 0 {
             return 100;
@@ -204,6 +210,18 @@ mod tests {
             ..Default::default()
         };
         assert_eq!(m.free_percent(), 25);
+    }
+
+    #[test]
+    fn used_memory_excludes_free_pages_and_standby_cache() {
+        let m = MemStatus {
+            total: 32,
+            free: 2,
+            standby_low: 4,
+            standby_total: 20,
+        };
+        assert_eq!(m.used(), 10);
+        assert_eq!(MemStatus::default().used(), 0);
     }
 
     #[test]
