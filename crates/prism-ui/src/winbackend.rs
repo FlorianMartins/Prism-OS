@@ -211,6 +211,14 @@ impl Backend for WinBackend {
         Ok("Prism démarré".into())
     }
 
+    fn stop_watch(&mut self) -> Result<String, String> {
+        if prism_win::install::engine_stop() {
+            Ok("Prism désactivé : tout est rendu à Windows".into())
+        } else {
+            Err("le moteur Prism ne tournait pas".into())
+        }
+    }
+
     fn rapport(&mut self) -> Result<String, String> {
         let out = hidden(&prism_exe().display().to_string())
             .arg("rapport")

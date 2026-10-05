@@ -293,3 +293,69 @@ pub fn console_user_dir() -> Option<std::path::PathBuf> {
         )
     }
 }
+
+/// Événement « arrête-toi » du moteur : le moteur tourne sous le compte système, sans
+/// console ; l'interface (session de l'utilisateur) le signale pour l'arrêter proprement
+/// (tout est rendu à Windows avant de quitter).
+const ENGINE_STOP: &str = "Global\\PrismEngineStop";
+
+/// Côté moteur : crée l'événement, signalable par les utilisateurs de la session
+/// (`IU` : SYNCHRONIZE + EVENT_MODIFY_STATE), et attend dans un fil ; `on_stop` est
+/// appelé une fois signalé.
+pub fn engine_stop_listener(on_stop: impl FnOnce() + Send + 'static) -> bool {
+    use windows_sys::Win32::Foundation::LocalFree;
+    use windows_sys::Win32::Security::Authorization::{
+        ConvertStringSecurityDescriptorToSecurityDescriptorW, SDDL_REVISION_1,
+    };
+    use windows_sys::Win32::Security::SECURITY_ATTRIBUTES;
+    use windows_sys::Win32::System::Threading::{CreateEventW, ResetEvent, WaitForSingleObject, INFINITE};
+    let sddl: Vec<u16> = "D:(A;;GA;;;SY)(A;;GA;;;BA)(A;;0x00100002;;;IU)"
+        .encode_utf16()
+        .chain(Some(0))
+        .collect();
+    let name: Vec<u16> = ENGINE_STOP.encode_utf16().chain(Some(0)).collect();
+    // SAFETY: descripteur alloué par Windows puis libéré ; l'événement vit jusqu'à la
+    // fin du processus (le fil d'attente le garde).
+    unsafe {
+        let mut sd = null_mut();
+        if ConvertStringSecurityDescriptorToSecurityDescriptorW(sddl.as_ptr(), SDDL_REVISION_1, &mut sd, null_mut())
+            == 0
+        {
+            return false;
+        }
+        let sa = SECURITY_ATTRIBUTES {
+            nLength: std::mem::size_of::<SECURITY_ATTRIBUTES>() as u32,
+            lpSecurityDescriptor: sd,
+            bInheritHandle: 0,
+        };
+        let ev = CreateEventW(&sa, 1, 0, name.as_ptr());
+        LocalFree(sd as _);
+        if ev.is_null() {
+            return false;
+        }
+        // Signal resté d'un arrêt précédent : effacé.
+        ResetEvent(ev);
+        let h = ev as isize;
+        std::thread::spawn(move || {
+            WaitForSingleObject(h as _, INFINITE);
+            on_stop();
+        });
+        true
+    }
+}
+
+/// Côté interface : demande au moteur de s'arrêter. Faux s'il ne tourne pas.
+pub fn engine_stop() -> bool {
+    use windows_sys::Win32::System::Threading::{OpenEventW, SetEvent, EVENT_MODIFY_STATE};
+    let name: Vec<u16> = ENGINE_STOP.encode_utf16().chain(Some(0)).collect();
+    // SAFETY: poignée ouverte puis fermée ici.
+    unsafe {
+        let ev = OpenEventW(EVENT_MODIFY_STATE, 0, name.as_ptr());
+        if ev.is_null() {
+            return false;
+        }
+        let ok = SetEvent(ev) != 0;
+        CloseHandle(ev);
+        ok
+    }
+}

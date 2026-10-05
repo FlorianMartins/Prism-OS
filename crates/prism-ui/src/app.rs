@@ -111,6 +111,8 @@ pub struct PrismApp {
     welcome_done: bool,
     /// Prism au démarrage de Windows.
     autostart_on: bool,
+    /// La Prism Bar tournait quand Prism a été désactivé : relancée à la réactivation.
+    bar_resume: bool,
     toast: Option<(String, bool)>,
     /// Notification affichée et depuis quand (animation d'entrée et de sortie).
     toast_shown: Option<(String, f64)>,
@@ -170,6 +172,7 @@ impl PrismApp {
             theme_ready: false,
             welcome_done,
             autostart_on,
+            bar_resume: false,
             toast: None,
             toast_shown: None,
             opened_at: None,
@@ -505,13 +508,28 @@ impl PrismApp {
                     self.result(r);
                 }
                 if self.live.watch_alive {
-                    pill(ui, "✔ Prism actif", th::ok());
-                } else {
-                    if ui.button("Démarrer Prism").clicked() {
-                        let r = self.backend.start_watch();
+                    if ui
+                        .button("Désactiver Prism")
+                        .on_hover_text("Arrête le moteur et la Prism Bar : tout ce que Prism a réglé sur les applis est rendu à Windows. Il repart au prochain démarrage si « Prism au démarrage de Windows » est coché.")
+                        .clicked()
+                    {
+                        self.bar_resume = self.backend.bar_running();
+                        let mut r = self.backend.stop_watch();
+                        if self.bar_resume {
+                            r = r.and_then(|m| self.backend.bar_stop().map(|_| format!("{m}, Prism Bar arrêtée")));
+                        }
                         self.result(r);
                     }
-                    pill(ui, "✖ Prism arrêté", th::bad());
+                    pill(ui, "✔ Prism actif", th::ok());
+                } else {
+                    if ui.button("Activer Prism").clicked() {
+                        let mut r = self.backend.start_watch();
+                        if std::mem::take(&mut self.bar_resume) && !self.backend.bar_running() {
+                            r = r.and_then(|m| self.backend.bar_start().map(|_| format!("{m}, Prism Bar relancée")));
+                        }
+                        self.result(r);
+                    }
+                    pill(ui, "✖ Prism désactivé", th::bad());
                 }
                 if let Some(e) = &self.live.etat {
                     if !e.game.is_empty() {

@@ -132,6 +132,12 @@ prism profile cyber     # switch (the running engine picks it up within 2 second
 
 ## 5. Daily Mode and Game Mode (`prism watch`)
 
+**Turning Prism off**: the *Désactiver Prism* button at the top of the app stops the
+engine and the Prism Bar right away; everything Prism changed on running apps is given
+back to Windows first. *Activer Prism* starts them again. Prism still starts with Windows
+next time unless you untick *Prism au démarrage de Windows* (dashboard). From a terminal:
+`prism arreter` (no administrator rights needed).
+
 `prism watch` runs both modes at once (this is what `autostart` launches):
 
 - **Daily Mode, always on.** A background app that has done nothing for a while (no CPU

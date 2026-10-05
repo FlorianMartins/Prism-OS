@@ -23,6 +23,7 @@ Utilisation : prism <commande>
   status                  profil, mémoire, jeux détectés, conflits anti-cheat
   profile [nom]           affiche ou change le profil (gaming, balanced, cyber)
   watch [--quiet]         Mode Quotidien permanent + Mode Jeu automatique ; Ctrl-C restaure tout
+  arreter                 arrête le moteur (lancé au démarrage) ; tout est rendu à Windows
   top                     qui consomme le processeur et la RAM en ce moment
   jeux                    jeux installés (Steam, Epic, GOG, Battle.net)
   jeux lancer <nom>       lance un jeu par son magasin
@@ -407,7 +408,8 @@ fn platform_command(_cfg: &Config, args: &[&str]) -> Result<(), String> {
     match args.first() {
         Some(
             &("status" | "watch" | "ram" | "autostart" | "allege" | "top" | "demarrage" | "jeux" | "apparence" | "bar"
-            | "vie-privee" | "config" | "maj" | "desinstaller" | "webview" | "rapport" | "services" | "design"),
+            | "vie-privee" | "config" | "maj" | "desinstaller" | "webview" | "rapport" | "services" | "design"
+            | "arreter" | "stop"),
         ) => Err("cette commande agit sur Windows ; ici, essayez `prism demo`".into()),
         _ => Err(format!("commande inconnue : {}\n\n{HELP}", args.join(" "))),
     }
@@ -1148,6 +1150,14 @@ fn platform_command(cfg: &Config, args: &[&str]) -> Result<(), String> {
             println!("Prism Bar lancée (réglages : prism-ui, page Apparence)");
             Ok(())
         }
+        ["arreter" | "stop"] => {
+            if prism_win::install::engine_stop() {
+                println!("Arrêt demandé : le moteur rend tout à Windows puis s'arrête.");
+            } else {
+                println!("Le moteur Prism ne tournait pas.");
+            }
+            Ok(())
+        }
         ["bar", "off"] => {
             if prism_win::bar_app::stop() {
                 println!("Prism Bar arrêtée, barre des tâches Windows remise");
@@ -1788,6 +1798,8 @@ fn watch(cfg: &Config, quiet: bool) -> Result<(), String> {
     };
     let system = prism_win::install::in_service_session();
     sys::install_stop_handler();
+    // « Désactiver Prism » dans l'interface : arrêt propre, tout est rendu à Windows.
+    prism_win::install::engine_stop_listener(sys::request_stop);
     let out = sys::Out::new(quiet);
     let mut w = WindowsPlatform::new();
     let mut store = FileStore {
@@ -2063,6 +2075,11 @@ fn watch(cfg: &Config, quiet: bool) -> Result<(), String> {
             r.done.len()
         ));
     }
+    // L'interface voit tout de suite le moteur arrêté (sinon : 30 s de « Prism actif »).
+    etat.updated_unix = 0;
+    etat.game.clear();
+    let _ = etat.save();
+    out.line("Prism arrêté : tout est rendu à Windows.");
     Ok(())
 }
 

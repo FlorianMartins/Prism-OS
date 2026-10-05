@@ -145,6 +145,8 @@ pub trait Backend {
     fn profiles(&self) -> Vec<ProfileInfo>;
     fn set_profile(&mut self, name: &str) -> Result<String, String>;
     fn start_watch(&mut self) -> Result<String, String>;
+    /// Arrête le moteur proprement (tout est rendu à Windows).
+    fn stop_watch(&mut self) -> Result<String, String>;
     fn ram_clean(&mut self) -> Result<String, String>;
     /// `prism rapport` : où part la mémoire ; le fichier est ouvert à l'écran.
     fn rapport(&mut self) -> Result<String, String>;

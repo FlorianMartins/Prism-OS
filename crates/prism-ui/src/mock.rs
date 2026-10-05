@@ -229,6 +229,10 @@ impl Backend for MockBackend {
         Ok("Prism démarré".into())
     }
 
+    fn stop_watch(&mut self) -> Result<String, String> {
+        Ok("Prism désactivé".into())
+    }
+
     fn rapport(&mut self) -> Result<String, String> {
         Ok("Rapport enregistré sur le Bureau".into())
     }

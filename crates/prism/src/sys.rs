@@ -66,6 +66,11 @@ pub fn stop_requested() -> bool {
     STOP.load(Ordering::SeqCst)
 }
 
+/// Arrêt demandé de l'extérieur (bouton « Désactiver Prism » de l'interface).
+pub fn request_stop() {
+    STOP.store(true, Ordering::SeqCst);
+}
+
 /// Dort `d` par tranches de 100 ms pour réagir vite à Ctrl-C ou à la fermeture.
 pub fn sleep_interruptible(d: Duration) {
     let step = Duration::from_millis(100);
