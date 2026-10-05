@@ -44,6 +44,36 @@ struct Track {
     skip_next: bool,
 }
 
+/// L'appli au premier plan entière : les processus du même exécutable (les onglets
+/// d'un navigateur, les fenêtres d'Electron) et leurs descendants (une WebView lancée par
+/// l'appli). Seul le processus principal possède la fenêtre ; ses onglets restaient
+/// sinon « d'arrière-plan » pendant qu'on les lisait.
+pub fn foreground_family(snap: &Snapshot) -> HashSet<u32> {
+    let Some(fg) = snap.foreground_pid else {
+        return HashSet::new();
+    };
+    let name = snap.procs.iter().find(|p| p.id.pid == fg).map(|p| p.name.as_str());
+    let mut family: HashSet<u32> = snap
+        .procs
+        .iter()
+        .filter(|p| p.id.pid == fg || name.is_some_and(|n| p.name.eq_ignore_ascii_case(n)))
+        .map(|p| p.id.pid)
+        .collect();
+    // Descendants : on étend jusqu'à stabilité (les arbres de processus sont peu profonds).
+    loop {
+        let more: Vec<u32> = snap
+            .procs
+            .iter()
+            .filter(|p| !family.contains(&p.id.pid) && p.parent != 0 && family.contains(&p.parent))
+            .map(|p| p.id.pid)
+            .collect();
+        if more.is_empty() {
+            return family;
+        }
+        family.extend(more);
+    }
+}
+
 #[derive(Default)]
 pub struct Daily {
     tracks: HashMap<ProcId, Track>,
@@ -161,6 +191,7 @@ impl Daily {
         } else {
             None
         };
+        let family = foreground_family(snap);
         let eco_after = profile.daily_eco_after_minutes * 60;
         let trim_after = profile.daily_trim_after_minutes * 60;
         let mut trimmed_now = false;
@@ -182,7 +213,7 @@ impl Daily {
                 track.idle_secs += elapsed_secs;
                 continue;
             }
-            let foreground = snap.foreground_pid == Some(p.id.pid);
+            let foreground = family.contains(&p.id.pid);
             let busy = delta > elapsed_secs.max(1) * ACTIVE_PER_SECOND;
             let companion = companions.contains(&p.id);
 

@@ -137,7 +137,10 @@ prism profile cyber     # switch (the running engine picks it up within 2 second
 - **Daily Mode, always on.** A background app that has done nothing for a while (no CPU
   time, not in the foreground) is moved to efficiency cores with low power and low
   memory priority; later its RAM is returned to Windows. As soon as you switch back to
-  it, or it starts working again, everything is given back immediately.
+  it, or it starts working again, everything is given back immediately. The app you
+  are using is spared as a whole: every process of the same program (each browser tab,
+  each Electron window) and every process it started (an embedded WebView), not just
+  the one that owns the window.
 - **Game Mode, automatic.** When a game starts (Steam, Epic, GOG, Xbox, Riot, EA,
   Ubisoft, Battle.net folders, plus every game found in your libraries), background
   apps step back, their RAM is freed without touching the game's file cache, Windows

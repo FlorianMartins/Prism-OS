@@ -99,6 +99,44 @@ fn a_busy_app_or_the_foreground_app_is_never_eased() {
 }
 
 #[test]
+fn the_whole_foreground_app_is_spared_its_tabs_and_child_processes_included() {
+    // Un navigateur, ce sont des dizaines de processus du même nom : seul le principal
+    // est « au premier plan ». L'onglet qu'on lit ne travaille pas pendant la lecture ;
+    // le ralentir puis lui reprendre sa mémoire saccadait le défilement.
+    let mut b = Bench::new();
+    let browser = b.m.spawn("brave.exe", None, GIB);
+    let tab = b.m.spawn("Brave.exe", None, GIB);
+    let webview = b.m.spawn("msedgewebview2.exe", None, GIB);
+    let grandchild = b.m.spawn("msedgewebview2.exe", None, GIB);
+    let other = b.m.spawn("winword.exe", None, GIB);
+    for (child, parent) in [(webview, browser), (grandchild, webview)] {
+        b.m.procs.iter_mut().find(|p| p.info.id == child).unwrap().info.parent = parent.pid;
+    }
+    b.m.foreground = Some(browser.pid);
+    b.run(40 * 60, false);
+    for id in [browser, tab, webview, grandchild] {
+        let p = b.proc(id);
+        assert_eq!(
+            (p.eco, p.info.working_set),
+            (EcoState::SystemManaged, GIB),
+            "{}",
+            p.info.name
+        );
+    }
+    assert_eq!(
+        b.proc(other).eco,
+        EcoState::On,
+        "une autre appli inactive reste allégée"
+    );
+
+    // L'utilisateur passe à Word : le navigateur redevient une appli d'arrière-plan.
+    b.m.foreground = Some(other.pid);
+    b.run(6 * 60, false);
+    assert_eq!(b.proc(tab).eco, EcoState::On);
+    assert_eq!(b.proc(other).eco, EcoState::SystemManaged);
+}
+
+#[test]
 fn coming_back_to_an_app_gives_it_back_immediately() {
     let mut b = Bench::new();
     let word = b.m.spawn("winword.exe", None, GIB);
