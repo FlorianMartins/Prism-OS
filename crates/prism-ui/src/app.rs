@@ -1,8 +1,7 @@
-//! L'interface : tableau de bord, jeux (et mode console), démarrage, allègement, outils.
+//! L'interface : tableau de bord, démarrage, allègement, services, vie privée, apparence, outils.
 
 use eframe::egui::{self, Align, Color32, CornerRadius, Layout, Margin, RichText, Sense, Stroke, Vec2};
 use prism_core::allege::Tier;
-use prism_core::library::{Game, Store};
 use prism_core::model::human_bytes;
 
 use crate::backend::{AllegeRow, Backend, Live, StartupRow};
@@ -11,7 +10,6 @@ use crate::theme as th;
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Page {
     Dashboard,
-    Games,
     Startup,
     Allege,
     Services,
@@ -21,9 +19,8 @@ pub enum Page {
 }
 
 impl Page {
-    const ALL: [Page; 8] = [
+    const ALL: [Page; 7] = [
         Page::Dashboard,
-        Page::Games,
         Page::Startup,
         Page::Allege,
         Page::Services,
@@ -35,7 +32,6 @@ impl Page {
     fn label(self) -> &'static str {
         match self {
             Page::Dashboard => "Tableau de bord",
-            Page::Games => "Jeux",
             Page::Startup => "Démarrage",
             Page::Allege => "Allègement",
             Page::Services => "Services",
@@ -48,7 +44,6 @@ impl Page {
     fn icon(self) -> &'static str {
         match self {
             Page::Dashboard => "📊",
-            Page::Games => "🎮",
             Page::Startup => "🚀",
             Page::Allege => "⚡",
             Page::Services => "⚙",
@@ -101,7 +96,6 @@ pub struct PrismApp {
     services_superflus_only: bool,
     services_loading: Option<std::sync::Arc<std::sync::Mutex<Option<ServicesResult>>>>,
     tools_confirm: Option<Vec<String>>,
-    games: Vec<Game>,
     privacy: Vec<prism_core::privacy::Row>,
     privacy_conns: Vec<prism_core::privacy::TelemetryConnection>,
     privacy_refresh: f64,
@@ -122,9 +116,6 @@ pub struct PrismApp {
     opened_at: Option<f64>,
     shown_page: Page,
     page_since: f64,
-    /// Mode console : lanceur plein écran, navigable au clavier ou à la manette.
-    pub console: bool,
-    console_sel: usize,
     /// Saisie d'une nouvelle règle de transparence.
     new_rule: String,
     last_refresh: f64,
@@ -138,7 +129,6 @@ impl PrismApp {
         let noyau = backend.noyau();
         let webview = backend.webview();
         let ram_auto = backend.ram_auto();
-        let games = backend.games();
         let (privacy, privacy_conns) = backend.privacy();
         let welcome_done = backend.welcome_done();
         let autostart_on = backend.autostart();
@@ -165,7 +155,6 @@ impl PrismApp {
             services_superflus_only: false,
             services_loading: None,
             tools_confirm: None,
-            games,
             privacy,
             privacy_conns,
             privacy_refresh: 0.0,
@@ -178,8 +167,6 @@ impl PrismApp {
             opened_at: None,
             shown_page: Page::Dashboard,
             page_since: 0.0,
-            console: false,
-            console_sel: 0,
             new_rule: String::new(),
             last_refresh: 0.0,
         }
@@ -286,11 +273,6 @@ impl PrismApp {
             _ => {}
         }
 
-        if self.console {
-            self.console_ui(root);
-            return;
-        }
-
         egui::Panel::left("nav")
             .exact_size(212.0)
             .resizable(false)
@@ -336,7 +318,6 @@ impl PrismApp {
                     .auto_shrink([false, false])
                     .show(ui, |ui| match self.page {
                         Page::Dashboard => self.dashboard(ui),
-                        Page::Games => self.games_page(ui),
                         Page::Startup => self.startup_page(ui),
                         Page::Allege => self.allege_page(ui),
                         Page::Privacy => self.privacy_page(ui),
@@ -798,189 +779,6 @@ impl PrismApp {
                 }
             });
         });
-    }
-
-    // --- Jeux -------------------------------------------------------------------
-
-    fn games_page(&mut self, ui: &mut egui::Ui) {
-        ui.horizontal(|ui| {
-            ui.label(
-                RichText::new(format!(
-                    "{} jeu(x) installé(s) détecté(s) : Steam, Epic, GOG, Battle.net.",
-                    self.games.len()
-                ))
-                .color(th::muted()),
-            );
-            ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                if ui.button("🕹  Mode console").clicked() {
-                    self.console = true;
-                    self.console_sel = 0;
-                }
-            });
-        });
-        ui.add_space(8.0);
-        let mut launch = None;
-        let cols = ((ui.available_width() + 14.0) / 214.0).floor().max(1.0) as usize;
-        egui::Grid::new("games").spacing([14.0, 14.0]).show(ui, |ui| {
-            for (i, g) in self.games.iter().enumerate() {
-                if game_tile(ui, g, Vec2::new(200.0, 118.0), false).clicked() {
-                    launch = Some(g.clone());
-                }
-                if (i + 1) % cols == 0 {
-                    ui.end_row();
-                }
-            }
-        });
-        if let Some(g) = launch {
-            let r = self.backend.launch(&g);
-            self.result(r);
-        }
-        ui.add_space(16.0);
-        self.games_settings(ui);
-    }
-
-    /// Dernière partie et réglages Windows par jeu (carte graphique, plein écran).
-    fn games_settings(&mut self, ui: &mut egui::Ui) {
-        use prism_core::jeux::Reglage;
-        if let Some(p) = self.backend.last_session() {
-            section(ui, "Dernière partie");
-            card(ui, false, |ui| {
-                ui.label(
-                    RichText::new(format!(
-                        "{} · {} · {} h {:02} min",
-                        p.jeux.join(", "),
-                        p.debut,
-                        p.duree_secs / 3600,
-                        p.duree_secs % 3600 / 60
-                    ))
-                    .strong(),
-                );
-                let go = |b: u64| format!("{:.1} Go", b as f64 / (1u64 << 30) as f64);
-                ui.label(
-                    RichText::new(format!(
-                        "{} réglage(s) du Mode Jeu appliqués au lancement, remis à la fin · mémoire disponible : {} au début, {} au plus bas{}",
-                        p.actions,
-                        go(p.dispo_debut),
-                        go(p.dispo_min),
-                        p.anticheat
-                            .as_ref()
-                            .map(|a| format!(" · {a} : services et outils préparés"))
-                            .unwrap_or_default()
-                    ))
-                    .small()
-                    .color(th::muted()),
-                );
-            });
-            ui.add_space(12.0);
-        }
-        section(ui, "Réglages par jeu");
-        ui.label(
-            RichText::new("Réglages de Windows pour l'exécutable du jeu, comme dans Paramètres > Graphiques et Propriétés > Compatibilité : rien n'est écrit dans le jeu, compatible avec les anti-cheats. Pris en compte au prochain lancement ; décocher remet la valeur d'origine.")
-                .small()
-                .color(th::muted()),
-        );
-        if self.game_cfgs.is_none() {
-            self.game_cfgs = Some(self.backend.game_cfgs());
-        }
-        let cfgs = self.game_cfgs.clone().unwrap_or_default();
-        let mut set: Option<(String, Reglage, bool)> = None;
-        card(ui, false, |ui| {
-            egui::Grid::new("jeux-reglages")
-                .num_columns(3)
-                .spacing([18.0, 6.0])
-                .striped(true)
-                .show(ui, |ui| {
-                    ui.label(RichText::new("Jeu").small().color(th::muted()));
-                    ui.label(
-                        RichText::new("Carte graphique haute performance")
-                            .small()
-                            .color(th::muted()),
-                    );
-                    ui.label(RichText::new("Plein écran exclusif").small().color(th::muted()));
-                    ui.end_row();
-                    for g in &cfgs {
-                        let name = ui.label(&g.name);
-                        if g.exes.is_empty() {
-                            name.on_hover_text("Aucun exécutable trouvé dans son dossier");
-                            ui.label(RichText::new("–").color(th::muted()));
-                            ui.label(RichText::new("–").color(th::muted()));
-                        } else {
-                            name.on_hover_text(g.exes.join("\n"));
-                            for (r, v) in [(Reglage::Gpu, g.gpu), (Reglage::PleinEcran, g.plein_ecran)] {
-                                let mut on = v.unwrap_or(false);
-                                if ui
-                                    .add(egui::Checkbox::without_text(&mut on))
-                                    .on_hover_text(r.label())
-                                    .changed()
-                                {
-                                    set = Some((g.name.clone(), r, on));
-                                }
-                            }
-                        }
-                        ui.end_row();
-                    }
-                });
-        });
-        if let Some((name, r, on)) = set {
-            self.bg("Réglage du jeu", move |b| b.game_set(&name, r, on));
-        }
-    }
-
-    fn console_ui(&mut self, root: &mut egui::Ui) {
-        let ctx = root.ctx().clone();
-        let n = self.games.len();
-        let cols = 4usize;
-        ctx.input(|i| {
-            if i.key_pressed(egui::Key::ArrowRight) && self.console_sel + 1 < n {
-                self.console_sel += 1;
-            }
-            if i.key_pressed(egui::Key::ArrowLeft) && self.console_sel > 0 {
-                self.console_sel -= 1;
-            }
-            if i.key_pressed(egui::Key::ArrowDown) && self.console_sel + cols < n {
-                self.console_sel += cols;
-            }
-            if i.key_pressed(egui::Key::ArrowUp) && self.console_sel >= cols {
-                self.console_sel -= cols;
-            }
-        });
-        let enter = ctx.input(|i| i.key_pressed(egui::Key::Enter));
-        if ctx.input(|i| i.key_pressed(egui::Key::Escape)) {
-            self.console = false;
-        }
-        let mut launch = None;
-        egui::CentralPanel::no_frame()
-            .frame(
-                egui::Frame::new()
-                    .fill(th::bg())
-                    .inner_margin(Margin::symmetric(56, 40)),
-            )
-            .show(root, |ui| {
-                ui.horizontal(|ui| {
-                    ui.label(RichText::new("♦ PRISM").size(28.0).strong().color(th::accent()));
-                    ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                        ui.label(
-                            RichText::new("Flèches : choisir · Entrée : jouer · Échap : quitter").color(th::muted()),
-                        );
-                    });
-                });
-                ui.add_space(30.0);
-                egui::Grid::new("console").spacing([22.0, 22.0]).show(ui, |ui| {
-                    for (i, g) in self.games.iter().enumerate() {
-                        let sel = i == self.console_sel;
-                        if game_tile(ui, g, Vec2::new(280.0, 168.0), sel).clicked() || (sel && enter) {
-                            launch = Some(g.clone());
-                        }
-                        if (i + 1) % cols == 0 {
-                            ui.end_row();
-                        }
-                    }
-                });
-            });
-        if let Some(g) = launch {
-            let r = self.backend.launch(&g);
-            self.result(r);
-        }
     }
 
     // --- Démarrage --------------------------------------------------------------
@@ -2523,81 +2321,6 @@ fn bar(ui: &mut egui::Ui, fraction: f32) {
     p.rect_filled(fill, CornerRadius::same(4), color);
 }
 
-fn store_color(s: Store) -> Color32 {
-    match s {
-        Store::Steam => Color32::from_rgb(0x2a, 0x75, 0xbb),
-        Store::Epic => Color32::from_rgb(0x9a, 0x9a, 0x9a),
-        Store::Gog => Color32::from_rgb(0x86, 0x3c, 0xd8),
-        Store::BattleNet => Color32::from_rgb(0x14, 0x8e, 0xff),
-    }
-}
-
-fn game_tile(ui: &mut egui::Ui, g: &Game, size: Vec2, selected: bool) -> egui::Response {
-    let (rect, resp) = ui.allocate_exact_size(size, Sense::click());
-    let hovered = resp.hovered() || selected;
-    let p = ui.painter();
-    p.rect_filled(
-        rect,
-        CornerRadius::same(12),
-        if hovered { th::card_hi() } else { th::card() },
-    );
-    p.rect_stroke(
-        rect,
-        CornerRadius::same(12),
-        Stroke::new(
-            if selected { 2.5 } else { 1.0 },
-            if hovered { th::accent() } else { th::border() },
-        ),
-        egui::StrokeKind::Inside,
-    );
-    let band = egui::Rect::from_min_size(rect.min, Vec2::new(rect.width(), 5.0));
-    p.rect_filled(
-        band,
-        CornerRadius {
-            nw: 12,
-            ne: 12,
-            sw: 0,
-            se: 0,
-        },
-        store_color(g.store),
-    );
-    let initial = g.name.chars().next().unwrap_or('?').to_string();
-    p.text(
-        rect.left_top() + Vec2::new(16.0, 18.0),
-        egui::Align2::LEFT_TOP,
-        initial,
-        egui::FontId::proportional(size.y * 0.32),
-        store_color(g.store).gamma_multiply(0.9),
-    );
-    p.text(
-        rect.left_bottom() + Vec2::new(16.0, -34.0),
-        egui::Align2::LEFT_BOTTOM,
-        &g.name,
-        egui::FontId::proportional(if size.y > 140.0 { 19.0 } else { 15.0 }),
-        th::text(),
-    );
-    p.text(
-        rect.left_bottom() + Vec2::new(16.0, -14.0),
-        egui::Align2::LEFT_BOTTOM,
-        g.store.label(),
-        egui::FontId::proportional(12.0),
-        th::muted(),
-    );
-    if hovered {
-        p.text(
-            rect.right_bottom() + Vec2::new(-16.0, -14.0),
-            egui::Align2::RIGHT_BOTTOM,
-            "▶ Jouer",
-            egui::FontId::proportional(13.0),
-            th::accent(),
-        );
-    }
-    resp
-}
-
-/// Aperçu de la barre sur un écran miniature, avec le même code de disposition que
-/// la vraie barre (`prism_core::bar::layout`).
-/// Fenêtres en tuiles : disposition, écarts, part de la principale, exclusions.
 fn tiling_section(ui: &mut egui::Ui, t: &mut prism_core::tiling::TilingConfig) {
     use prism_core::tiling::{Layout, GAP_MAX, PERCENT_MAX, PERCENT_MIN};
     ui.horizontal(|ui| {

@@ -51,8 +51,7 @@ tools. Every change is journaled and reversible.
   elastic or crossfade when a window is maximized or snapped to an edge; jelly
   ("wobbly") windows while you drag them. Drawn by Prism with official APIs; adjustable
   duration and intensity.
-- **App** (`prism-ui`) — dashboard, game launcher with a console mode, and every
-  setting above.
+- **App** (`prism-ui`) — dashboard and every setting above.
 - **Cyber tools on demand** — Wireshark, Burp, ZAP, Sysinternals, x64dbg, Kali under WSL
   (nmap, sqlmap, hashcat…); nothing runs while you play, anti-cheat-hostile tools are
   flagged.

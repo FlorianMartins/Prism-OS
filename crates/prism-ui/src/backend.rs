@@ -89,7 +89,7 @@ pub struct PackInfo {
     pub tools: Vec<(String, String, Option<String>)>,
 }
 
-/// Réglages Windows d'un jeu (page Jeux).
+/// Réglages Windows d'un jeu (`prism jeux gpu|plein-ecran`).
 #[derive(Clone, Debug)]
 pub struct GameCfg {
     pub name: String,
