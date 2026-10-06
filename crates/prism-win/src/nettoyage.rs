@@ -47,10 +47,10 @@ pub fn nettoyer(cfg: &Config, deep: bool) -> Result<Nettoyage, String> {
         }
     }
     let report = prism_core::engine::clean(&mut w, cfg, deep)?;
-    let after = match report.mem_after {
-        Some(m) => m,
-        None => w.snapshot()?.mem,
-    };
+    // La mémoire rendue passe d'abord par la file « modifiée » (comptée comme utilisée)
+    // avant d'être écrite puis libérée : mesurée tout de suite, le gain était sous-estimé.
+    std::thread::sleep(std::time::Duration::from_secs(2));
+    let after = w.snapshot()?.mem;
     Ok(Nettoyage {
         before,
         after,

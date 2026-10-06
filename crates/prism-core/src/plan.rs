@@ -163,10 +163,21 @@ pub fn wsl_running(snap: &Snapshot) -> bool {
 /// Plan du nettoyage manuel (`prism ram clean`) : même séquence que le Mode Jeu côté
 /// RAM, sans seuil (l'utilisateur l'a demandé). La priorité mémoire est remise à sa
 /// valeur d'origine juste après par le moteur.
+///
+/// Hors partie, les compagnons (Discord, Steam, NVIDIA…) sont nettoyés aussi : ce sont
+/// les plus gros consommateurs (rapport d'un PC réel : Discord 1,5 Go, Steam 1,15 Go) et
+/// les exclure rendait le bouton presque sans effet. Pendant une partie ils sont épargnés
+/// (vocal fluide). L'appli au premier plan, avec ses onglets et ses WebView, ne l'est
+/// jamais : elle reprendrait sa mémoire au clic suivant, en ramant.
 pub fn plan_clean(snap: &Snapshot, cfg: &Config, deep: bool) -> Vec<Action> {
-    let background: Vec<Target> = classify_all(snap, cfg)
+    let classified = classify_all(snap, cfg);
+    let in_game = classified.iter().any(|(_, c)| *c == Class::Game);
+    let foreground = crate::daily::foreground_family(snap);
+    let background: Vec<Target> = classified
         .into_iter()
-        .filter(|(_, c)| *c == Class::Background)
+        .filter(|(p, c)| {
+            (*c == Class::Background || (*c == Class::Companion && !in_game)) && !foreground.contains(&p.id.pid)
+        })
         .map(|(p, _)| Target::of(p))
         .collect();
     let mut actions: Vec<Action> = background
@@ -297,6 +308,25 @@ mod tests {
         assert!(a
             .iter()
             .all(|x| matches!(x, Action::Priority { .. } | Action::EcoQos { .. })));
+    }
+
+    #[test]
+    fn clean_frees_companions_outside_games_and_never_the_app_in_use() {
+        let cfg = Config::builtin();
+        let mut s = snap(50);
+        s.procs.retain(|p| p.name != "eldenring.exe");
+        s.foreground_pid = Some(12); // chrome.exe au premier plan
+        s.procs.push(proc(16, "chrome.exe", None)); // un de ses onglets
+        let t = targets(&plan_clean(&s, &cfg, false));
+        assert!(t.contains("discord.exe"), "hors partie, Discord rend sa mémoire");
+        assert!(t.contains("winword.exe"));
+        assert!(
+            !t.contains("chrome.exe"),
+            "l'appli utilisée et ses onglets sont épargnés"
+        );
+        // En partie : le compagnon garde sa mémoire.
+        let t = targets(&plan_clean(&snap(50), &cfg, false));
+        assert!(!t.contains("discord.exe") && t.contains("winword.exe"));
     }
 
     #[test]

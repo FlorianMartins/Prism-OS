@@ -1026,12 +1026,28 @@ impl PrismApp {
             );
             ui.add_space(6.0);
             ui.horizontal_wrapped(|ui| {
-                // Deux choix séparés : la barre remplace celle de Windows, les effets
-                // animent les fenêtres ; rien n'est activé sans un clic sur l'un d'eux.
-                let bar = egui::Button::new(RichText::new("Lancer la Prism Bar").color(th::on_accent()).strong())
-                    .fill(th::accent());
+                // Efficace dès l'installation, en un clic : allègement sûr (invisible,
+                // réversible) puis nettoyage de la RAM, résultat affiché. Barre et effets
+                // restent deux choix séparés : rien de visible sans un clic dessus.
+                let go = egui::Button::new(
+                    RichText::new("Optimiser ce PC maintenant (recommandé)")
+                        .color(th::on_accent())
+                        .strong(),
+                )
+                .fill(th::accent());
                 if ui
-                    .add(bar)
+                    .add(go)
+                    .on_hover_text("Applique le niveau « sûr » de l'Allègement (télémétrie, services inutiles, navigateurs en arrière-plan ; rien de visible, tout se restaure) puis libère la RAM tout de suite. Les autres niveaux restent sur la page Allègement.")
+                    .clicked()
+                {
+                    self.bg("Optimisation du PC", |b| {
+                        let a = b.allege_apply(Tier::Sur)?;
+                        let r = b.ram_clean()?;
+                        Ok(format!("{a} · {r}"))
+                    });
+                }
+                if ui
+                    .button("Lancer la Prism Bar")
                     .on_hover_text("Remplace la barre des tâches de Windows (elle revient d'un clic : Apparence › Prism Bar › Arrêter)")
                     .clicked()
                 {

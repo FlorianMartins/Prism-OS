@@ -37,9 +37,12 @@ changes): <https://hivey.be/prism> (short), or <https://github.com/FlorianMartin
    the Start menu (the app), adds the folder to the system `PATH` (so `prism` works in
    any terminal) and registers *Prism OS* in **Settings › Apps › Installed apps**.
    Installing a newer version upgrades in place. When installation ends, the Prism app
-   opens by itself. Nothing visible changes until you choose it: on first launch it
-   offers two separate buttons, **Lancer la Prism Bar** (replace the taskbar) and
-   **Activer les effets de fenêtres** (window animations).
+   opens by itself. The engine works from the start (Daily Mode, automatic RAM
+   cleaning). On first launch, **Optimiser ce PC maintenant (recommandé)** applies the
+   safe debloat level (nothing visible, everything restorable) and frees RAM at once,
+   showing the result. Nothing visible changes until you choose it: **Lancer la Prism
+   Bar** (replace the taskbar) and **Activer les effets de fenêtres** (window
+   animations) are separate buttons.
    Windows SmartScreen warns on first run because Prism is not code-signed yet: choose
    *More info* › *Run anyway*.
 2. Open a terminal **as administrator**.
@@ -191,7 +194,11 @@ notification icon) works **right away, no restart needed**:
    services are never touched; Windows starts an on-demand service again when a
    program needs it);
 2. the memory of apps you left open but are not using is returned (measured: 2.9 GB in
-   a test VM), keeping the cache that holds your game's files;
+   a test VM), keeping the cache that holds your game's files. Outside games this
+   includes game companions (Discord, Steam, NVIDIA…), usually the biggest consumers;
+   during a game they are left alone so voice chat stays smooth. The app you are using
+   (with its tabs and WebViews) is never emptied — it would only stutter and take its
+   memory back;
 3. the low-priority cache is purged.
 
 The result is given in **memory in use**, the Task Manager figure: "Mémoire utilisée :
