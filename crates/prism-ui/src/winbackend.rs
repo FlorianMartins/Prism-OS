@@ -556,6 +556,8 @@ impl Backend for WinBackend {
             let _ = prism_win::set_memory_compression(v);
             let _ = allege::CompressionAvant::default().enregistrer(&dir);
         }
+        // Réglages réseau permanents remis aussi.
+        let _ = prism_win::reseau::tout_retirer();
         let path = data_dir().join("allegement.json");
         let mut journal = allege::AllegeJournal::load(&path)?;
         let r = allege::restore(&mut WindowsSystemConfig, &mut journal);
@@ -768,6 +770,61 @@ impl Backend for WinBackend {
         } else {
             Ok("Prism Bar arrêtée ; elle ne redémarrera plus d'elle-même".into())
         }
+    }
+
+    fn reseau_test(&mut self, cible: &str) -> crate::backend::ReseauTest {
+        use prism_win::reseau::{resoudre, serveur_du_jeu, tester};
+        let mut cibles = Vec::new();
+        if !cible.trim().is_empty() {
+            cibles.push((cible.trim().to_string(), resoudre(cible.trim())));
+        }
+        // Serveur du jeu en cours, s'il passe par TCP (lecture de la table des
+        // connexions, comme `netstat` : rien n'est ouvert dans le jeu).
+        if let Ok(snap) = self.platform.snapshot() {
+            for (p, c) in prism_core::classify::classify_all(&snap, &self.cfg) {
+                if c == prism_core::classify::Class::Game {
+                    if let Some(ip) = serveur_du_jeu(p.id.pid) {
+                        cibles.push((format!("Serveur de {}", p.name), Some(ip)));
+                        break;
+                    }
+                }
+            }
+        }
+        let t = tester(&cibles, 10);
+        let ip = |m: &prism_win::reseau::Mesure| m.ip.map(|i| i.to_string()).unwrap_or_else(|| "introuvable".into());
+        crate::backend::ReseauTest {
+            carte: t
+                .carte
+                .as_ref()
+                .map(|c| format!("{} ({})", c.nom, if c.wifi { "Wi-Fi" } else { "câble" }))
+                .unwrap_or_else(|| "aucune carte réseau active".into()),
+            diagnostic: t.diagnostic(),
+            mesures: std::iter::once(&t.box_)
+                .chain(std::iter::once(&t.internet))
+                .chain(t.autres.iter())
+                .map(|m| (m.nom.clone(), ip(m), m.stats.clone()))
+                .collect(),
+        }
+    }
+
+    fn reseau_reglages(&mut self) -> prism_core::reseau::Reglages {
+        prism_core::reseau::Reglages::charger(&prism_core::paths::user_dir())
+    }
+
+    fn set_reseau_reglages(&mut self, r: &prism_core::reseau::Reglages) -> Result<(), String> {
+        r.enregistrer(&prism_core::paths::user_dir())
+    }
+
+    fn reseau_optims(&mut self) -> Vec<(prism_core::reseau::Optim, bool)> {
+        let j = prism_core::reseau::Journal::charger(&data_dir());
+        prism_core::reseau::OPTIMS
+            .into_iter()
+            .map(|o| (o, j.actif(o)))
+            .collect()
+    }
+
+    fn reseau_optim(&mut self, o: prism_core::reseau::Optim, on: bool) -> Result<String, String> {
+        prism_win::reseau::optim(o, on)
     }
 
     fn bar_pause(&mut self) -> Result<String, String> {

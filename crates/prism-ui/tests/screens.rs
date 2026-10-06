@@ -66,6 +66,7 @@ fn every_page_renders() {
         ("demarrage", Page::Startup),
         ("allegement", Page::Allege),
         ("services", Page::Services),
+        ("reseau", Page::Reseau),
         ("apparence", Page::Appearance),
         ("vie-privee", Page::Privacy),
         ("outils", Page::Tools),
@@ -171,4 +172,25 @@ fn hovering_a_card_never_moves_its_content() {
     harness.run_steps(20);
     let after = harness.get_by_label("Libérer la RAM maintenant").rect();
     assert_eq!(before, after, "le bouton a bougé au survol de sa carte");
+}
+
+/// Page Réseau : le test de connexion affiche une carte par cible et le diagnostic.
+#[test]
+fn network_test_shows_each_target_and_a_diagnosis() {
+    let mut app = PrismApp::new(Box::new(MockBackend::default()));
+    app.page = Page::Reseau;
+    let mut harness = Harness::builder()
+        .with_size(egui::vec2(1280.0, 820.0))
+        .wgpu()
+        .build_ui_state(|ui, app: &mut PrismApp| app.show(ui), app);
+    prism_ui::theme::apply(&harness.ctx);
+    harness.run_steps(4);
+    harness.get_by_label("Tester ma connexion").click();
+    harness.run_steps(6);
+    harness.get_by_label("Box (passerelle)");
+    harness.get_by_label("Internet (1.1.1.1)");
+    let img = harness.render().expect("rendu wgpu");
+    let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../target/ui-shots");
+    img.save(dir.join("reseau-test.png")).unwrap();
+    assert!(right_margin_is_clear(&img), "la page Réseau déborde à droite");
 }

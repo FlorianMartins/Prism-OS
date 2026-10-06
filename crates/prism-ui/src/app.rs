@@ -13,17 +13,19 @@ pub enum Page {
     Startup,
     Allege,
     Services,
+    Reseau,
     Privacy,
     Appearance,
     Tools,
 }
 
 impl Page {
-    const ALL: [Page; 7] = [
+    const ALL: [Page; 8] = [
         Page::Dashboard,
         Page::Startup,
         Page::Allege,
         Page::Services,
+        Page::Reseau,
         Page::Privacy,
         Page::Appearance,
         Page::Tools,
@@ -35,6 +37,7 @@ impl Page {
             Page::Startup => "Démarrage",
             Page::Allege => "Allègement",
             Page::Services => "Services",
+            Page::Reseau => "Réseau",
             Page::Privacy => "Vie privée",
             Page::Appearance => "Apparence",
             Page::Tools => "Outils cyber",
@@ -47,6 +50,7 @@ impl Page {
             Page::Startup => "🚀",
             Page::Allege => "⚡",
             Page::Services => "⚙",
+            Page::Reseau => "📶",
             Page::Privacy => "🔒",
             Page::Appearance => "🖥",
             Page::Tools => "🛡",
@@ -77,6 +81,12 @@ pub struct PrismApp {
     webview: prism_core::webview::Reglages,
     /// Nettoyage automatique de la RAM.
     ram_auto: prism_core::ram_auto::Reglages,
+    reseau: prism_core::reseau::Reglages,
+    reseau_optims: Vec<(prism_core::reseau::Optim, bool)>,
+    reseau_test: Option<crate::backend::ReseauTest>,
+    /// Ouverture de page à laquelle l'état des réglages réseau a été relu.
+    reseau_vu: f64,
+    reseau_loading: Option<std::sync::Arc<std::sync::Mutex<Option<crate::backend::ReseauTest>>>>,
     /// Compression de la mémoire (lue à l'ouverture de la page Allègement).
     compression: Option<Option<bool>>,
     compression_loading: Option<std::sync::Arc<std::sync::Mutex<Option<Option<bool>>>>>,
@@ -129,6 +139,8 @@ impl PrismApp {
         let noyau = backend.noyau();
         let webview = backend.webview();
         let ram_auto = backend.ram_auto();
+        let reseau = backend.reseau_reglages();
+        let reseau_optims = backend.reseau_optims();
         let (privacy, privacy_conns) = backend.privacy();
         let welcome_done = backend.welcome_done();
         let autostart_on = backend.autostart();
@@ -143,6 +155,11 @@ impl PrismApp {
             noyau,
             webview,
             ram_auto,
+            reseau,
+            reseau_optims,
+            reseau_test: None,
+            reseau_vu: -1.0,
+            reseau_loading: None,
             design: (true, true, true, true),
             compression: None,
             compression_loading: None,
@@ -322,6 +339,7 @@ impl PrismApp {
                         Page::Allege => self.allege_page(ui),
                         Page::Privacy => self.privacy_page(ui),
                         Page::Services => self.services_page(ui),
+                        Page::Reseau => self.reseau_page(ui),
                         Page::Appearance => self.appearance_page(ui),
                         Page::Tools => self.tools_page(ui),
                     });
@@ -1297,6 +1315,179 @@ impl PrismApp {
         });
         if self.webview != before {
             *action = Some(self.backend.set_webview(&self.webview));
+        }
+    }
+
+    fn reseau_page(&mut self, ui: &mut egui::Ui) {
+        // Relu à chaque ouverture de la page (« Tout restaurer » a pu tout remettre).
+        if self.reseau_vu != self.page_since {
+            self.reseau_vu = self.page_since;
+            self.reseau_optims = self.backend.reseau_optims();
+        }
+        // Résultat du test (quelques secondes, en arrière-plan).
+        if let Some(slot) = &self.reseau_loading {
+            if let Some(r) = slot.lock().ok().and_then(|mut o| o.take()) {
+                self.reseau_test = Some(r);
+                self.reseau_loading = None;
+            } else {
+                ui.ctx().request_repaint_after(std::time::Duration::from_millis(200));
+            }
+        }
+        ui.label(
+            RichText::new("Les « accélérateurs » comme LagoFast ou ExitLag font passer votre jeu par leurs serveurs relais, avec un pilote réseau. Prism n'a ni serveurs ni pilote (il ne touche jamais au jeu ni à l'anti-cheat) : il mesure où se trouve le problème et retire ce qui ralentit votre connexion, de façon réversible.")
+                .color(th::muted()),
+        );
+        ui.add_space(10.0);
+        section(ui, "Tester ma connexion");
+        let mut lancer = false;
+        let mut save = false;
+        card(ui, false, |ui| {
+            ui.horizontal_wrapped(|ui| {
+                ui.label("Serveur à mesurer en plus :");
+                if ui
+                    .add(
+                        egui::TextEdit::singleline(&mut self.reseau.cible)
+                            .hint_text("ex. euw1.api.riotgames.com (facultatif)")
+                            .desired_width(300.0),
+                    )
+                    .lost_focus()
+                {
+                    save = true;
+                }
+                let busy = self.reseau_loading.is_some();
+                if ui
+                    .add_enabled(!busy, egui::Button::new(if busy { "Test en cours…" } else { "Tester ma connexion" }))
+                    .on_hover_text("10 pings vers votre box et vers Internet (5 secondes), plus le serveur indiqué et celui du jeu en cours s'il est visible.")
+                    .clicked()
+                {
+                    lancer = true;
+                }
+                if busy {
+                    ui.spinner();
+                }
+            });
+            if let Some(t) = &self.reseau_test {
+                ui.add_space(8.0);
+                ui.label(
+                    RichText::new(format!("Carte réseau : {}", t.carte))
+                        .small()
+                        .color(th::muted()),
+                );
+                ui.add_space(4.0);
+                let n = t.mesures.len().max(1);
+                let mesures = t.mesures.clone();
+                row(ui, n.min(3), |i, col| {
+                    if let Some((nom, ip, s)) = mesures.get(i) {
+                        card(col, false, |ui| {
+                            stat_title(ui, nom);
+                            if s.joignable() {
+                                let q = prism_core::reseau::qualite(s);
+                                let c = match q {
+                                    prism_core::reseau::Qualite::Excellente | prism_core::reseau::Qualite::Bonne => {
+                                        th::ok()
+                                    }
+                                    prism_core::reseau::Qualite::Moyenne => th::warn(),
+                                    prism_core::reseau::Qualite::Mauvaise => th::bad(),
+                                };
+                                ui.label(RichText::new(format!("{:.0} ms", s.moyenne_ms)).size(24.0).strong());
+                                ui.label(
+                                    RichText::new(format!(
+                                        "gigue {:.0} ms · pertes {:.0} % · {}–{} ms",
+                                        s.gigue_ms,
+                                        s.pertes_pourcent(),
+                                        s.min_ms,
+                                        s.max_ms
+                                    ))
+                                    .small()
+                                    .color(th::muted()),
+                                );
+                                pill(ui, q.label(), c);
+                            } else {
+                                ui.label(RichText::new("pas de réponse").size(18.0).color(th::bad()));
+                            }
+                            ui.label(RichText::new(ip).small().color(th::muted()));
+                        });
+                    }
+                });
+                ui.add_space(6.0);
+                ui.label(RichText::new(&t.diagnostic).strong());
+            }
+        });
+        if save {
+            let r = self.backend.set_reseau_reglages(&self.reseau);
+            if let Err(e) = r {
+                self.result(Err(e));
+            }
+        }
+        if lancer {
+            let cible = self.reseau.cible.clone();
+            match self.factory {
+                Some(factory) => {
+                    let slot = std::sync::Arc::new(std::sync::Mutex::new(None));
+                    let out = slot.clone();
+                    std::thread::spawn(move || {
+                        let r = factory().reseau_test(&cible);
+                        if let Ok(mut o) = out.lock() {
+                            *o = Some(r);
+                        }
+                    });
+                    self.reseau_loading = Some(slot);
+                }
+                None => self.reseau_test = Some(self.backend.reseau_test(&cible)),
+            }
+        }
+
+        ui.add_space(14.0);
+        section(ui, "Pendant les parties");
+        card(ui, false, |ui| {
+            let mut on = self.reseau.wifi_sans_recherche_en_jeu;
+            if ui
+                .checkbox(
+                    &mut on,
+                    RichText::new("Wi-Fi : suspendre la recherche de réseaux").strong(),
+                )
+                .changed()
+            {
+                self.reseau.wifi_sans_recherche_en_jeu = on;
+                let r = self.backend.set_reseau_reglages(&self.reseau).map(|_| {
+                    if on {
+                        "Recherches Wi-Fi suspendues pendant les parties".into()
+                    } else {
+                        "Recherches Wi-Fi laissées à Windows".into()
+                    }
+                });
+                self.result(r);
+            }
+            ui.label(
+                RichText::new("En Wi-Fi, Windows cherche d'autres réseaux environ toutes les minutes : le ping saute de plusieurs dizaines de ms à chaque fois. Suspendu pendant la partie, rétabli à la fin (même après un arrêt brutal). Sans effet en câble.")
+                    .small()
+                    .color(th::muted()),
+            );
+        });
+
+        ui.add_space(14.0);
+        section(ui, "Réglages permanents");
+        let optims = self.reseau_optims.clone();
+        let mut toggle = None;
+        card(ui, false, |ui| {
+            for (o, actif) in optims {
+                let mut on = actif;
+                if ui.checkbox(&mut on, RichText::new(o.label()).strong()).changed() {
+                    toggle = Some((o, on));
+                }
+                ui.label(RichText::new(o.pourquoi()).small().color(th::muted()));
+                ui.add_space(6.0);
+            }
+            ui.label(
+                RichText::new("Administrateur requis. Décocher remet exactement les valeurs d'origine ; « Tout restaurer » et la désinstallation aussi.")
+                    .small()
+                    .color(th::muted()),
+            );
+        });
+        if let Some((o, on)) = toggle {
+            let r = self.backend.reseau_optim(o, on);
+            self.reseau_optims = self.backend.reseau_optims();
+            self.result(r);
         }
     }
 

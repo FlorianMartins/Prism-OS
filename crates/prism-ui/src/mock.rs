@@ -30,6 +30,8 @@ pub struct MockBackend {
     pub webview: prism_core::webview::Reglages,
     pub tools_installed: Vec<String>,
     pub ram_auto: prism_core::ram_auto::Reglages,
+    pub reseau: prism_core::reseau::Reglages,
+    pub reseau_optims: Vec<String>,
 }
 
 impl Default for MockBackend {
@@ -137,6 +139,8 @@ impl Default for MockBackend {
             tools_installed: vec!["wireshark".into(), "x64dbg".into()],
             ram_auto: Default::default(),
             log: Vec::new(),
+            reseau: Default::default(),
+            reseau_optims: Vec::new(),
         }
     }
 }
@@ -640,6 +644,48 @@ impl Backend for MockBackend {
     fn bar_start(&mut self) -> Result<String, String> {
         self.bar_on = true;
         Ok("Prism Bar lancée".into())
+    }
+
+    fn reseau_test(&mut self, cible: &str) -> crate::backend::ReseauTest {
+        use prism_core::reseau::{diagnostic, Stats};
+        let b = Stats::de(&[Some(2), Some(3), Some(2), Some(18), Some(2), Some(3)]);
+        let i = Stats::de(&[Some(14), Some(15), Some(14), Some(31), Some(15), Some(14)]);
+        let mut mesures = vec![
+            ("Box (passerelle)".into(), "192.168.1.1".into(), b.clone()),
+            ("Internet (1.1.1.1)".into(), "1.1.1.1".into(), i.clone()),
+        ];
+        if !cible.is_empty() {
+            mesures.push((cible.into(), "104.160.141.3".into(), Stats::de(&[Some(28); 6])));
+        }
+        crate::backend::ReseauTest {
+            carte: "Wi-Fi".into(),
+            diagnostic: diagnostic(&b, &i),
+            mesures,
+        }
+    }
+
+    fn reseau_reglages(&mut self) -> prism_core::reseau::Reglages {
+        self.reseau.clone()
+    }
+
+    fn set_reseau_reglages(&mut self, r: &prism_core::reseau::Reglages) -> Result<(), String> {
+        self.reseau = r.clone();
+        Ok(())
+    }
+
+    fn reseau_optims(&mut self) -> Vec<(prism_core::reseau::Optim, bool)> {
+        prism_core::reseau::OPTIMS
+            .into_iter()
+            .map(|o| (o, self.reseau_optims.contains(&o.id().to_string())))
+            .collect()
+    }
+
+    fn reseau_optim(&mut self, o: prism_core::reseau::Optim, on: bool) -> Result<String, String> {
+        self.reseau_optims.retain(|x| x != o.id());
+        if on {
+            self.reseau_optims.push(o.id().into());
+        }
+        Ok(format!("{} : {}", o.label(), if on { "activé" } else { "retiré" }))
     }
 
     fn bar_pause(&mut self) -> Result<String, String> {

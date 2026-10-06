@@ -372,6 +372,42 @@ prism services                      # all services, start mode, 🔒 for protect
 prism services Spooler manuel       # auto | differe | manuel | desactive | origine
 ```
 
+## 8c. Network (`prism reseau`)
+
+```powershell
+prism reseau                      # test: ping, jitter and loss to your router and to the Internet, with a diagnosis
+prism reseau optim limitation on  # lift Windows' multimedia network throttling (administrator)
+prism reseau optim tcp on         # immediate TCP acknowledgements, Nagle off (administrator)
+prism reseau wifi-jeu on          # on Wi-Fi, no background network scans during games
+```
+
+The *Réseau* page does the same. **Test my connection** sends 10 pings to your router
+and to the Internet (1.1.1.1), plus a server you name and the server of the game in
+progress when it uses TCP (read from the connection table, like `netstat`). Each target
+gets its ping, jitter (how much it jumps) and losses, rated for online play, and the
+diagnosis says where the problem is: between the PC and the router (Wi-Fi, cable) or
+beyond it (another device downloading, your provider).
+
+- **During games, Wi-Fi**: Windows looks for other networks about once a minute, which
+  makes the ping jump. With the option on, those background scans are suspended while
+  Game Mode is active and restored when it ends — also after a crash (a marker file
+  makes the next engine start restore them). No effect on a wired connection.
+- **Multimedia throttling** (`NetworkThrottlingIndex`): while sound or video plays
+  (Discord, YouTube), Windows limits other apps' network traffic; lifted.
+- **Immediate TCP** (`TcpAckFrequency`, `TCPNoDelay` on the active network cards): helps
+  games and launchers that use TCP; no effect on games that use UDP (most action games).
+
+Everything is off until you switch it on. Unticking puts the original values back
+exactly (removed if they did not exist); *Tout restaurer* and uninstalling do too.
+Verified in the VM: `NetworkThrottlingIndex` 10 → 4294967295 → 10, the TCP values
+added then removed.
+
+**What Prism does not do**: "accelerators" such as LagoFast or ExitLag route your game
+through their relay servers with a network driver or VPN. Prism has no relay servers and
+no driver (it never touches the game or the anti-cheat), so it cannot change the route
+to the game server. Windows' policy-based QoS (per-app priority or bandwidth caps) was
+measured with no effect on a PC outside a domain, so it is not offered.
+
 ## 8b. Privacy (`prism vie-privee`, administrator)
 
 ```powershell

@@ -29,6 +29,9 @@ tools. Every change is journaled and reversible.
 - **Debloat** (`prism allege`) — telemetry services and scheduled tasks, Edge/Brave/Chrome
   background processes and memory saver, Recall, delivery-optimisation upload, plus gaming settings;
   72 services that anti-cheats and updates need are protected.
+- **Network** (`prism reseau`) — connection test (ping, jitter, loss to the router and the
+  Internet) with a diagnosis, Wi-Fi background scans suspended during games, Windows'
+  multimedia throttling lifted, immediate TCP; all opt-in and reversible.
 - **Privacy** (`prism vie-privee`) — Windows telemetry, ads and suggestions, Bing in
   Start, typing collection, Edge reporting turned off through official policies, plus
   Windows Firewall rules that cut telemetry programs off; *recommended* or

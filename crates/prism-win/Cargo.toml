@@ -20,6 +20,7 @@ features = [
   "Win32_Graphics_Gdi",
   "Win32_NetworkManagement_IpHelper",
   "Win32_NetworkManagement_Ndis",
+  "Win32_NetworkManagement_WiFi",
   "Win32_Security",
   "Win32_Security_Authorization",
   "Win32_Storage_Xps",
@@ -40,6 +41,7 @@ features = [
   "Win32_UI_Shell",
   "Win32_UI_Shell_Common",
   "Win32_UI_WindowsAndMessaging",
+  "Win32_Networking_WinSock",
 ]
 
 [target.'cfg(windows)'.dev-dependencies.windows-sys]

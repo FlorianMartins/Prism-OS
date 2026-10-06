@@ -43,6 +43,9 @@ Utilisation : prism <commande>
   jeux gpu|plein-ecran <exe> on|off   réglage Windows par jeu (page Jeux)
   design appliquer|restaurer  accent de Windows + fond d'écran aux couleurs du thème
   rapport                 où part la mémoire (fichier texte à envoyer, sans données personnelles)
+  reseau                  teste la connexion (box, Internet) : ping, gigue, pertes, diagnostic
+  reseau optim <x> on|off réglage réseau permanent : limitation | tcp (administrateur)
+  reseau wifi-jeu on|off  en Wi-Fi, pas de recherche de réseaux pendant les parties
   allege restore          remet toutes les valeurs d'origine (admin)
   vie-privee on|off <clé> un seul réglage ou une seule règle (clés : prism vie-privee)
   allege on|off <clé>     un seul élément (svc:sysmain, app:msteams, pol:…, task:…)
@@ -409,7 +412,7 @@ fn platform_command(_cfg: &Config, args: &[&str]) -> Result<(), String> {
         Some(
             &("status" | "watch" | "ram" | "autostart" | "allege" | "top" | "demarrage" | "jeux" | "apparence" | "bar"
             | "vie-privee" | "config" | "maj" | "desinstaller" | "webview" | "rapport" | "services" | "design"
-            | "arreter" | "stop"),
+            | "arreter" | "stop" | "reseau"),
         ) => Err("cette commande agit sur Windows ; ici, essayez `prism demo`".into()),
         _ => Err(format!("commande inconnue : {}\n\n{HELP}", args.join(" "))),
     }
@@ -700,6 +703,77 @@ fn platform_command(cfg: &Config, args: &[&str]) -> Result<(), String> {
                     "rien à remettre".into()
                 } else {
                     done.join(", ")
+                }
+            );
+            Ok(())
+        }
+        ["reseau"] => {
+            use prism_core::reseau::{qualite, Journal, Reglages, OPTIMS};
+            let reglages = Reglages::charger(&prism_core::paths::user_dir());
+            let mut cibles = Vec::new();
+            if !reglages.cible.is_empty() {
+                cibles.push((reglages.cible.clone(), prism_win::reseau::resoudre(&reglages.cible)));
+            }
+            println!("Test de la connexion (10 pings, 5 s)…");
+            let t = prism_win::reseau::tester(&cibles, 10);
+            if let Some(c) = &t.carte {
+                println!("Carte : {} ({})", c.nom, if c.wifi { "Wi-Fi" } else { "câble" });
+            }
+            for m in std::iter::once(&t.box_)
+                .chain(std::iter::once(&t.internet))
+                .chain(t.autres.iter())
+            {
+                let s = &m.stats;
+                if s.joignable() {
+                    println!(
+                        "  {:<22} {:>4.0} ms  (min {} / max {})  gigue {:>3.0} ms  pertes {:>3.0} %  → {}",
+                        m.nom,
+                        s.moyenne_ms,
+                        s.min_ms,
+                        s.max_ms,
+                        s.gigue_ms,
+                        s.pertes_pourcent(),
+                        qualite(s).label()
+                    );
+                } else {
+                    println!("  {:<22} pas de réponse", m.nom);
+                }
+            }
+            println!("{}", t.diagnostic());
+            let j = Journal::charger(&sys::data_dir());
+            for o in OPTIMS {
+                println!(
+                    "[{}] {} (prism reseau optim {} on|off)",
+                    if j.actif(o) { "x" } else { " " },
+                    o.label(),
+                    o.id()
+                );
+            }
+            println!(
+                "[{}] Wi-Fi sans recherche de réseaux pendant les parties (prism reseau wifi-jeu on|off)",
+                if reglages.wifi_sans_recherche_en_jeu { "x" } else { " " }
+            );
+            Ok(())
+        }
+        ["reseau", "optim", id, onoff @ ("on" | "off")] => {
+            let o = prism_core::reseau::OPTIMS
+                .into_iter()
+                .find(|o| o.id() == *id)
+                .ok_or_else(|| format!("réglage inconnu « {id} » (limitation, tcp)"))?;
+            println!("{}", prism_win::reseau::optim(o, *onoff == "on")?);
+            Ok(())
+        }
+        ["reseau", "wifi-jeu", onoff @ ("on" | "off")] => {
+            let dir = prism_core::paths::user_dir();
+            let mut r = prism_core::reseau::Reglages::charger(&dir);
+            r.wifi_sans_recherche_en_jeu = *onoff == "on";
+            r.enregistrer(&dir)?;
+            println!(
+                "Wi-Fi pendant les parties : recherches de réseaux {}",
+                if r.wifi_sans_recherche_en_jeu {
+                    "suspendues"
+                } else {
+                    "laissées à Windows"
                 }
             );
             Ok(())
@@ -1101,6 +1175,9 @@ fn platform_command(cfg: &Config, args: &[&str]) -> Result<(), String> {
         }
         ["allege", "restore"] => {
             use prism_core::allege::{restore, AllegeJournal};
+            if let Ok(n @ 1..) = prism_win::reseau::tout_retirer() {
+                println!("Réseau : {n} valeur(s) d'origine remise(s)");
+            }
             let path = sys::data_dir().join("allegement.json");
             let mut journal = AllegeJournal::load(&path)?;
             if journal.originals.is_empty() {
@@ -1486,6 +1563,15 @@ fn uninstall(args: &[&str]) -> Result<(), String> {
             }
         }
     }
+    // 1 bis. Réseau : réglages permanents et recherches Wi-Fi remis.
+    match prism_win::reseau::tout_retirer() {
+        Ok(0) => {}
+        Ok(n) => println!("✓ réseau : {n} valeur(s) d'origine remise(s)"),
+        Err(e) => {
+            failed += 1;
+            println!("✗ réseau : {e}");
+        }
+    }
     // 2. La barre : sa fermeture rend la barre Windows, l'opacité et les fenêtres en tuiles.
     if prism_win::bar_app::stop() {
         for _ in 0..20 {
@@ -1849,6 +1935,16 @@ fn watch(cfg: &Config, quiet: bool) -> Result<(), String> {
         }
     }
     let mut noyau_etat: Option<prism_core::noyau::Etat> = None;
+    // Wi-Fi : recherches de réseaux suspendues pendant la partie (réglage de
+    // l'utilisateur). Témoin sur disque : un arrêt brutal en pleine partie est rattrapé
+    // ici, au démarrage suivant.
+    let wifi_temoin = sys::data_dir().join("wifi-recherche-suspendue");
+    if wifi_temoin.exists() {
+        prism_win::reseau::wifi_tout_reprendre();
+        let _ = std::fs::remove_file(&wifi_temoin);
+        out.line("Reprise : recherches Wi-Fi rétablies.");
+    }
+    let mut wifi_pause: Option<prism_win::reseau::WifiPause> = None;
     let mut webviews = prism_core::webview::Reaper::default();
     // Nettoyage automatique de la RAM (réglages de l'utilisateur, actif par défaut).
     let mut last_ram_clean = std::time::Instant::now();
@@ -1997,6 +2093,18 @@ fn watch(cfg: &Config, quiet: bool) -> Result<(), String> {
                 match &event {
                     Event::Engaged { games, report, .. } => {
                         lines.push(format!("Mode Jeu : {}", games.join(", ")));
+                        if prism_core::reseau::Reglages::charger(&prism_core::paths::user_dir())
+                            .wifi_sans_recherche_en_jeu
+                        {
+                            wifi_pause = prism_win::reseau::WifiPause::suspendre();
+                            if let Some(p) = &wifi_pause {
+                                let _ = std::fs::write(&wifi_temoin, b"1");
+                                lines.push(format!(
+                                    "Wi-Fi : recherches de réseaux suspendues ({} carte)",
+                                    p.cartes()
+                                ));
+                            }
+                        }
                         partie = Some((
                             prism_core::jeux::Partie {
                                 jeux: games.clone(),
@@ -2011,6 +2119,11 @@ fn watch(cfg: &Config, quiet: bool) -> Result<(), String> {
                     }
                     Event::Released { .. } => {
                         lines.push("Fin du Mode Jeu, réglages restaurés".into());
+                        if let Some(p) = wifi_pause.take() {
+                            p.reprendre();
+                            let _ = std::fs::remove_file(&wifi_temoin);
+                            lines.push("Wi-Fi : recherches de réseaux rétablies".into());
+                        }
                         if let Some((mut p, t)) = partie.take() {
                             p.duree_secs = t.elapsed().as_secs();
                             let _ = p.enregistrer(&sys::data_dir());
@@ -2060,6 +2173,11 @@ fn watch(cfg: &Config, quiet: bool) -> Result<(), String> {
             Err(e) => out.line(&format!("relevé impossible : {e}")),
         }
         sys::sleep_interruptible(Duration::from_secs(cfg.poll_seconds));
+    }
+    if let Some(p) = wifi_pause.take() {
+        p.reprendre();
+        let _ = std::fs::remove_file(&wifi_temoin);
+        out.line("Arrêt : recherches Wi-Fi rétablies.");
     }
     if let Event::Released { report } = watcher.release(&mut w, &mut store) {
         out.line("Arrêt : réglages du Mode Jeu restaurés.");

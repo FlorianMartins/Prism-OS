@@ -100,6 +100,16 @@ pub struct GameCfg {
     pub plein_ecran: Option<bool>,
 }
 
+/// Résultat d'un test de connexion (page Réseau).
+#[derive(Clone, Debug, Default)]
+pub struct ReseauTest {
+    /// « Ethernet (câble) », « Wi-Fi »…
+    pub carte: String,
+    /// Nom, adresse, mesures.
+    pub mesures: Vec<(String, String, prism_core::reseau::Stats)>,
+    pub diagnostic: String,
+}
+
 /// Un service Windows et ce qu'on peut en faire.
 #[derive(Clone, Debug)]
 pub struct ServiceRow {
@@ -307,6 +317,14 @@ pub trait Backend {
     fn bar_stop(&mut self) -> Result<String, String>;
     /// Arrête la barre sans toucher à son démarrage automatique (« Désactiver Prism »).
     fn bar_pause(&mut self) -> Result<String, String>;
+    /// Test de la connexion (quelques secondes) : box, Internet, `cible` si non vide,
+    /// serveur du jeu en cours s'il est visible.
+    fn reseau_test(&mut self, cible: &str) -> ReseauTest;
+    fn reseau_reglages(&mut self) -> prism_core::reseau::Reglages;
+    fn set_reseau_reglages(&mut self, r: &prism_core::reseau::Reglages) -> Result<(), String>;
+    /// Réglages réseau permanents et leur état.
+    fn reseau_optims(&mut self) -> Vec<(prism_core::reseau::Optim, bool)>;
+    fn reseau_optim(&mut self, o: prism_core::reseau::Optim, on: bool) -> Result<String, String>;
 
     fn packs(&self) -> Vec<PackInfo>;
     fn install_pack(&mut self, pack: &str) -> Result<String, String>;

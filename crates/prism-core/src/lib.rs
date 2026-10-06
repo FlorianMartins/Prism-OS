@@ -33,6 +33,7 @@ pub mod platform;
 pub mod privacy;
 pub mod ram_auto;
 pub mod rapport;
+pub mod reseau;
 pub mod start_menu;
 pub mod theme;
 pub mod tiling;
