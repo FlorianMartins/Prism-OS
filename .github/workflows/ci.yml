@@ -8,10 +8,19 @@ on:
 env:
   CARGO_TERM_COLOR: always
 
+# Une seule vérification à la fois par branche : un nouveau commit arrête celle du
+# précédent (annulée, en gris) au lieu d'empiler des jobs en file. Le 2026-10-05, huit
+# commits poussés en 30 min ont saturé les machines GitHub du compte : des jobs ont
+# attendu 15 min une machine (« not acquired by Runner ») puis échoué, sans défaut de code.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   linux:
     name: Logique + compilation croisée (Linux)
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
@@ -34,6 +43,7 @@ jobs:
   windows:
     name: Tests sur un vrai Windows
     runs-on: windows-latest
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
@@ -81,6 +91,7 @@ jobs:
     name: Contrôles de l'installateur
     needs: windows
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/download-artifact@v4
         with:
