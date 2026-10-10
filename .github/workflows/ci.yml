@@ -5,6 +5,10 @@ on:
     branches: [main]
   pull_request:
 
+# Lecture seule : la CI ne publie rien.
+permissions:
+  contents: read
+
 env:
   CARGO_TERM_COLOR: always
 
@@ -22,9 +26,12 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@686976e191b89faba57d3206551f0f330d8cb249 # stable
+        with:
+          toolchain: stable # pinned by SHA: the toolchain can no longer be read from the ref
           components: rustfmt, clippy
           targets: x86_64-pc-windows-gnu
       - name: Rendu Vulkan logiciel (captures de l'interface)
@@ -35,7 +42,7 @@ jobs:
       - name: Le code Windows vérifié depuis Linux
         run: cargo clippy --workspace --all-targets --target x86_64-pc-windows-gnu -- -D warnings
       - run: cargo run -q -p prism -- demo
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: captures-interface
           path: target/ui-shots/*.png
@@ -45,8 +52,12 @@ jobs:
     runs-on: windows-latest
     timeout-minutes: 45
     steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@686976e191b89faba57d3206551f0f330d8cb249 # stable
+        with:
+          toolchain: stable # pinned by SHA: the toolchain can no longer be read from the ref
       - name: Tests (cœur + intégration Windows réelle)
         run: cargo test --workspace -- --test-threads=1
       - run: cargo build --release -p prism -p prism-ui
@@ -73,14 +84,14 @@ jobs:
           $env:PRISM_MSI = (Resolve-Path "prism-$v-x64.msi").Path
           cargo build --release -p prism-setup
           Copy-Item target\release\prism-setup.exe "Prism-Setup-$v.exe"
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: prism-windows-x64
           path: |
             target/release/prism.exe
             target/release/prism-bar.exe
             target/release/prism-ui.exe
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: prism-installer
           path: |
@@ -93,11 +104,11 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           name: prism-windows-x64
           path: bin
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           name: prism-installer
           path: dist
@@ -118,4 +129,4 @@ jobs:
           echo "InstallInitialize=$init PrismCleanup=$clean InstallFinalize=$fin"
           test "$clean" -gt "$init" && test "$clean" -lt "$fin"
           # Le programme d'installation embarque bien le paquet (plusieurs Mo).
-          test $(stat -c %s dist/Prism-Setup-*.exe) -gt 15000000
+          test "$(stat -c %s dist/Prism-Setup-*.exe)" -gt 15000000
